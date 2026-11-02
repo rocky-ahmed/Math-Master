@@ -491,14 +491,24 @@ object MentalMathGenerator {
                 }
             }
             MentalMathDifficulty.HARD -> {
-                val a = Random.nextInt(6, 15)
-                val b = Random.nextInt(5, 12)
-                val c = Random.nextInt(3, 9)
-                val d = Random.nextInt(2, 8)
-                val prod1 = a * b
-                val prod2 = c * d
+                var a = Random.nextInt(6, 15)
+                var b = Random.nextInt(5, 12)
+                var c = Random.nextInt(3, 9)
+                var d = Random.nextInt(2, 8)
+                var prod1 = a * b
+                var prod2 = c * d
                 val isAdd = Random.nextBoolean()
-                val ans = if (isAdd) prod1 + prod2 else (prod1 - prod2).coerceAtLeast(1)
+                if (!isAdd) {
+                    if (prod1 < prod2) {
+                        val tempProd = prod1; prod1 = prod2; prod2 = tempProd
+                        val tempA = a; a = c; c = tempA
+                        val tempB = b; b = d; d = tempB
+                    } else if (prod1 == prod2) {
+                        a += 2
+                        prod1 = a * b
+                    }
+                }
+                val ans = if (isAdd) prod1 + prod2 else (prod1 - prod2)
                 val opSymbol = if (isAdd) "+" else "−"
                 val exprPlain = "($a * $b) $opSymbol ($c * $d)"
                 val exprBn = "(${BengaliNumberFormatter.toBn(a)} × ${BengaliNumberFormatter.toBn(b)}) $opSymbol (${BengaliNumberFormatter.toBn(c)} × ${BengaliNumberFormatter.toBn(d)}) = ?"

@@ -2,6 +2,7 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -82,6 +83,10 @@ fun MainAppContent(viewModel: MathViewModel) {
     val screenStack by viewModel.screenStack.collectAsState()
     val currentScreen = screenStack.lastOrNull() ?: Screen.Home
 
+    BackHandler(enabled = screenStack.size > 1) {
+        viewModel.navigateBack()
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -108,28 +113,28 @@ fun MainAppContent(viewModel: MathViewModel) {
                     )
                     NavigationBarItem(
                         selected = currentScreen == Screen.Tables,
-                        onClick = { viewModel.navigateTo(Screen.Tables) },
+                        onClick = { viewModel.navigateToTab(Screen.Tables) },
                         icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "নামতা") },
                         label = { Text("নামতা") },
                         modifier = Modifier.testTag("nav_item_tables")
                     )
                     NavigationBarItem(
                         selected = currentScreen == Screen.Dashboard,
-                        onClick = { viewModel.navigateTo(Screen.Dashboard) },
+                        onClick = { viewModel.navigateToTab(Screen.Dashboard) },
                         icon = { Icon(Icons.Default.BarChart, contentDescription = "অগ্রগতি") },
                         label = { Text("অগ্রগতি") },
                         modifier = Modifier.testTag("nav_item_dashboard")
                     )
                     NavigationBarItem(
                         selected = currentScreen == Screen.Bookmarks,
-                        onClick = { viewModel.navigateTo(Screen.Bookmarks) },
+                        onClick = { viewModel.navigateToTab(Screen.Bookmarks) },
                         icon = { Icon(Icons.Default.Bookmark, contentDescription = "বুকমার্ক") },
                         label = { Text("বুকমার্ক") },
                         modifier = Modifier.testTag("nav_item_bookmarks")
                     )
                     NavigationBarItem(
                         selected = currentScreen == Screen.Quizzes,
-                        onClick = { viewModel.navigateTo(Screen.Quizzes) },
+                        onClick = { viewModel.navigateToTab(Screen.Quizzes) },
                         icon = { Icon(Icons.Default.Quiz, contentDescription = "কুইজ") },
                         label = { Text("কুইজ") },
                         modifier = Modifier.testTag("nav_item_quizzes")

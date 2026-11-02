@@ -720,23 +720,41 @@ object MathProblemSolverEngine {
                 )
             }
             RatioType.SIMPLIFY -> {
-                if (r1.toLong() <= 0L || r2.toLong() <= 0L) {
+                var scaledR1 = r1
+                var scaledR2 = r2
+                while ((scaledR1 != kotlin.math.floor(scaledR1) || scaledR2 != kotlin.math.floor(scaledR2)) && scaledR1 < 1e9 && scaledR2 < 1e9) {
+                    scaledR1 *= 10.0
+                    scaledR2 *= 10.0
+                }
+                val l1 = kotlin.math.round(scaledR1).toLong()
+                val l2 = kotlin.math.round(scaledR2).toLong()
+                if (l1 <= 0L || l2 <= 0L) {
                     return errorResult(
                         SolverTopic.RATIO_PROPORTION,
                         mode,
                         "${formatNum(r1)} : ${formatNum(r2)}",
-                        "অনুপাত সরলীকরণের জন্য উভয় পদ অবশ্যই ধনাত্মক পূর্ণসংখ্যা হতে হবে।"
+                        "অনুপাত সরলীকরণের জন্য উভয় পদ অবশ্যই ধনাত্মক সংখ্যা হতে হবে।"
                     )
                 }
-                val g = NumberSystemProvider.gcd(r1.toLong(), r2.toLong())
-                val s1 = r1.toLong() / g
-                val s2 = r2.toLong() / g
+                if (l1 != r1.toLong() || l2 != r2.toLong()) {
+                    steps.add(
+                        SolutionStep(
+                            stepIndex = stepCount++,
+                            titleBn = "দশমিককে পূর্ণসংখ্যায় রূপান্তর",
+                            expressionOrMathBn = "${formatNum(r1)} : ${formatNum(r2)} = ${formatNum(l1)} : ${formatNum(l2)}",
+                            explanationBn = "দশমিক দূর করার জন্য উভয় পদকে ১০ এর গুণিতক দ্বারা গুণ করা হলো।"
+                        )
+                    )
+                }
+                val g = NumberSystemProvider.gcd(l1, l2)
+                val s1 = l1 / g
+                val s2 = l2 / g
 
                 steps.add(
                     SolutionStep(
                         stepIndex = stepCount++,
                         titleBn = "উভয় পদের গ.সা.গু নির্ণয়",
-                        expressionOrMathBn = "গ.সা.গু(${formatNum(r1.toLong())}, ${formatNum(r2.toLong())}) = ${formatNum(g)}",
+                        expressionOrMathBn = "গ.সা.গু(${formatNum(l1)}, ${formatNum(l2)}) = ${formatNum(g)}",
                         explanationBn = "অনুপাত লঘুকরণের জন্য পূর্বপদ ও উত্তরপদের গরিষ্ঠ সাধারণ গুণনীয়ক বের করা হলো।"
                     )
                 )
@@ -745,7 +763,7 @@ object MathProblemSolverEngine {
                     SolutionStep(
                         stepIndex = stepCount++,
                         titleBn = "গ.সা.গু দিয়ে ভাগ করে লঘিষ্ঠকরণ",
-                        expressionOrMathBn = "(${formatNum(r1.toLong())} ÷ ${formatNum(g)}) : (${formatNum(r2.toLong())} ÷ ${formatNum(g)}) = ${formatNum(s1)} : ${formatNum(s2)}",
+                        expressionOrMathBn = "(${formatNum(l1)} ÷ ${formatNum(g)}) : (${formatNum(l2)} ÷ ${formatNum(g)}) = ${formatNum(s1)} : ${formatNum(s2)}",
                         explanationBn = "উভয় পদকে গ.সা.গু দিয়ে ভাগ করে সরল অনুপাত পাওয়া গেল।"
                     )
                 )
@@ -753,7 +771,7 @@ object MathProblemSolverEngine {
                 return SolverResult(
                     topic = SolverTopic.RATIO_PROPORTION,
                     mode = mode,
-                    originalProblemBn = "${formatNum(r1.toLong())} : ${formatNum(r2.toLong())} অনুপাতটিকে সরল করুন",
+                    originalProblemBn = "${formatNum(r1)} : ${formatNum(r2)} অনুপাতটিকে সরল করুন",
                     formulaUsedBn = "অনুপাত সরলীকরণ = উভয় পদকে গ.সা.গু দ্বারা ভাগ",
                     steps = steps,
                     finalAnswerBn = "${formatNum(s1)} : ${formatNum(s2)}",
@@ -1682,7 +1700,8 @@ object MathProblemSolverEngine {
     }
 
     private fun getDivisibilityExplanation(num: Long, div: Int): Pair<String, String> {
-        val s = num.toString()
+        val absNum = if (num == Long.MIN_VALUE) Long.MAX_VALUE else kotlin.math.abs(num)
+        val s = absNum.toString()
         val digits = s.map { it.digitToInt() }
 
         return when (div) {
@@ -2169,7 +2188,7 @@ object MathProblemSolverEngine {
                 SolutionStep(
                     stepIndex = stepCount++,
                     titleBn = "উভয় পক্ষকে x এর সহগ দ্বারা ভাগ",
-                    expressionOrMathBn = "x = ${formatNum(netConstant)} ÷ ${formatLinearCoeff(netCoeff)} = ${formatNum(xVal)}",
+                    expressionOrMathBn = "x = ${formatNum(netConstant)} ÷ ${formatNum(netCoeff)} = ${formatNum(xVal)}",
                     explanationBn = "x কে সম্পূর্ণ স্বাধীন বা মুক্ত করার জন্য তার সহগ দ্বারা ভাগ করা হলো।"
                 )
             )
@@ -2419,7 +2438,11 @@ object MathProblemSolverEngine {
             val insideVal = evaluateSimpleArithmetic(inside)
 
             val before = current
-            current = current.substring(0, startIdx) + df.format(insideVal) + current.substring(endIdx + 1)
+            var replaced = current.substring(0, startIdx) + df.format(insideVal) + current.substring(endIdx + 1)
+            while (replaced.contains("--") || replaced.contains("+-") || replaced.contains("-+") || replaced.contains("++")) {
+                replaced = replaced.replace("--", "+").replace("+-", "-").replace("-+", "-").replace("++", "+")
+            }
+            current = replaced
 
             steps.add(
                 SolutionStep(

@@ -145,11 +145,11 @@ data class SectionCustomConfig(
  */
 @JsonClass(generateAdapter = true)
 data class GlobalCustomConfig(
-    val layoutType: CustomLayoutType = CustomLayoutType.COMFORTABLE_LIST,
+    val layoutType: CustomLayoutType = CustomLayoutType.GRID,
     val gridColumns: Int = 2, // 1 to 4 columns
-    val horizontalGapDp: Int = 12, // 4 to 24
-    val verticalGapDp: Int = 12, // 4 to 24
-    val cornerRadiusDp: Int = 16, // 4 to 32
+    val horizontalGapDp: Int = 14, // 4 to 24
+    val verticalGapDp: Int = 14, // 4 to 24
+    val cornerRadiusDp: Int = 20, // 4 to 32
     val iconSizeDp: Int = 28, // 20 to 44
     val iconTextSpacingDp: Int = 16, // 8 to 28
     val fontWeight: CustomFontWeight = CustomFontWeight.MEDIUM,

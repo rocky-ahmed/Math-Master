@@ -41,6 +41,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
@@ -107,11 +109,12 @@ class MathViewModel @JvmOverloads constructor(
 
     // Customization System State
     private val customPrefs = CustomizationPreferences(application)
-    private val _customizationState = MutableStateFlow(customPrefs.loadCustomizationState())
+    private val initialCustomState = customPrefs.loadCustomizationState()
+    private val _customizationState = MutableStateFlow(initialCustomState)
     val customizationState: StateFlow<AppCustomizationState> = _customizationState.asStateFlow()
 
     // Live Preview Customization State (Allows previewing live changes before saving or canceling)
-    private val _previewCustomizationState = MutableStateFlow(customPrefs.loadCustomizationState())
+    private val _previewCustomizationState = MutableStateFlow(initialCustomState)
     val previewCustomizationState: StateFlow<AppCustomizationState> = _previewCustomizationState.asStateFlow()
 
     init {
@@ -152,6 +155,10 @@ class MathViewModel @JvmOverloads constructor(
     val bookmarks: StateFlow<List<BookmarkEntity>> = repository.bookmarks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val bookmarkedIds: StateFlow<Set<String>> = repository.bookmarks
+        .map { list -> list.map { it.id }.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     val quizScores: StateFlow<List<QuizScoreEntity>> = repository.quizScores
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -179,6 +186,8 @@ class MathViewModel @JvmOverloads constructor(
     val tutorUserAnswer: StateFlow<String> = _tutorUserAnswer.asStateFlow()
     private val _tutorFeedback = MutableStateFlow<String?>(null)
     val tutorFeedback: StateFlow<String?> = _tutorFeedback.asStateFlow()
+    private val _tutorCompleted = MutableStateFlow(false)
+    val tutorCompleted: StateFlow<Boolean> = _tutorCompleted.asStateFlow()
 
 
     fun navigateTo(screen: Screen) {
@@ -204,6 +213,14 @@ class MathViewModel @JvmOverloads constructor(
         _screenStack.value = listOf(Screen.Home)
     }
 
+    fun navigateToTab(screen: Screen) {
+        if (screen == Screen.Home) {
+            _screenStack.value = listOf(Screen.Home)
+        } else {
+            _screenStack.value = listOf(Screen.Home, screen)
+        }
+    }
+
     fun setThemeMode(mode: AppThemeMode) {
         _themeMode.value = mode
         prefs.edit().putString("selected_theme_mode", mode.name).apply()
@@ -224,7 +241,7 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun isBookmarked(id: String): Boolean {
-        return bookmarks.value.any { it.id == id }
+        return bookmarkedIds.value.contains(id)
     }
 
     fun toggleBookmark(bookmark: BookmarkEntity) {
@@ -736,6 +753,7 @@ class MathViewModel @JvmOverloads constructor(
         _tutorStep.value = 1
         _tutorUserAnswer.value = ""
         _tutorFeedback.value = null
+        _tutorCompleted.value = false
         navigateTo(Screen.PracticeTutor)
     }
 
@@ -744,6 +762,7 @@ class MathViewModel @JvmOverloads constructor(
         _tutorStep.value = 1
         _tutorUserAnswer.value = ""
         _tutorFeedback.value = null
+        _tutorCompleted.value = false
     }
 
     fun setTutorAnswerInput(input: String) {
@@ -752,6 +771,7 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun checkTutorStep() {
+        if (_tutorCompleted.value) return
         val num = _tutorNumber.value
         val step = _tutorStep.value
         val expected = num * step
@@ -769,6 +789,7 @@ class MathViewModel @JvmOverloads constructor(
                 _tutorStep.value = step + 1
                 _tutorUserAnswer.value = ""
             } else {
+                _tutorCompleted.value = true
                 _tutorFeedback.value = "অভিনন্দন! আপনি সফলভাবে ${num} এর নামতা সম্পন্ন করেছেন!"
                 viewModelScope.launch {
                     repository.recordPractice("table_${num}")
@@ -927,11 +948,11 @@ class MathViewModel @JvmOverloads constructor(
             "LAYOUT" -> {
                 _previewCustomizationState.value = current.copy(
                     global = current.global.copy(
-                        layoutType = com.example.ui.customization.CustomLayoutType.COMFORTABLE_LIST,
+                        layoutType = com.example.ui.customization.CustomLayoutType.GRID,
                         gridColumns = 2,
-                        horizontalGapDp = 12,
-                        verticalGapDp = 12,
-                        cornerRadiusDp = 16,
+                        horizontalGapDp = 14,
+                        verticalGapDp = 14,
+                        cornerRadiusDp = 20,
                         showBorder = false,
                         borderThicknessDp = 0,
                         contentAlignmentCenter = false

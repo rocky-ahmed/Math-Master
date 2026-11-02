@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkRemove
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Functions
@@ -109,7 +110,7 @@ fun BookmarksScreen(
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(bookmarks) { bm ->
+                items(bookmarks, key = { it.id }) { bm ->
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -125,6 +126,7 @@ fun BookmarksScreen(
                                     "PRIME" -> viewModel.navigateTo(Screen.Primes)
                                     "SQUARE_CUBE" -> viewModel.navigateTo(Screen.SquaresCubes)
                                     "NUMBER_SYSTEM" -> viewModel.navigateTo(Screen.NumberSystem)
+                                    "SOLVER" -> viewModel.navigateTo(Screen.ProblemSolver)
                                 }
                             }
                             .testTag("bookmark_item_${bm.id}"),
@@ -151,6 +153,7 @@ fun BookmarksScreen(
                                         "SQUARE_CUBE" -> Icons.Default.Straighten
                                         "FORMULA_LIBRARY" -> Icons.Default.School
                                         "NUMBER_SYSTEM" -> Icons.Default.Functions
+                                        "SOLVER" -> Icons.Default.Calculate
                                         else -> Icons.Default.Functions
                                     }
                                     Icon(
@@ -212,6 +215,7 @@ fun PracticeTutorScreen(
     val step by viewModel.tutorStep.collectAsState()
     val userAnswer by viewModel.tutorUserAnswer.collectAsState()
     val feedback by viewModel.tutorFeedback.collectAsState()
+    val tutorCompleted by viewModel.tutorCompleted.collectAsState()
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -318,17 +322,32 @@ fun PracticeTutorScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        Button(
-                            onClick = { viewModel.checkTutorStep() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(50.dp)
-                                .testTag("tutor_check_btn")
-                        ) {
-                            Text(
-                                text = if (step < 10) "উত্তর যাচাই ও পরবর্তী ধাপ" else "সম্পন্ন করুন",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                            )
+                        if (tutorCompleted) {
+                            Button(
+                                onClick = { viewModel.setTutorNumber(if (number < 40) number + 1 else 1) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("tutor_next_table_btn")
+                            ) {
+                                Text(
+                                    text = "পরবর্তী নামতা অনুশীলন করুন (${BengaliNumberFormatter.toBn(if (number < 40) number + 1 else 1)})",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = { viewModel.checkTutorStep() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(50.dp)
+                                    .testTag("tutor_check_btn")
+                            ) {
+                                Text(
+                                    text = if (step < 10) "উত্তর যাচাই ও পরবর্তী ধাপ" else "সম্পন্ন করুন",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
                         }
 
                         // Feedback message

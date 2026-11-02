@@ -330,6 +330,13 @@ object QuizGenerator {
                 topicTitleBn = "বীজগণিত সূত্র"
             )
         )
-        return pool.shuffled().take(count)
+        return pool.shuffled().take(count).map { q ->
+            val correctOpt = q.optionsBn[q.correctIndex]
+            val shuffledOpts = q.optionsBn.shuffled()
+            q.copy(
+                optionsBn = shuffledOpts,
+                correctIndex = shuffledOpts.indexOf(correctOpt)
+            )
+        }
     }
 }

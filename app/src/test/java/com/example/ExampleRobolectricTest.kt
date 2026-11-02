@@ -193,7 +193,7 @@ class ExampleRobolectricTest {
         val viewModel = com.example.ui.MathViewModel(app)
 
         // Initial default state
-        assertEquals(com.example.ui.customization.CustomLayoutType.COMFORTABLE_LIST, viewModel.customizationState.value.global.layoutType)
+        assertEquals(com.example.ui.customization.CustomLayoutType.GRID, viewModel.customizationState.value.global.layoutType)
         assertTrue(viewModel.customizationState.value.sections.isEmpty())
 
         // Update preview layout to GRID and configure section
@@ -224,7 +224,7 @@ class ExampleRobolectricTest {
 
         // Verify reset all customizations restores defaults
         viewModel.resetAllCustomizations()
-        assertEquals(com.example.ui.customization.CustomLayoutType.COMFORTABLE_LIST, viewModel.customizationState.value.global.layoutType)
+        assertEquals(com.example.ui.customization.CustomLayoutType.GRID, viewModel.customizationState.value.global.layoutType)
         assertTrue(viewModel.customizationState.value.sections.isEmpty())
     }
 
@@ -402,7 +402,7 @@ class ExampleRobolectricTest {
 
         // Test reset category: LAYOUT
         viewModel.resetPreviewCategory("LAYOUT")
-        assertEquals(com.example.ui.customization.CustomLayoutType.COMFORTABLE_LIST, viewModel.previewCustomizationState.value.global.layoutType)
+        assertEquals(com.example.ui.customization.CustomLayoutType.GRID, viewModel.previewCustomizationState.value.global.layoutType)
         assertEquals(2, viewModel.previewCustomizationState.value.global.gridColumns)
         assertFalse(viewModel.previewCustomizationState.value.global.contentAlignmentCenter)
         // Typography and colors should remain untouched
@@ -882,7 +882,48 @@ class ExampleRobolectricTest {
         assertEquals(com.example.ui.Screen.MentalMath, viewModel.currentScreen)
         assertFalse(viewModel.mentalMathSession.value.isFinished)
     }
+
+    @Test
+    fun `verify all 12 home modules navigation and stack back-navigation`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val viewModel = com.example.ui.MathViewModel(app)
+
+        assertEquals(com.example.ui.Screen.Home, viewModel.currentScreen)
+        assertEquals(listOf(com.example.ui.Screen.Home), viewModel.screenStack.value)
+
+        val targetScreens = listOf(
+            com.example.ui.Screen.Tables,
+            com.example.ui.Screen.Primes,
+            com.example.ui.Screen.SquaresCubes,
+            com.example.ui.Screen.Formulas,
+            com.example.ui.Screen.FormulaLibrary,
+            com.example.ui.Screen.PracticeLab,
+            com.example.ui.Screen.MentalMath,
+            com.example.ui.Screen.NumberSystem,
+            com.example.ui.Screen.ProblemSolver,
+            com.example.ui.Screen.VisualExplorer,
+            com.example.ui.Screen.Quizzes,
+            com.example.ui.Screen.Dashboard
+        )
+
+        targetScreens.forEach { screen ->
+            viewModel.navigateTo(screen)
+            assertEquals(screen, viewModel.currentScreen)
+            assertTrue(viewModel.screenStack.value.size >= 2)
+            viewModel.navigateBack()
+            assertEquals(com.example.ui.Screen.Home, viewModel.currentScreen)
+            assertEquals(listOf(com.example.ui.Screen.Home), viewModel.screenStack.value)
+        }
+    }
+
+    @Test
+    fun `verify home dashboard grid layout default configuration and migration`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val viewModel = com.example.ui.MathViewModel(app)
+
+        val customState = viewModel.customizationState.value
+        assertEquals(com.example.ui.customization.CustomLayoutType.GRID, customState.global.layoutType)
+        assertEquals(2, customState.global.gridColumns)
+        assertEquals(20, customState.global.cornerRadiusDp)
+    }
 }
-
-
-
