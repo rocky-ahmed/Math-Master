@@ -136,10 +136,10 @@ object PrimeNumberProvider {
         PrimeMagicCodeInfo(
             range = PrimeRange.RANGE_101_200,
             codeString = "4113122214",
-            codeDisplayEn = "411 - 312 - 214",
-            formattedCodeBn = "৪১১ - ৩১২ - ২১৪ (বা ৪১ - ১৩ - ১২ - ২২ - ১৪)",
+            codeDisplayEn = "411 - 312 - 2214",
+            formattedCodeBn = "৪১১ - ৩১২ - ২২১৪ (বা ৪১ - ১৩ - ১২ - ২২ - ১৪)",
             formulaExplanationBn = "৪ + ১ + ১ + ৩ + ১ + ২ + ২ + ২ + ১ + ৪ = ২১ টি মৌলিক সংখ্যা",
-            tipBn = "ম্যাজিক কোড: '411 - 312 - 214' (৪১-১৩-১২-২২-১৪)। এর মাধ্যমে ১০১ থেকে ২০০ এর যেকোনো রেঞ্জের মৌলিক সংখ্যা নিমিষেই হিসাব করা যায়!",
+            tipBn = "ম্যাজিক কোড: '411 - 312 - 2214' (৪১-১৩-১২-২২-১৪)। এর মাধ্যমে ১০১ থেকে ২০০ এর যেকোনো রেঞ্জের মৌলিক সংখ্যা নিমিষেই হিসাব করা যায়!",
             totalPrimes = 21,
             decadeGroups = decades
         )

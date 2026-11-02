@@ -1,12 +1,16 @@
 package com.example.data.model
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
  * Entity for saving user bookmarks (formulas, specific multiplication tables, prime number notes, etc.)
  */
-@Entity(tableName = "bookmarks")
+@Entity(
+    tableName = "bookmarks",
+    indices = [Index(value = ["timestamp"])]
+)
 data class BookmarkEntity(
     @PrimaryKey
     val id: String, // e.g. "table_17", "formula_sq_1", "prime_73"
@@ -20,7 +24,13 @@ data class BookmarkEntity(
 /**
  * Entity for saving quiz results and learning achievements
  */
-@Entity(tableName = "quiz_scores")
+@Entity(
+    tableName = "quiz_scores",
+    indices = [
+        Index(value = ["topicId"]),
+        Index(value = ["timestamp"])
+    ]
+)
 data class QuizScoreEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,

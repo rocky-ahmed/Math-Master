@@ -63,7 +63,8 @@ data class FractionVisualModel(
     val simplifiedNumerator: Int,
     val simplifiedDenominator: Int,
     val fractionTypeBn: String, // প্রকৃত ভগ্নাংশ, অপ্রকৃত ভগ্নাংশ, সমতুল্য
-    val comparisonExplanationBn: String
+    val comparisonExplanationBn: String,
+    val isDefined: Boolean = true
 )
 
 /**
@@ -407,7 +408,19 @@ object VisualMathEngine {
     }
 
     fun analyzeFraction(num: Int, den: Int): FractionVisualModel {
-        val safeDen = if (den == 0) 1 else den
+        if (den == 0) {
+            return FractionVisualModel(
+                numerator = num,
+                denominator = 0,
+                decimalValue = Double.NaN,
+                simplifiedNumerator = num,
+                simplifiedDenominator = 0,
+                fractionTypeBn = "অসংজ্ঞায়িত ভগ্নাংশ (Undefined)",
+                comparisonExplanationBn = "ভগ্নাংশের হর শূন্য (০) হতে পারে না। কোনো সংখ্যাকে শূন্য দিয়ে ভাগ করা গণিতে অসংজ্ঞায়িত (Undefined)।",
+                isDefined = false
+            )
+        }
+        val safeDen = den
         val normNum = if (safeDen < 0) -num else num
         val normDen = if (safeDen < 0) -safeDen else safeDen
         val g = gcd(abs(normNum).toLong(), normDen.toLong()).toInt()

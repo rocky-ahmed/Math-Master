@@ -169,10 +169,11 @@ class VisualMathExplorerUnitTest {
 
     @Test
     fun testZeroDenominatorHandledSafely() {
-        // Denominator 0 should be guarded safely
+        // Denominator 0 should be guarded safely as mathematically undefined
         val frac = VisualMathEngine.analyzeFraction(5, 0)
-        assertEquals(5.0, frac.decimalValue, 0.001)
-        assertNotNull(frac.fractionTypeBn)
+        org.junit.Assert.assertFalse(frac.isDefined)
+        org.junit.Assert.assertTrue(frac.decimalValue.isNaN())
+        org.junit.Assert.assertTrue(frac.comparisonExplanationBn.contains("অসংজ্ঞায়িত"))
     }
 
     // -------------------------------------------------------------

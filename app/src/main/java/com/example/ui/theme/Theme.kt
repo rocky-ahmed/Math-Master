@@ -133,7 +133,7 @@ fun MathMasterTheme(
         headlineLarge = Typography.headlineLarge.copy(fontWeight = baseWeight, fontSize = (Typography.headlineLarge.fontSize.value * scaleFactor).sp),
         headlineMedium = Typography.headlineMedium.copy(fontWeight = baseWeight, fontSize = (Typography.headlineMedium.fontSize.value * scaleFactor).sp),
         headlineSmall = Typography.headlineSmall.copy(fontWeight = baseWeight, fontSize = (Typography.headlineSmall.fontSize.value * scaleFactor).sp),
-        titleLarge = Typography.titleLarge.copy(fontWeight = baseWeight, fontSize = (globalConfig?.titleFontSizeSp?.toFloat() ?: (Typography.titleLarge.fontSize.value * scaleFactor)).sp),
+        titleLarge = Typography.titleLarge.copy(fontWeight = baseWeight, fontSize = (Typography.titleLarge.fontSize.value * scaleFactor).sp),
         titleMedium = Typography.titleMedium.copy(fontWeight = baseWeight, fontSize = (Typography.titleMedium.fontSize.value * scaleFactor).sp),
         titleSmall = Typography.titleSmall.copy(fontWeight = baseWeight, fontSize = (Typography.titleSmall.fontSize.value * scaleFactor).sp),
         bodyLarge = Typography.bodyLarge.copy(fontWeight = baseWeight, fontSize = (Typography.bodyLarge.fontSize.value * scaleFactor).sp),

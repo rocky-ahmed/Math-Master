@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -38,6 +39,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -88,7 +90,7 @@ fun CustomModuleRenderer(
                         rowModules.forEach { item ->
                             Box(modifier = Modifier.weight(1f)) {
                                 val sectionConfig = customState.getSectionConfig(item.sectionKey)
-                                GridModuleCard(
+                                MathModuleGridCard(
                                     item = item,
                                     global = global,
                                     sectionConfig = sectionConfig
@@ -437,10 +439,11 @@ fun CompactModuleCard(
 }
 
 @Composable
-fun GridModuleCard(
+fun MathModuleGridCard(
     item: HomeModuleItem,
     global: GlobalCustomConfig,
-    sectionConfig: SectionCustomConfig
+    sectionConfig: SectionCustomConfig,
+    modifier: Modifier = Modifier
 ) {
     val cornerRadius = (sectionConfig.cornerRadiusDp.takeIf { it > 0 } ?: global.cornerRadiusDp).dp
     val iconSize = (sectionConfig.iconSizeDp.takeIf { it > 0 } ?: global.iconSizeDp).dp
@@ -448,102 +451,138 @@ fun GridModuleCard(
     val iconVector = sectionConfig.iconId?.let { AvailableIcon.fromId(it).toImageVector() } ?: item.defaultIcon
     val customIconColor = ColorUtils.parseHexColor(sectionConfig.iconColorHex)
 
-    val borderThickness = (if (sectionConfig.borderThicknessDp > 0) sectionConfig.borderThicknessDp else if (global.showBorder) 1 else 0).dp
-    val customBorderColor = ColorUtils.parseHexColor(sectionConfig.borderColorHex) ?: MaterialTheme.colorScheme.outlineVariant
+    val borderThickness = (if (sectionConfig.borderThicknessDp > 0) sectionConfig.borderThicknessDp else if (global.showBorder) global.borderThicknessDp.coerceAtLeast(1) else 1).dp
+    val customBorderColor = ColorUtils.parseHexColor(sectionConfig.borderColorHex) ?: MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
 
     val customTitleColor = ColorUtils.parseHexColor(sectionConfig.titleColorHex) ?: MaterialTheme.colorScheme.onSurface
     val customSubtitleColor = ColorUtils.parseHexColor(sectionConfig.subtitleColorHex) ?: MaterialTheme.colorScheme.onSurfaceVariant
 
-    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp * 0.9f
-    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp * 0.9f
+    val fontWeight = when (global.fontWeight) {
+        CustomFontWeight.REGULAR -> FontWeight.Normal
+        CustomFontWeight.MEDIUM -> FontWeight.SemiBold
+        CustomFontWeight.BOLD -> FontWeight.Bold
+    }
 
-    val subtleHighlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
-    val subtleBorder = customBorderColor.copy(alpha = if (borderThickness > 0.dp) 1f else 0.12f)
-    val effectiveBorderThickness = if (borderThickness > 0.dp) borderThickness else 1.dp
+    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp * 0.95f
+    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp * 0.92f
+
+    val density = LocalDensity.current
+    val fontScale = density.fontScale.coerceAtLeast(1f)
+    val customFontScale = (global.titleFontSizeSp / 16f).coerceAtLeast(1f)
+    val scaleFactor = maxOf(fontScale, customFontScale)
+    val computedHeight = 200.dp * scaleFactor
+    val cardHeight = if (sectionConfig.cardHeightDp > 0) sectionConfig.cardHeightDp.dp else computedHeight
 
     ElevatedCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .then(if (sectionConfig.cardHeightDp > 0) Modifier.heightIn(min = sectionConfig.cardHeightDp.dp) else Modifier.heightIn(min = 130.dp))
+            .height(cardHeight)
             .shadow(
-                elevation = 4.dp,
+                elevation = 3.dp,
                 shape = RoundedCornerShape(cornerRadius),
-                ambientColor = Color.Black.copy(alpha = 0.08f),
-                spotColor = Color.Black.copy(alpha = 0.12f)
+                ambientColor = Color.Black.copy(alpha = 0.06f),
+                spotColor = Color.Black.copy(alpha = 0.10f)
             )
             .clip(RoundedCornerShape(cornerRadius))
-            .border(effectiveBorderThickness, subtleBorder, RoundedCornerShape(cornerRadius))
+            .border(borderThickness, customBorderColor, RoundedCornerShape(cornerRadius))
             .clickable { item.onClick() }
             .testTag(item.testTag),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.elevatedCardColors(containerColor = customBgColor),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp, pressedElevation = 6.dp)
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp, pressedElevation = 5.dp)
     ) {
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .drawBehind {
-                    drawLine(
-                        color = subtleHighlight,
-                        start = Offset(0f, 1f),
-                        end = Offset(size.width, 1f),
-                        strokeWidth = 2f
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // 1. Centered Icon Container with gradient & layered border
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                shadowElevation = 2.dp,
+                color = Color.Transparent
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Brush.linearGradient(item.defaultGradient))
+                        .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = iconVector,
+                        contentDescription = null,
+                        tint = customIconColor ?: Color.White,
+                        modifier = Modifier.size(iconSize.coerceIn(24.dp, 36.dp))
                     )
                 }
-        ) {
+            }
+
+            // 2. Title & Subtitle Block
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(sectionConfig.paddingDp.dp),
-                horizontalAlignment = if (global.contentAlignmentCenter) Alignment.CenterHorizontally else Alignment.Start
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    shadowElevation = 2.dp,
-                    color = Color.Transparent
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(iconSize + 16.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Brush.linearGradient(item.defaultGradient))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = iconVector,
-                            contentDescription = null,
-                            tint = customIconColor ?: Color.White,
-                            modifier = Modifier.size(iconSize)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
                 Text(
                     text = item.titleBn,
                     fontSize = titleSize,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = fontWeight,
                     color = customTitleColor,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = if (global.contentAlignmentCenter) TextAlign.Center else TextAlign.Start
+                    textAlign = TextAlign.Center,
+                    lineHeight = (titleSize.value * 1.25f).sp
                 )
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
                 Text(
                     text = item.subtitleBn,
                     fontSize = subtitleSize,
                     color = customSubtitleColor,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = if (global.contentAlignmentCenter) TextAlign.Center else TextAlign.Start
+                    textAlign = TextAlign.Center,
+                    lineHeight = (subtitleSize.value * 1.25f).sp
+                )
+            }
+
+            // 3. Bottom Centered Module Badge
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.75f),
+                border = androidx.compose.foundation.BorderStroke(
+                    0.5.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+            ) {
+                Text(
+                    text = item.badgeBn,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
                 )
             }
         }
     }
+}
+
+@Composable
+fun GridModuleCard(
+    item: HomeModuleItem,
+    global: GlobalCustomConfig,
+    sectionConfig: SectionCustomConfig,
+    modifier: Modifier = Modifier
+) {
+    MathModuleGridCard(item, global, sectionConfig, modifier)
 }
 
 @Composable

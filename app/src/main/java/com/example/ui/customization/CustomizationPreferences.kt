@@ -93,13 +93,21 @@ class CustomizationPreferences(context: Context) {
 
     fun loadCustomizationState(): AppCustomizationState {
         val globalJson = prefs.getString(KEY_GLOBAL, null)
+        val hasMigratedToGrid = prefs.getBoolean("has_migrated_default_grid_v2", false)
         val globalConfig = if (!globalJson.isNullOrBlank()) {
             try {
-                globalAdapter.fromJson(globalJson) ?: GlobalCustomConfig()
+                var loaded = globalAdapter.fromJson(globalJson) ?: GlobalCustomConfig()
+                if (!hasMigratedToGrid && loaded.layoutType == CustomLayoutType.COMFORTABLE_LIST) {
+                    loaded = loaded.copy(layoutType = CustomLayoutType.GRID)
+                    prefs.edit().putBoolean("has_migrated_default_grid_v2", true).apply()
+                    saveCustomizationState(AppCustomizationState(global = loaded, sections = emptyMap()))
+                }
+                loaded
             } catch (_: Exception) {
                 GlobalCustomConfig()
             }
         } else {
+            prefs.edit().putBoolean("has_migrated_default_grid_v2", true).apply()
             GlobalCustomConfig()
         }
 

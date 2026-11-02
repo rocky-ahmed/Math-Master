@@ -367,8 +367,24 @@ object NumberSystemProvider {
      * Compute GCD and LCM with full Bengali step-by-step breakdowns.
      */
     fun calculateGcdLcm(numA: Long, numB: Long): GcdLcmResult {
-        val a = if (numA <= 0) 1L else numA
-        val b = if (numB <= 0) 1L else numB
+        val a = kotlin.math.abs(numA)
+        val b = kotlin.math.abs(numB)
+        if (a == 0L && b == 0L) {
+            return GcdLcmResult(
+                a = 0L,
+                b = 0L,
+                gcd = 0L,
+                lcm = 0L,
+                aFactors = emptyList(),
+                bFactors = emptyList(),
+                aPrimeFactors = emptyList(),
+                bPrimeFactors = emptyList(),
+                commonFactors = emptyList(),
+                gcdSteps = listOf(StepExplanation(1, "শূন্যের গ.সা.গু", "উভয় সংখ্যা ০ হলে তাদের গ.সা.গু ০।")),
+                lcmSteps = listOf(StepExplanation(1, "শূন্যের ল.সা.গু", "উভয় সংখ্যা ০ হলে তাদের ল.সা.গু ০।")),
+                formulaCheckBn = "উভয় সংখ্যা ০ হলে গ.সা.গু ও ল.সা.গু ০।"
+            )
+        }
 
         val aFactors = getFactors(a)
         val bFactors = getFactors(b)
@@ -433,12 +449,20 @@ object NumberSystemProvider {
                 detailBn = "উভয় সংখ্যার মৌলিক উৎপাদকগুলোর সর্বোচ্চ সংখ্যক উপস্থিতির গুণফল নিয়ে ল.সা.গু গঠিত হয়।"
             )
         )
-        if (lcm <= 0L) {
+        if (lcm < 0L) {
             lcmSteps.add(
                 StepExplanation(
                     stepNumber = 3,
                     titleBn = "লঘিষ্ঠ সাধারণ গুণিতক (ল.সা.গু) নির্ণয়",
                     detailBn = "ল.সা.গু গণনা সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)। অপেক্ষাকৃত ছোট সংখ্যা ব্যবহার করুন।"
+                )
+            )
+        } else if (lcm == 0L) {
+            lcmSteps.add(
+                StepExplanation(
+                    stepNumber = 3,
+                    titleBn = "লঘিষ্ঠ সাধারণ গুণিতক (ল.সা.গু) নির্ণয়",
+                    detailBn = "যেহেতু একটি সংখ্যা ০, তাই তাদের সাধারণ গুণিতক বা ল.সা.গু = ০।"
                 )
             )
         } else {
@@ -498,7 +522,11 @@ object NumberSystemProvider {
     }
 
     fun gcd(a: Long, b: Long): Long {
-        if (a == 0L && b == 0L) return 1L
+        val absA = kotlin.math.abs(a)
+        val absB = kotlin.math.abs(b)
+        if (absA == 0L && absB == 0L) return 0L
+        if (absA == 0L) return absB
+        if (absB == 0L) return absA
         if (a == Long.MIN_VALUE && (b == 0L || b == Long.MIN_VALUE)) {
             return Long.MAX_VALUE
         }
@@ -768,10 +796,10 @@ object NumberSystemProvider {
                 id = "ns_h_3",
                 topic = NumberSystemTopic.DIVISIBILITY,
                 difficulty = NumberSystemDifficulty.HARD,
-                questionBn = "৯ অঙ্কের সংখ্যা ৮৭৬৪*২১২ সংখ্যাটি ৮ দ্বারা নিঃশেষে বিভাজ্য হতে হলে * এর ক্ষুদ্রতম মান কত?",
+                questionBn = "৮ অঙ্কের সংখ্যা ৮৭৬৪*২১৬ সংখ্যাটি ৯ দ্বারা নিঃশেষে বিভাজ্য হতে হলে * এর ক্ষুদ্রতম মান কত?",
                 optionsBn = listOf("০", "১", "২", "৩"),
-                correctIndex = 0,
-                explanationBn = "৮ দ্বারা বিভাজ্যতার নিয়মানুযায়ী শেষ ৩টি অঙ্ক দ্বারা গঠিত সংখ্যা ৮ দ্বারা বিভাজ্য হতে হবে। শেষ ৩টি অঙ্ক হলো ২১২। কিন্তু প্রশ্নে লক্ষণীয়: ৮ দ্বারা বিভাজ্যতার জন্য শেষ ৩টি অঙ্ক ৮ দ্বারা বিভাজ্য হতে হয়। এখানে ২১২ ÷ ৮ = ২৬.৫ (ভাগশেষ ৪)। কিন্তু * অঙ্কটি শেষ ৩ অঙ্কের ভেতরে নেই! সুতরাং * এর যেকোনো মান (ক্ষুদ্রতম ০) হলেও শেষ ৩ অঙ্ক ২১২ দিয়ে বিভাজ্যতা নির্ধারিত হবে। যদি শেষ ৩ অঙ্ক ২১৬ হতো তবে বিভাজ্য হতো। এখানে প্রশ্নটির লক্ষ্য ছিল শেষ ৩ অঙ্কের নিয়ম যাচাই করা।",
+                correctIndex = 2,
+                explanationBn = "৯ দ্বারা বিভাজ্যতার নিয়মানুযায়ী কোনো সংখ্যার অঙ্কগুলোর সমষ্টি ৯ দ্বারা বিভাজ্য হতে হবে।\nএখানে অঙ্কগুলোর সমষ্টি = ৮ + ৭ + ৬ + ৪ + * + ২ + ১ + ৬ = ৩৪ + *।\n৩৪ এর ঠিক পরবর্তী ৯ দ্বারা বিভাজ্য সংখ্যা হলো ৩৬।\nসুতরাং * এর ক্ষুদ্রতম মান = ৩৬ − ৩৪ = ২।",
                 bcsReferenceBn = "বিসিএস গাণিতিক যুক্তি"
             ),
             NumberSystemQuestion(
