@@ -3,6 +3,8 @@ package com.example.math
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Functions
@@ -13,13 +15,14 @@ import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * The 13 required mathematical problem-solving categories for Phase 4.
+ * The 16 mathematical problem-solving categories for Module 04 (Problem Solver).
  */
 enum class SolverTopic(
     val id: String,
@@ -105,7 +108,7 @@ enum class SolverTopic(
         id = "number_divisibility",
         titleBn = "সংখ্যা পদ্ধতি ও বিভাজ্যতা",
         titleEn = "Number System & Divisibility",
-        descriptionBn = "২ থেকে ১১ দ্বারা বিভাজ্যতার শর্ত, নিঃশেষে বিভাজ্য যাচাই ও ভাগশেষ নির্ণয়",
+        descriptionBn = "২ থেকে ১২ দ্বারা বিভাজ্যতার শর্ত, নিঃশেষে বিভাজ্য যাচাই ও ভাগশেষ নির্ণয়",
         primaryColor = Color(0xFF0891B2),
         secondaryColor = Color(0xFFCFFAFE)
     ),
@@ -132,6 +135,30 @@ enum class SolverTopic(
         descriptionBn = "এক চলকবিশিষ্ট সরল সমীকরণ সমাধান, পক্ষান্তর, মান নির্ণয় ও শুদ্ধি পরীক্ষা",
         primaryColor = Color(0xFFBE185D),
         secondaryColor = Color(0xFFFCE7F3)
+    ),
+    QUADRATIC_EQUATIONS(
+        id = "quadratic_equations",
+        titleBn = "দ্বিঘাত সমীকরণ (ax² + bx + c = 0)",
+        titleEn = "Quadratic Equations",
+        descriptionBn = "নিশ্চায়ক (D = b² - 4ac) বিশ্লেষণ, মূলের প্রকৃতি, দ্বিঘাত সূত্র ও শীর্ষবিন্দু নির্ণয়",
+        primaryColor = Color(0xFF6D28D9),
+        secondaryColor = Color(0xFFEDE9FE)
+    ),
+    FACTORIZATION(
+        id = "factorization",
+        titleBn = "উৎপাদকে বিশ্লেষণ (Factorization)",
+        titleEn = "Prime & Algebraic Factorization",
+        descriptionBn = "সংখ্যার মৌলিক উৎপাদকে বিশ্লেষণ, মিডল-টার্ম ব্রেকআপ এবং বর্গান্তরের উৎপাদক",
+        primaryColor = Color(0xFF047857),
+        secondaryColor = Color(0xFFD1FAE5)
+    ),
+    SIMPLIFICATION(
+        id = "simplification",
+        titleBn = "বীজগণিতীয় ও করণী সরলীকরণ",
+        titleEn = "Expression & Radical Simplification",
+        descriptionBn = "বর্গমূল করণী (√n), ভগ্নাংশ লঘিষ্ঠকরণ এবং সদৃশ বীজগণিতীয় পদের সরলীকরণ",
+        primaryColor = Color(0xFF0369A1),
+        secondaryColor = Color(0xFFE0F2FE)
     );
 
     fun getIcon(): ImageVector = when (this) {
@@ -148,6 +175,9 @@ enum class SolverTopic(
         HCF_LCM -> Icons.Default.ViewInAr
         SQUARES_CUBES_ROOTS -> Icons.Default.Straighten
         LINEAR_EQUATIONS -> Icons.Default.Functions
+        QUADRATIC_EQUATIONS -> Icons.Default.Timeline
+        FACTORIZATION -> Icons.Default.AccountTree
+        SIMPLIFICATION -> Icons.Default.AutoFixHigh
     }
 }
 
@@ -206,7 +236,9 @@ data class SolverResult(
     val bcsExamTipBn: String? = null,
     val similarProblemPromptBn: String? = null,
     val isSuccess: Boolean = true,
-    val errorMessageBn: String? = null
+    val errorMessageBn: String? = null,
+    val isExactResult: Boolean = true,
+    val approximateResultBn: String? = null
 )
 
 /**

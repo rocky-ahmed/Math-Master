@@ -1782,6 +1782,16 @@ object MathProblemSolverEngine {
                     "বিজোড় অবস্থানের সমষ্টি = $oddSum\nজোড় অবস্থানের সমষ্টি = $evenSum\nপার্থক্য = |$oddSum - $evenSum| = $diff। ${if (diff % 11 == 0) "পার্থক্য $diff (যা ১১ দ্বারা বিভাজ্য)। অতএব মূল সংখ্যাটি ১১ দ্বারা বিভাজ্য।" else "পার্থক্য $diff (যা ১১ দ্বারা বিভাজ্য নয়)। অতএব বিভাজ্য নয়।"}"
                 )
             }
+            12 -> {
+                val sum = digits.sum()
+                val last2 = if (s.length >= 2) s.takeLast(2).toInt() else num.toInt()
+                val div3 = sum % 3 == 0
+                val div4 = last2 % 4 == 0
+                Pair(
+                    "১২ দ্বারা বিভাজ্যতার নিয়ম: সংখ্যাটি একই সাথে ৩ এবং ৪ উভয় সহমৌলিক সংখ্যা দ্বারাই বিভাজ্য হতে হবে।",
+                    "১) ৩ দ্বারা যাচাই: অঙ্কগুলোর যোগফল = $sum (${if (div3) "৩ দ্বারা বিভাজ্য" else "৩ দ্বারা বিভাজ্য নয়"})\n২) ৪ দ্বারা যাচাই: শেষ দুই অঙ্ক = $last2 (${if (div4) "৪ দ্বারা বিভাজ্য" else "৪ দ্বারা বিভাজ্য নয়"})"
+                )
+            }
             else -> {
                 Pair(
                     "$div দ্বারা বিভাজ্যতার সাধারণ নিয়ম: সরাসরি ভাগ প্রক্রিয়া প্রয়োগ।",
@@ -2411,6 +2421,155 @@ object MathProblemSolverEngine {
     }
 
     // -------------------------------------------------------------
+    // 14. QUADRATIC EQUATIONS (ax² + bx + c = 0)
+    // -------------------------------------------------------------
+    fun solveQuadraticEquation(
+        a: Double,
+        b: Double,
+        c: Double,
+        mode: SolverMode
+    ): SolverResult {
+        val eqBn = "${formatNum(a)}x² ${if (b >= 0) "+ ${formatNum(b)}x" else "- ${formatNum(abs(b))}x"} ${if (c >= 0) "+ ${formatNum(c)}" else "- ${formatNum(abs(c))}"} = ০"
+        val qRes = SharedMathEngine.solveQuadratic(a, b, c)
+        if (!qRes.isValidQuadratic) {
+            return errorResult(
+                SolverTopic.QUADRATIC_EQUATIONS,
+                mode,
+                eqBn,
+                qRes.errorMessageBn ?: "দ্বিঘাত সমীকরণে x² এর সহগ (a) শূন্য হতে পারে না।"
+            )
+        }
+
+        val steps = qRes.stepsBn.mapIndexed { idx, (stepTitle, stepText) ->
+            SolutionStep(
+                stepIndex = idx + 1,
+                titleBn = stepTitle,
+                expressionOrMathBn = stepText,
+                explanationBn = "দ্বিঘাত সূত্র x = [-b ± √(b² - 4ac)] / 2a অনুসারে ধাপভিত্তিক গণনা।"
+            )
+        }
+
+        val finalAns = qRes.exactRootsTextBn.ifEmpty {
+            if (qRes.root2TextBn.isNotEmpty() && qRes.root2TextBn != qRes.root1TextBn) {
+                "x₁ = ${qRes.root1TextBn}, x₂ = ${qRes.root2TextBn}"
+            } else {
+                "x = ${qRes.root1TextBn}"
+            }
+        }
+
+        val isExactDisc = qRes.discriminant >= 0 && kotlin.math.abs(
+            kotlin.math.sqrt(qRes.discriminant) - kotlin.math.round(kotlin.math.sqrt(qRes.discriminant))
+        ) < 1e-9
+
+        val approxStr = if (qRes.discriminant > 0 && !isExactDisc) {
+            "আসন্ন দশমিক মান: x₁ ≈ ${qRes.root1TextBn}, x₂ ≈ ${qRes.root2TextBn}"
+        } else null
+
+        val verification = if (mode == SolverMode.LEARNING) {
+            "মূলদ্বয়ের যোগফল α + β = -b/a = ${formatNum(-b / a)}, মূলদ্বয়ের গুণফল αβ = c/a = ${formatNum(c / a)} এবং প্যারাবোলার শীর্ষবিন্দু = (${formatNum(qRes.vertexX)}, ${formatNum(qRes.vertexY)})।"
+        } else null
+
+        val bcsShortcut = if (mode == SolverMode.BCS) {
+            "বিসিএস শর্টকাট: নিশ্চায়ক D = b² - 4ac > 0 এবং পূর্ণবর্গ হলে মূলদ্বয় মূলদ ও অসমান; D = 0 হলে মূলদ্বয় সমান; D < 0 হলে কোনো বাস্তব মূল নেই।"
+        } else null
+
+        return SolverResult(
+            topic = SolverTopic.QUADRATIC_EQUATIONS,
+            mode = mode,
+            originalProblemBn = "দ্বিঘাত সমীকরণ সমাধান করুন: $eqBn",
+            formulaUsedBn = "x = [-b ± √(b² - 4ac)] / (2a), নিশ্চায়ক D = b² - 4ac",
+            steps = steps,
+            finalAnswerBn = finalAns,
+            verificationBn = verification,
+            bcsShortcutBn = bcsShortcut,
+            bcsExamTipBn = "পরীক্ষায় মূলের প্রকৃতি জানতে চাইলে পুরো সমীকরণ সমাধান না করে কেবল D = b² - 4ac বের করুন।",
+            similarProblemPromptBn = "x² - 5x + 6 = 0",
+            isExactResult = isExactDisc,
+            approximateResultBn = approxStr
+        )
+    }
+
+    // -------------------------------------------------------------
+    // 15. FACTORIZATION (Prime & Algebraic)
+    // -------------------------------------------------------------
+    fun solveFactorization(
+        expression: String,
+        mode: SolverMode
+    ): SolverResult {
+        val fRes = SharedMathEngine.factorize(expression)
+        if (!fRes.isSuccess) {
+            return errorResult(
+                SolverTopic.FACTORIZATION,
+                mode,
+                expression,
+                fRes.errorMessageBn ?: "প্রদত্ত রাশিটির উৎপাদকে বিশ্লেষণ সম্ভব হয়নি।"
+            )
+        }
+
+        val steps = fRes.stepsBn.mapIndexed { idx, (stepTitle, stepText) ->
+            SolutionStep(
+                stepIndex = idx + 1,
+                titleBn = stepTitle,
+                expressionOrMathBn = stepText,
+                explanationBn = "রাশিটিকে ক্ষুদ্রতম মৌলিক বা বীজগণিতীয় উৎপাদকের গুণফল আকারে প্রকাশ করা হলো।"
+            )
+        }
+
+        return SolverResult(
+            topic = SolverTopic.FACTORIZATION,
+            mode = mode,
+            originalProblemBn = "উৎপাদকে বিশ্লেষণ করুন: ${fRes.originalInputBn}",
+            formulaUsedBn = "মিডল-টার্ম ব্রেকআপ: x² + (p+q)x + pq = (x+p)(x+q) অথবা বর্গান্তর: x² - y² = (x+y)(x-y)",
+            steps = steps,
+            finalAnswerBn = fRes.factoredFormBn,
+            verificationBn = if (mode == SolverMode.LEARNING) "উৎপাদকগুলো পুনরায় গুণ করলে মূল রাশি ${fRes.originalInputBn} পাওয়া যায়।" else null,
+            bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: বীজগণিতীয় উৎপাদকের ক্ষেত্রে x = 1 বা x = 2 বসিয়ে অপশনগুলোর মান মিলিয়ে দ্রুত সঠিক উত্তর চিহ্নিত করা যায়।" else null,
+            similarProblemPromptBn = "x^2 + 5x + 6"
+        )
+    }
+
+    // -------------------------------------------------------------
+    // 16. EXPRESSION & RADICAL SIMPLIFICATION
+    // -------------------------------------------------------------
+    fun solveSimplification(
+        expression: String,
+        mode: SolverMode
+    ): SolverResult {
+        val sRes = SharedMathEngine.simplify(expression)
+        if (!sRes.isSuccess) {
+            return errorResult(
+                SolverTopic.SIMPLIFICATION,
+                mode,
+                expression,
+                sRes.errorMessageBn ?: "রাশিটি সরলীকরণ করা সম্ভব হয়নি।"
+            )
+        }
+
+        val steps = sRes.stepsBn.mapIndexed { idx, (stepTitle, stepText) ->
+            SolutionStep(
+                stepIndex = idx + 1,
+                titleBn = stepTitle,
+                expressionOrMathBn = stepText,
+                explanationBn = "পূর্ণবর্গ উৎপাদক, গ.সা.গু কাটাকাটি বা সদৃশ পদের একত্রীকরণের মাধ্যমে সরলীকরণ।"
+            )
+        }
+
+        return SolverResult(
+            topic = SolverTopic.SIMPLIFICATION,
+            mode = mode,
+            originalProblemBn = "সরলীকরণ করুন: ${BengaliNumberFormatter.toBn(expression)}",
+            formulaUsedBn = "√(a²b) = a√b,  a/b = (a÷g)/(b÷g),  ax + bx = (a+b)x",
+            steps = steps,
+            finalAnswerBn = sRes.simplifiedFormBn,
+            verificationBn = sRes.approximateValueBn?.let { "আসন্ন দশমিক মান: ≈ $it" },
+            bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: করণী সরলীকরণে সংখ্যাটিকে বৃহত্তম পূর্ণবর্গ সংখ্যার গুণিতক আকারে ভাঙুন (যেমন ৭২ = ৩৬ × ২)।" else null,
+            similarProblemPromptBn = "√72",
+            isExactResult = sRes.isExact,
+            approximateResultBn = sRes.approximateValueBn
+        )
+    }
+
+    // -------------------------------------------------------------
     // GENERAL EXPRESSION EVALUATOR WITH STEP-BY-STEP TRACE
     // -------------------------------------------------------------
     private fun evaluateArithmeticExpression(
@@ -2481,7 +2640,18 @@ object MathProblemSolverEngine {
     }
 
     private fun evaluateSimpleArithmetic(expr: String): Double {
-        val clean = expr.replace(" ", "")
+        var clean = expr.replace(" ", "")
+        // Pre-evaluate square root √n and percentage n% tokens
+        val sqrtRegex = Regex("√([0-9]+(?:\\.[0-9]+)?)")
+        clean = sqrtRegex.replace(clean) { m ->
+            val v = m.groupValues[1].toDouble()
+            sqrt(v).toString()
+        }
+        val pctRegex = Regex("([0-9]+(?:\\.[0-9]+)?)%")
+        clean = pctRegex.replace(clean) { m ->
+            val v = m.groupValues[1].toDouble()
+            (v / 100.0).toString()
+        }
 
         // Tokenize into numbers and operators (+, -, *, /, ^)
         val tokens = mutableListOf<String>()
@@ -2669,7 +2839,7 @@ object MathProblemSolverEngine {
             }
             SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
                 val numbers = listOf("1248", "3750", "4824", "91828", "5142")
-                val divs = listOf("2", "3", "4", "5", "6", "8", "9", "11")
+                val divs = listOf("2", "3", "4", "5", "6", "7", "8", "9", "11", "12")
                 mapOf(
                     "number" to numbers.random(),
                     "divisor" to divs.random()
@@ -2695,6 +2865,23 @@ object MathProblemSolverEngine {
                     "7x - 4 = 3x + 16"
                 )
                 mapOf("equation" to eqs.random())
+            }
+            SolverTopic.QUADRATIC_EQUATIONS -> {
+                val presets = listOf(
+                    Triple("1", "-5", "6"),
+                    Triple("1", "-7", "12"),
+                    Triple("2", "-7", "3"),
+                    Triple("1", "-4", "4")
+                ).random()
+                mapOf("a" to presets.first, "b" to presets.second, "c" to presets.third)
+            }
+            SolverTopic.FACTORIZATION -> {
+                val exprs = listOf("x^2 + 5x + 6", "x^2 - 9", "x^2 + 7x + 12", "360", "x^2 - 5x + 6")
+                mapOf("expression" to exprs.random())
+            }
+            SolverTopic.SIMPLIFICATION -> {
+                val exprs = listOf("√72", "√50", "45/60", "3x + 5 + 2x - 1", "√128")
+                mapOf("expression" to exprs.random())
             }
         }
     }

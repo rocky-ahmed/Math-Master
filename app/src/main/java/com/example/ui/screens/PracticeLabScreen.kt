@@ -22,12 +22,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -49,15 +47,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
 import com.example.math.PracticeCategory
 import com.example.math.PracticeDifficulty
+import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathSectionHeader
 import com.example.ui.components.MathTopAppBar
@@ -70,6 +66,7 @@ fun PracticeLabScreen(
     BackHandler { viewModel.navigateBack() }
 
     val quizScores by viewModel.quizScores.collectAsState()
+    val topicAnalytics by viewModel.topicAnalytics.collectAsState()
     val practiceHistory = remember(quizScores) {
         quizScores.filter { it.topicId.startsWith("PRACTICE_") }
     }
@@ -77,6 +74,8 @@ fun PracticeLabScreen(
     var selectedCategory by remember { mutableStateOf(PracticeCategory.ADDITION_SUBTRACTION) }
     var selectedDifficulty by remember { mutableStateOf(PracticeDifficulty.EASY) }
     var questionCount by remember { mutableIntStateOf(10) }
+    var isUnlimitedMode by remember { mutableStateOf(false) }
+    var selectedInputFormat by remember { mutableStateOf(QuestionInputFormat.MCQ) }
 
     Column(
         modifier = modifier
@@ -85,7 +84,7 @@ fun PracticeLabScreen(
     ) {
         MathTopAppBar(
             title = "গণিত প্র্যাকটিস ল্যাব",
-            subtitle = "৮টি বিষয়ে ধাপে ধাপে অনুশীলন ও দক্ষতা যাচাই",
+            subtitle = "১২টি বিষয়ে ধাপে ধাপে অনুশীলন ও দক্ষতা যাচাই",
             onBackClick = { viewModel.navigateBack() }
         )
 
@@ -140,7 +139,7 @@ fun PracticeLabScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Difficulty Level Selector
+                        // Difficulty Level Selector (Easy, Medium, Hard, Adaptive)
                         Text(
                             text = "কঠিনতার স্তর নির্বাচন করুন:",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -148,11 +147,11 @@ fun PracticeLabScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            PracticeDifficulty.values().forEach { diff ->
+                            items(PracticeDifficulty.values()) { diff ->
                                 val isSelected = selectedDifficulty == diff
                                 FilterChip(
                                     selected = isSelected,
@@ -174,32 +173,33 @@ fun PracticeLabScreen(
                                         selectedContainerColor = diff.badgeColor.copy(alpha = 0.2f),
                                         selectedLabelColor = diff.badgeColor
                                     ),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("chip_diff_${diff.id}")
+                                    modifier = Modifier.testTag("chip_diff_${diff.id}")
                                 )
                             }
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Question Count Selector
+                        // Question Count & Unlimited Mode Selector
                         Text(
-                            text = "প্রশ্নের সংখ্যা:",
+                            text = "প্রশ্নের সংখ্যা ও মোড:",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        Row(
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf(5, 10, 15).forEach { count ->
-                                val isSelected = questionCount == count
+                            items(listOf(5, 10, 15)) { count ->
+                                val isSelected = !isUnlimitedMode && questionCount == count
                                 FilterChip(
                                     selected = isSelected,
-                                    onClick = { questionCount = count },
+                                    onClick = {
+                                        isUnlimitedMode = false
+                                        questionCount = count
+                                    },
                                     label = {
                                         Text(
                                             text = "${BengaliNumberFormatter.toBn(count)} টি প্রশ্ন",
@@ -210,9 +210,64 @@ fun PracticeLabScreen(
                                         selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                         selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                                     ),
+                                    modifier = Modifier.testTag("chip_count_$count")
+                                )
+                            }
+                            item {
+                                FilterChip(
+                                    selected = isUnlimitedMode,
+                                    onClick = { isUnlimitedMode = true },
+                                    label = {
+                                        Text(
+                                            text = "আনলিমিটেড",
+                                            fontWeight = if (isUnlimitedMode) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AllInclusive,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                    ),
+                                    modifier = Modifier.testTag("chip_unlimited_mode")
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Question Format Selector (MCQ, Keypad, True/False)
+                        Text(
+                            text = "উত্তরের ধরন নির্বাচন করুন:",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            QuestionInputFormat.values().forEach { fmt ->
+                                val isSelected = selectedInputFormat == fmt
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { selectedInputFormat = fmt },
+                                    label = {
+                                        Text(
+                                            text = fmt.titleBn,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
                                     modifier = Modifier
                                         .weight(1f)
-                                        .testTag("chip_count_$count")
+                                        .testTag("chip_format_${fmt.name}")
                                 )
                             }
                         }
@@ -225,7 +280,9 @@ fun PracticeLabScreen(
                                 viewModel.startPracticeSession(
                                     category = selectedCategory,
                                     difficulty = selectedDifficulty,
-                                    count = questionCount
+                                    count = questionCount,
+                                    isUnlimitedMode = isUnlimitedMode,
+                                    inputFormat = selectedInputFormat
                                 )
                             },
                             modifier = Modifier
@@ -252,16 +309,19 @@ fun PracticeLabScreen(
                 }
             }
 
-            // Categories Section
+            // Categories Section (All 12 Practice Topics)
             item {
                 MathSectionHeader(
-                    title = "অনুশীলনের বিষয়সমূহ",
+                    title = "অনুশীলনের বিষয়সমূহ (১২টি)",
                     subtitle = "নিচ থেকে যেকোনো বিষয়ে ট্যাপ করে অনুশীলন করুন"
                 )
             }
 
             items(PracticeCategory.values()) { category ->
                 val isSelected = selectedCategory == category
+                val topicStat = topicAnalytics.firstOrNull {
+                    it.topicKey == "PRACTICE_LAB_${category.id}"
+                }
 
                 Card(
                     modifier = Modifier
@@ -324,6 +384,14 @@ fun PracticeLabScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                     maxLines = 1
                                 )
+                                if (topicStat != null && topicStat.totalAttempted > 0) {
+                                    val acc = (topicStat.totalCorrect * 100) / topicStat.totalAttempted
+                                    Text(
+                                        text = "দক্ষতা: ${BengaliNumberFormatter.toBn(acc)}% (${BengaliNumberFormatter.toBn(topicStat.totalCorrect)}/${BengaliNumberFormatter.toBn(topicStat.totalAttempted)})",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = category.primaryColor
+                                    )
+                                }
                             }
                         }
 

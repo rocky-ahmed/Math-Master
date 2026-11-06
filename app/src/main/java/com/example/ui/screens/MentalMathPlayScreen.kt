@@ -1,14 +1,13 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -30,7 +31,6 @@ import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
@@ -45,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,17 +58,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
-import com.example.math.MentalMathMode
 import com.example.math.MentalMathQuestion
 import com.example.math.MentalMathSessionState
+import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MentalMathPlayScreen(
     viewModel: MathViewModel,
@@ -155,11 +158,17 @@ fun MentalMathPlayScreen(
 
                                 Spacer(modifier = Modifier.height(16.dp))
 
+                                val displayExpr = if (session.inputFormat == QuestionInputFormat.TRUE_FALSE && currentQ.trueFalseStatementBn.isNotBlank()) {
+                                    currentQ.trueFalseStatementBn
+                                } else {
+                                    currentQ.expressionBn
+                                }
+
                                 Text(
-                                    text = currentQ.expressionBn,
+                                    text = displayExpr,
                                     style = MaterialTheme.typography.headlineLarge.copy(
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 38.sp
+                                        fontSize = 36.sp
                                     ),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -168,7 +177,11 @@ fun MentalMathPlayScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
 
                                 Text(
-                                    text = "দ্রুত হিসাব করে নিচের সঠিক অপশনে ট্যাপ করুন",
+                                    text = when (session.inputFormat) {
+                                        QuestionInputFormat.TRUE_FALSE -> "উক্তিটি সত্য নাকি মিথ্যা দ্রুত নির্বাচন করুন"
+                                        QuestionInputFormat.KEYPAD -> "দ্রুত সংখ্যা টাইপ করে উত্তর জমা দিন"
+                                        QuestionInputFormat.MCQ -> "দ্রুত হিসাব করে নিচের সঠিক অপশনে ট্যাপ করুন"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
@@ -218,64 +231,170 @@ fun MentalMathPlayScreen(
                         }
                     }
 
-                    // 4 Options (2x2 Grid)
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            // Row 1
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                val opt0 = currentQ.options.getOrNull(0)
-                                if (opt0 != null) {
-                                    MentalMathOptionButton(
-                                        optionValue = opt0,
-                                        optionIndex = 0,
-                                        currentQuestion = currentQ,
-                                        session = session,
-                                        onClick = { viewModel.submitMentalMathAnswer(opt0) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                                val opt1 = currentQ.options.getOrNull(1)
-                                if (opt1 != null) {
-                                    MentalMathOptionButton(
-                                        optionValue = opt1,
-                                        optionIndex = 1,
-                                        currentQuestion = currentQ,
-                                        session = session,
-                                        onClick = { viewModel.submitMentalMathAnswer(opt1) },
-                                        modifier = Modifier.weight(1f)
-                                    )
+                    when (session.inputFormat) {
+                        QuestionInputFormat.TRUE_FALSE -> {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Button(
+                                        onClick = { viewModel.submitMentalMathTrueFalse(true) },
+                                        enabled = !session.isAnswerSubmitted,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(68.dp)
+                                            .testTag("option_btn_0"),
+                                        shape = RoundedCornerShape(18.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                                    ) {
+                                        Text(
+                                            text = "সত্য (True)",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { viewModel.submitMentalMathTrueFalse(false) },
+                                        enabled = !session.isAnswerSubmitted,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(68.dp)
+                                            .testTag("option_btn_1"),
+                                        shape = RoundedCornerShape(18.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48))
+                                    ) {
+                                        Text(
+                                            text = "মিথ্যা (False)",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
                                 }
                             }
+                        }
 
-                            // Row 2
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                val opt2 = currentQ.options.getOrNull(2)
-                                if (opt2 != null) {
-                                    MentalMathOptionButton(
-                                        optionValue = opt2,
-                                        optionIndex = 2,
-                                        currentQuestion = currentQ,
-                                        session = session,
-                                        onClick = { viewModel.submitMentalMathAnswer(opt2) },
-                                        modifier = Modifier.weight(1f)
+                        QuestionInputFormat.KEYPAD -> {
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = session.typedInput,
+                                        onValueChange = { viewModel.setMentalMathTypedInput(it) },
+                                        enabled = !session.isAnswerSubmitted,
+                                        label = { Text("উত্তর লিখুন") },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = KeyboardType.Number,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = { viewModel.submitMentalMathTypedAnswer() }
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("mm_keypad_input")
                                     )
+                                    val keys = listOf("১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯", "০", "-", "⌫")
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        keys.forEach { key ->
+                                            OutlinedButton(
+                                                onClick = {
+                                                    if (key == "⌫") {
+                                                        if (session.typedInput.isNotEmpty()) {
+                                                            viewModel.setMentalMathTypedInput(session.typedInput.dropLast(1))
+                                                        }
+                                                    } else {
+                                                        viewModel.setMentalMathTypedInput(session.typedInput + key)
+                                                    }
+                                                },
+                                                enabled = !session.isAnswerSubmitted,
+                                                shape = RoundedCornerShape(10.dp)
+                                            ) {
+                                                Text(key, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                            }
+                                        }
+                                    }
+                                    if (!session.isAnswerSubmitted) {
+                                        Button(
+                                            onClick = { viewModel.submitMentalMathTypedAnswer() },
+                                            enabled = session.typedInput.trim().isNotEmpty(),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(50.dp)
+                                                .testTag("mm_submit_typed_btn"),
+                                            shape = RoundedCornerShape(14.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = session.category.primaryColor)
+                                        ) {
+                                            Text("উত্তর জমা দিন", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
-                                val opt3 = currentQ.options.getOrNull(3)
-                                if (opt3 != null) {
-                                    MentalMathOptionButton(
-                                        optionValue = opt3,
-                                        optionIndex = 3,
-                                        currentQuestion = currentQ,
-                                        session = session,
-                                        onClick = { viewModel.submitMentalMathAnswer(opt3) },
-                                        modifier = Modifier.weight(1f)
-                                    )
+                            }
+                        }
+
+                        QuestionInputFormat.MCQ -> {
+                            // 4 Options (2x2 Grid)
+                            item {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    // Row 1
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        val opt0 = currentQ.options.getOrNull(0)
+                                        if (opt0 != null) {
+                                            MentalMathOptionButton(
+                                                optionValue = opt0,
+                                                optionIndex = 0,
+                                                currentQuestion = currentQ,
+                                                session = session,
+                                                onClick = { viewModel.submitMentalMathAnswer(opt0) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        val opt1 = currentQ.options.getOrNull(1)
+                                        if (opt1 != null) {
+                                            MentalMathOptionButton(
+                                                optionValue = opt1,
+                                                optionIndex = 1,
+                                                currentQuestion = currentQ,
+                                                session = session,
+                                                onClick = { viewModel.submitMentalMathAnswer(opt1) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+
+                                    // Row 2
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        val opt2 = currentQ.options.getOrNull(2)
+                                        if (opt2 != null) {
+                                            MentalMathOptionButton(
+                                                optionValue = opt2,
+                                                optionIndex = 2,
+                                                currentQuestion = currentQ,
+                                                session = session,
+                                                onClick = { viewModel.submitMentalMathAnswer(opt2) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                        val opt3 = currentQ.options.getOrNull(3)
+                                        if (opt3 != null) {
+                                            MentalMathOptionButton(
+                                                optionValue = opt3,
+                                                optionIndex = 3,
+                                                currentQuestion = currentQ,
+                                                session = session,
+                                                onClick = { viewModel.submitMentalMathAnswer(opt3) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -325,8 +444,8 @@ fun MentalMathOptionButton(
 
     val targetContainer = when {
         !isSubmitted -> MaterialTheme.colorScheme.surface
-        isCorrectOption -> Color(0xFF10B981) // Green
-        isSelected -> Color(0xFFEF4444) // Red
+        isCorrectOption -> Color(0xFF10B981)
+        isSelected -> Color(0xFFEF4444)
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -456,7 +575,7 @@ fun MentalMathProgressBar(session: MentalMathSessionState) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (session.mode == MentalMathMode.TIMED_SPRINT) {
+            if (session.mode.isTimed) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.Timer,
@@ -492,7 +611,7 @@ fun MentalMathProgressBar(session: MentalMathSessionState) {
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        val progress = if (session.mode == MentalMathMode.TIMED_SPRINT) {
+        val progress = if (session.mode.isTimed) {
             if (session.configuredDurationSeconds > 0) {
                 session.timeRemainingSeconds.toFloat() / session.configuredDurationSeconds.toFloat()
             } else 1f
@@ -502,7 +621,7 @@ fun MentalMathProgressBar(session: MentalMathSessionState) {
             } else 1f
         }
 
-        val indicatorColor = if (session.mode == MentalMathMode.TIMED_SPRINT && session.timeRemainingSeconds <= 10) {
+        val indicatorColor = if (session.mode.isTimed && session.timeRemainingSeconds <= 10) {
             Color(0xFFEF4444)
         } else {
             session.category.primaryColor
@@ -608,6 +727,13 @@ fun MentalMathSummaryView(
                                     fontSize = 34.sp
                                 )
                             )
+                            if (session.timeBonusPoints > 0) {
+                                Text(
+                                    text = "গতির বোনাস: +${BengaliNumberFormatter.toBn(session.timeBonusPoints)} পয়েন্ট",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = Color(0xFF059669)
+                                )
+                            }
                         }
                     }
                 }

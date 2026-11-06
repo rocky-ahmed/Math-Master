@@ -15,20 +15,92 @@ enum class GeoShapeType(val id: String, val titleBn: String, val formulaSummaryB
     TRIANGLE("triangle", "ত্রিভুজ (Triangle)", "ক্ষেত্রফল = ½ × ভূমি × উচ্চতা"),
     RECTANGLE("rectangle", "আয়তক্ষেত্র (Rectangle)", "ক্ষেত্রফল = দৈর্ঘ্য × প্রস্থ"),
     SQUARE("square", "বর্গক্ষেত্র (Square)", "ক্ষেত্রফল = বাহু²"),
-    CIRCLE("circle", "বৃত্ত (Circle)", "ক্ষেত্রফল = πr², পরিধি = 2πr")
+    CIRCLE("circle", "বৃত্ত (Circle)", "ক্ষেত্রফল = πr², পরিধি = 2πr"),
+    ANGLES("angles", "কোণ ও পরিমাপ (Angles)", "পূরক কোণ = 90° - θ, সম্পূরক কোণ = 180° - θ")
 }
+
+data class AngleVisualModel(
+    val degrees: Double,
+    val radians: Double,
+    val angleTypeBn: String,
+    val complementaryDegrees: Double?,
+    val supplementaryDegrees: Double?,
+    val reflexDegrees: Double,
+    val explanationStepsBn: List<String>
+) {
+    val complementDegrees: Double? get() = complementaryDegrees
+    val supplementDegrees: Double? get() = supplementaryDegrees
+}
+
+data class LinearGraphVisualModel(
+    val m: Double,
+    val c: Double,
+    val sampleX: Double,
+    val sampleY: Double,
+    val xIntercept: Double?,
+    val yIntercept: Double,
+    val equationBn: String,
+    val slopeDescriptionBn: String,
+    val points: List<Pair<Double, Double>>,
+    val stepsBn: List<String>
+) {
+    val explanationStepsBn: List<String> get() = stepsBn
+}
+
+data class RatioPercentageVisualModel(
+    val partA: Int,
+    val partB: Int,
+    val simplifiedA: Int,
+    val simplifiedB: Int,
+    val shareAPercent: Double,
+    val shareBPercent: Double,
+    val gridPercentage: Int,
+    val fractionEquivalentBn: String,
+    val decimalEquivalentBn: String,
+    val explanationBn: List<String>
+) {
+    val simplifiedRatioBn: String get() = "${BengaliNumberFormatter.toBn(simplifiedA)} : ${BengaliNumberFormatter.toBn(simplifiedB)}"
+    val partAPercentage: Double get() = shareAPercent
+    val gridCellsFilledOutOf100: Int get() = gridPercentage
+    val explanationStepsBn: List<String> get() = explanationBn
+}
+
+data class PatternVisualModel(
+    val patternType: String,
+    val titleBn: String,
+    val formulaBn: String,
+    val terms: List<Int>,
+    val differences: List<Int>,
+    val explanationBn: String
+) {
+    val patternNameBn: String get() = titleBn
+}
+
+data class TransformationVisualModel(
+    val originalX: Double,
+    val originalY: Double,
+    val transformedX: Double,
+    val transformedY: Double,
+    val transformationTypeBn: String,
+    val ruleFormulaBn: String,
+    val explanationBn: String
+)
+
+typealias GeoVisualCalculation = GeometryCalculationResult
 
 data class GeometryCalculationResult(
     val shapeType: GeoShapeType,
     val primaryArea: Double,
     val primaryPerimeterOrCircumference: Double,
-    val formulaTitleBn: String,
-    val formulaExpressionBn: String,
-    val explanationStepsBn: List<String>,
-    val isValid: Boolean,
+    val formulaTitleBn: String = "",
+    val formulaExpressionBn: String = "",
+    val explanationStepsBn: List<String> = emptyList(),
+    val isValid: Boolean = true,
     val errorMessageBn: String? = null,
     val isPerimeterExact: Boolean = true,
-    val perimeterNoteBn: String? = null
+    val perimeterNoteBn: String? = null,
+    val SecondaryMetricLabelBn: String? = null,
+    val secondaryMetricValue: Double = 0.0
 )
 
 /**
@@ -612,4 +684,227 @@ object VisualMathEngine {
             }
         )
     )
+
+    // =========================================================================
+    // E. ANGLES, COORDINATE LINEAR GRAPH, RATIOS/PERCENTAGES & PATTERNS/TRANSFORMATIONS
+    // =========================================================================
+
+    fun calculateAngle(degrees: Double): AngleVisualModel {
+        val clamped = degrees.coerceIn(0.0, 360.0)
+        val radians = (clamped * PI) / 180.0
+        val typeBn = when {
+            clamped == 0.0 -> "শূন্য কোণ (Zero Angle = 0°)"
+            clamped < 90.0 -> "সূক্ষ্মকোণ (Acute Angle: 0° < θ < 90°)"
+            clamped == 90.0 -> "সমকোণ (Right Angle = 90°)"
+            clamped < 180.0 -> "স্থূলকোণ (Obtuse Angle: 90° < θ < 180°)"
+            clamped == 180.0 -> "সরলকোণ (Straight Angle = 180°)"
+            clamped < 360.0 -> "প্রবৃদ্ধ কোণ (Reflex Angle: 180° < θ < 360°)"
+            else -> "পূর্ণ কোণ (Complete Angle = 360°)"
+        }
+        val comp = if (clamped <= 90.0) 90.0 - clamped else null
+        val supp = if (clamped <= 180.0) 180.0 - clamped else null
+        val reflex = 360.0 - clamped
+
+        val steps = mutableListOf(
+            "প্রদত্ত কোণ θ = ${formatNumberBn(clamped)}° (রেডিয়ান মান: ${formatNumberBn(radians, 3)} rad)",
+            "কোণের শ্রেণিবিভাগ: $typeBn"
+        )
+        if (comp != null) {
+            steps.add("পূরক কোণ (Complementary Angle = 90° - θ): ৯০° - ${formatNumberBn(clamped)}° = ${formatNumberBn(comp)}°")
+        } else {
+            steps.add("পূরক কোণ: যেহেতু θ > ৯০°, তাই এর ধনাত্মক পূরক কোণ নেই।")
+        }
+        if (supp != null) {
+            steps.add("সম্পূরক কোণ (Supplementary Angle = 180° - θ): ১৮০° - ${formatNumberBn(clamped)}° = ${formatNumberBn(supp)}°")
+        } else {
+            steps.add("সম্পূরক কোণ: যেহেতু θ > ১৮০°, তাই এর ধনাত্মক সম্পূরক কোণ নেই।")
+        }
+        steps.add("বিপরীত প্রবৃদ্ধ/বহিঃস্থ কোণ (360° - θ) = ${formatNumberBn(reflex)}°")
+
+        return AngleVisualModel(
+            degrees = clamped,
+            radians = radians,
+            angleTypeBn = typeBn,
+            complementaryDegrees = comp,
+            supplementaryDegrees = supp,
+            reflexDegrees = reflex,
+            explanationStepsBn = steps
+        )
+    }
+
+    fun evaluateLinearGraph(m: Double, c: Double, sampleX: Double = 2.0): LinearGraphVisualModel {
+        val sampleY = m * sampleX + c
+        val xInt = if (abs(m) > 1e-6) -c / m else null
+        val signC = if (c >= 0) "+ ${formatNumberBn(c)}" else "- ${formatNumberBn(abs(c))}"
+        val eqBn = "y = ${formatNumberBn(m)}x $signC"
+        val slopeDesc = when {
+            m > 0 -> "ধনাত্মক ঢাল (m > 0): বাম থেকে ডানে রেখাটি উপরের দিকে উঠছে"
+            m < 0 -> "ঋণাত্মক ঢাল (m < 0): বাম থেকে ডানে রেখাটি নিচের দিকে নামছে"
+            else -> "শূন্য ঢাল (m = 0): রেখাটি X-অক্ষের সমান্তরাল অনুভূমিক রেখা"
+        }
+        val pts = listOf(-4.0, -2.0, 0.0, 2.0, 4.0).map { x -> x to (m * x + c) }
+        val steps = listOf(
+            "সরলরেখার আদর্শ সমীকরণ: y = mx + c (যেখানে ঢাল m = ${formatNumberBn(m)}, Y-ছেদক c = ${formatNumberBn(c)})",
+            "Y-অক্ষের ছেদবিন্দু (x = 0 বসিয়ে): (০, ${formatNumberBn(c)})",
+            if (xInt != null) "X-অক্ষের ছেদবিন্দু (y = 0 বসিয়ে): (${formatNumberBn(xInt)}, ০)" else "X-অক্ষের ছেদবিন্দু: রেখাটি X-অক্ষের সমান্তরাল",
+            "নির্বাচিত বিন্দু x = ${formatNumberBn(sampleX)} এর জন্য y = ${formatNumberBn(m)}(${formatNumberBn(sampleX)}) $signC = ${formatNumberBn(sampleY)}"
+        )
+        return LinearGraphVisualModel(
+            m = m,
+            c = c,
+            sampleX = sampleX,
+            sampleY = sampleY,
+            xIntercept = xInt,
+            yIntercept = c,
+            equationBn = eqBn,
+            slopeDescriptionBn = slopeDesc,
+            points = pts,
+            stepsBn = steps
+        )
+    }
+
+    fun analyzeRatioAndPercentage(
+        partA: Int,
+        partB: Int,
+        percentValue: Int = ((partA.coerceAtLeast(1) * 100.0) / (partA.coerceAtLeast(1) + partB.coerceAtLeast(1))).roundToInt()
+    ): RatioPercentageVisualModel {
+        val safeA = partA.coerceAtLeast(1)
+        val safeB = partB.coerceAtLeast(1)
+        val safePct = percentValue.coerceIn(0, 100)
+        val g = gcd(safeA.toLong(), safeB.toLong()).toInt().coerceAtLeast(1)
+        val simpA = safeA / g
+        val simpB = safeB / g
+        val total = safeA + safeB
+        val pctA = (safeA * 100.0) / total
+        val pctB = (safeB * 100.0) / total
+        val pctGcd = gcd(safePct.toLong(), 100L).toInt().coerceAtLeast(1)
+        val fracBn = "${BengaliNumberFormatter.toBn(safePct / pctGcd)}/${BengaliNumberFormatter.toBn(100 / pctGcd)}"
+        val decBn = formatNumberBn(safePct / 100.0, 2)
+
+        val steps = listOf(
+            "অনুপাত বিশ্লেষণ: ${BengaliNumberFormatter.toBn(safeA)} : ${BengaliNumberFormatter.toBn(safeB)} (লঘিষ্ঠ রূপ = ${BengaliNumberFormatter.toBn(simpA)} : ${BengaliNumberFormatter.toBn(simpB)})",
+            "মোট ভাগ = ${BengaliNumberFormatter.toBn(safeA)} + ${BengaliNumberFormatter.toBn(safeB)} = ${BengaliNumberFormatter.toBn(total)}",
+            "১ম অংশের শতকরা হার = (${BengaliNumberFormatter.toBn(safeA)} ÷ ${BengaliNumberFormatter.toBn(total)}) × ১০০% = ${formatNumberBn(pctA)}%",
+            "২য় অংশের শতকরা হার = (${BengaliNumberFormatter.toBn(safeB)} ÷ ${BengaliNumberFormatter.toBn(total)}) × ১০০% = ${formatNumberBn(pctB)}%",
+            "১০×১০ শতকরা গ্রিডে ${BengaliNumberFormatter.toBn(safePct)}% = ১০০ ঘরের মধ্যে ${BengaliNumberFormatter.toBn(safePct)}টি ঘর = ভগ্নাংশে $fracBn = দশমিকে $decBn"
+        )
+        return RatioPercentageVisualModel(
+            partA = safeA,
+            partB = safeB,
+            simplifiedA = simpA,
+            simplifiedB = simpB,
+            shareAPercent = pctA,
+            shareBPercent = pctB,
+            gridPercentage = safePct,
+            fractionEquivalentBn = fracBn,
+            decimalEquivalentBn = decBn,
+            explanationBn = steps
+        )
+    }
+
+    fun generateVisualPattern(patternTypeIndex: Int, termCount: Int = 6): PatternVisualModel {
+        val typeStr = when (patternTypeIndex) {
+            0 -> "square"
+            1 -> "triangular"
+            else -> "arithmetic"
+        }
+        return generateVisualPattern(typeStr, termCount)
+    }
+
+    fun generateVisualPattern(patternType: String, termCount: Int = 6): PatternVisualModel {
+        val nCount = termCount.coerceIn(3, 10)
+        return when (patternType) {
+            "square" -> {
+                val terms = (1..nCount).map { it * it }
+                val diffs = terms.zipWithNext { a, b -> b - a }
+                PatternVisualModel(
+                    patternType = "square",
+                    titleBn = "বর্গ সংখ্যার জ্যামিতিক প্যাটার্ন (n²)",
+                    formulaBn = "n-তম পদ = n² (১, ৪, ৯, ১৬, ২৫, ...)",
+                    terms = terms,
+                    differences = diffs,
+                    explanationBn = "প্রতিটি পদ n×n বর্গাকার ডট গ্রিড গঠন করে। ক্রমিক পার্থক্যগুলো সর্বদা বিজোড় সংখ্যা (৩, ৫, ৭, ৯...)।"
+                )
+            }
+            "triangular" -> {
+                val terms = (1..nCount).map { (it * (it + 1)) / 2 }
+                val diffs = terms.zipWithNext { a, b -> b - a }
+                PatternVisualModel(
+                    patternType = "triangular",
+                    titleBn = "ত্রিভুজাকার সংখ্যার প্যাটার্ন n(n+1)/2",
+                    formulaBn = "n-তম পদ = n(n + 1) / 2 (১, ৩, ৬, ১০, ১৫, ...)",
+                    terms = terms,
+                    differences = diffs,
+                    explanationBn = "প্রতি ধাপে নিচের সারিতে একটি করে নতুন বিন্দু যুক্ত হয়ে সমবাহু ত্রিভুজাকার বিন্যাস তৈরি করে।"
+                )
+            }
+            else -> {
+                val terms = (1..nCount).map { 2 * it + 1 }
+                val diffs = terms.zipWithNext { a, b -> b - a }
+                PatternVisualModel(
+                    patternType = "arithmetic",
+                    titleBn = "সমান্তর ধারার রৈখিক প্যাটার্ন (2n + 1)",
+                    formulaBn = "n-তম পদ = 2n + 1 (৩, ৫, ৭, ৯, ১১, ...)",
+                    terms = terms,
+                    differences = diffs,
+                    explanationBn = "প্রতিটি পদে নির্দিষ্ট সাধারণ অন্তর (+২) যোগ হয়ে সমান্তর ধারা গঠন করে।"
+                )
+            }
+        }
+    }
+
+    fun calculate2DTransformation(
+        x: Double,
+        y: Double,
+        type: String,
+        param: Double = 2.0
+    ): TransformationVisualModel {
+        return when (type) {
+            "reflect_x" -> TransformationVisualModel(
+                originalX = x,
+                originalY = y,
+                transformedX = x,
+                transformedY = -y,
+                transformationTypeBn = "X-অক্ষের সাপেক্ষে প্রতিফলন (Reflection across X-axis)",
+                ruleFormulaBn = "P(x, y) ⟶ P'(x, -y)",
+                explanationBn = "X-অক্ষের সাপেক্ষে প্রতিফলনে ভুজ (x) অপরিবর্তিত থাকে এবং কোটি (y) এর চিহ্ন বিপরীত হয়: (${formatNumberBn(x)}, ${formatNumberBn(y)}) ⟶ (${formatNumberBn(x)}, ${formatNumberBn(-y)})।"
+            )
+            "reflect_y" -> TransformationVisualModel(
+                originalX = x,
+                originalY = y,
+                transformedX = -x,
+                transformedY = y,
+                transformationTypeBn = "Y-অক্ষের সাপেক্ষে প্রতিফলন (Reflection across Y-axis)",
+                ruleFormulaBn = "P(x, y) ⟶ P'(-x, y)",
+                explanationBn = "Y-অক্ষের সাপেক্ষে প্রতিফলনে ভুজ (x) এর চিহ্ন বিপরীত হয় এবং কোটি (y) অপরিবর্তিত থাকে: (${formatNumberBn(x)}, ${formatNumberBn(y)}) ⟶ (${formatNumberBn(-x)}, ${formatNumberBn(y)})।"
+            )
+            "rotate_90" -> TransformationVisualModel(
+                originalX = x,
+                originalY = y,
+                transformedX = -y,
+                transformedY = x,
+                transformationTypeBn = "মূলবিন্দুর সাপেক্ষে ৯০° ঘূর্ণন (90° Counter-Clockwise Rotation)",
+                ruleFormulaBn = "P(x, y) ⟶ P'(-y, x)",
+                explanationBn = "মূলবিন্দু (0,0) এর সাপেক্ষে ঘড়ির কাঁটার বিপরীতে ৯০° ঘূর্ণনে স্থানাঙ্ক পরিবর্তিত হয়ে (${formatNumberBn(-y)}, ${formatNumberBn(x)}) হয়।"
+            )
+            "rotate_180" -> TransformationVisualModel(
+                originalX = x,
+                originalY = y,
+                transformedX = -x,
+                transformedY = -y,
+                transformationTypeBn = "মূলবিন্দুর সাপেক্ষে ১৮০° ঘূর্ণন (180° Rotation)",
+                ruleFormulaBn = "P(x, y) ⟶ P'(-x, -y)",
+                explanationBn = "মূলবিন্দু (0,0) এর সাপেক্ষে ১৮০° ঘূর্ণনে উভয় স্থানাঙ্কের চিহ্ন বিপরীত হয়: (${formatNumberBn(-x)}, ${formatNumberBn(-y)})।"
+            )
+            else -> TransformationVisualModel(
+                originalX = x,
+                originalY = y,
+                transformedX = x + param,
+                transformedY = y + param,
+                transformationTypeBn = "রৈখিক স্থানান্তর (Translation by +k)",
+                ruleFormulaBn = "P(x, y) ⟶ P'(x + k, y + k)",
+                explanationBn = "উভয় অক্ষে k = ${formatNumberBn(param)} একক স্থানান্তরের ফলে নতুন অবস্থান (${formatNumberBn(x + param)}, ${formatNumberBn(y + param)})।"
+            )
+        }
+    }
 }

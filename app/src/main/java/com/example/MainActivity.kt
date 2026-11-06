@@ -167,6 +167,7 @@ fun MainAppContent(viewModel: MathViewModel) {
             is Screen.Customize -> CustomizeScreen(viewModel = viewModel, modifier = modifier)
             is Screen.ProblemSolver -> ProblemSolverScreen(viewModel = viewModel, modifier = modifier)
             is Screen.VisualExplorer -> com.example.ui.screens.VisualExplorerScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BcsPreparation -> com.example.ui.screens.BcsPreparationScreen(viewModel = viewModel, modifier = modifier)
         }
     }
 }

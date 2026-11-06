@@ -59,6 +59,15 @@ enum class NumberSystemCategory(
         examplesBn = "√২, √৩, √৫, π (পাই), e, ১.৪১৪২১৩...",
         bcsNotesBn = "বিসিএস হট টপিক: পূর্ণবর্গ নয় এরূপ যেকোনো স্বাভাবিক সংখ্যার বর্গমূল একটি অমূলদ সংখ্যা। যেমন √২, √৩, √৭ অমূলদ, কিন্তু √৪ = ২ মূলদ।"
     ),
+    REAL(
+        id = "real",
+        titleBn = "বাস্তব সংখ্যা",
+        titleEn = "Real Numbers",
+        symbol = "ℝ",
+        definitionBn = "সকল মূলদ সংখ্যা (ℚ) এবং সকল অমূলদ সংখ্যা (ℚ')-কে একত্রে বাস্তব সংখ্যা (Real Numbers) বলা হয়। সংখ্যারেখার প্রতিটি বিন্দু একটি অনন্য বাস্তব সংখ্যা নির্দেশ করে (ℝ = ℚ ∪ ℚ')।",
+        examplesBn = "-৫, ০, ৩/৪, ১.৫, √২, π, e...",
+        bcsNotesBn = "বিসিএস টিপস: যেকোনো বাস্তব সংখ্যার বর্গ সর্বদা অঋণাত্মক (x² ≥ 0)। ঋণাত্মক সংখ্যার বর্গমূল (যেমন √-১ = i) বাস্তব সংখ্যা নয়, তা কাল্পনিক সংখ্যা।"
+    ),
     PRIME_COMPOSITE(
         id = "prime_composite",
         titleBn = "মৌলিক ও যৌগিক সংখ্যা",
@@ -150,15 +159,37 @@ data class NumberSystemQuestion(
     val bcsReferenceBn: String? = null
 )
 
+data class CoprimeAndDivisionResult(
+    val a: Long,
+    val b: Long,
+    val isCoprime: Boolean,
+    val gcd: Long,
+    val coprimeExplanationBn: String,
+    val divisionValid: Boolean,
+    val quotient: Long,
+    val remainder: Long,
+    val euclideanIdentityBn: String,
+    val aMultiplesBn: String,
+    val bMultiplesBn: String,
+    val aPrimePowerBn: String,
+    val bPrimePowerBn: String
+) {
+    val numA: Long get() = a
+    val numB: Long get() = b
+    val divisionEquationBn: String get() = euclideanIdentityBn
+}
+
 /**
  * Practice session tracking state.
  */
 data class NumberSystemPracticeState(
     val topic: NumberSystemTopic = NumberSystemTopic.ALL,
     val difficulty: NumberSystemDifficulty = NumberSystemDifficulty.EASY,
+    val inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
     val questions: List<NumberSystemQuestion> = emptyList(),
     val currentIndex: Int = 0,
     val selectedOptionIndex: Int? = null,
+    val typedInput: String = "",
     val isSubmitted: Boolean = false,
     val score: Int = 0,
     val isCompleted: Boolean = false,
@@ -214,6 +245,15 @@ object NumberSystemProvider {
             bcsShortcutBn = "বিসিএস শর্টকাট: সংখ্যাটি বিজোড় হলে প্রথমেই বাদ! জোড় হলে কেবল অঙ্কগুলোর যোগফল ৩ দিয়ে যায় কিনা দেখুন।"
         ),
         DivisibilityRule(
+            divisor = 7,
+            ruleNameBn = "৭ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "একক স্থানীয় অঙ্ককে ২ দ্বারা গুণ করে বাকি অংশ থেকে বিয়োগ করলে বিয়োগফল ০ বা ৭ দ্বারা বিভাজ্য হলে।",
+            detailedRuleBn = "কোনো সংখ্যার শেষ অঙ্ক (একক স্থানীয় অঙ্ক) আলাদা করে সেটিকে ২ দিয়ে গুণ করুন এবং অবশিষ্ট অঙ্কগুলো দ্বারা গঠিত সংখ্যা থেকে বিয়োগ করুন। প্রাপ্ত ফলাফল ০ অথবা ৭ এর গুণিতক হলে মূল সংখ্যাটি ৭ দ্বারা বিভাজ্য।",
+            testExampleNumber = 2401L,
+            exampleExplanationBn = "২৪০১ এর শেষ অঙ্ক ১; ২৪০ - (১×২) = ২৩৮। আবার ২৩৮ এর শেষ অঙ্ক ৮; ২৩ - (৮×২) = ৭, যা ৭ দ্বারা বিভাজ্য। সুতরাং ২৪০১ সংখ্যাটি ৭ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: ৩ অঙ্কের সংখ্যার ক্ষেত্রে (বাকি অংশ - ২ × শেষ অঙ্ক) ৭ দিয়ে ভাগ যায় কিনা দ্রুত দেখুন।"
+        ),
+        DivisibilityRule(
             divisor = 8,
             ruleNameBn = "৮ দ্বারা বিভাজ্যতার নিয়ম",
             summaryBn = "সংখ্যার শেষ তিনটি অঙ্ক দ্বারা গঠিত সংখ্যা ৮ দ্বারা বিভাজ্য অথবা শেষ তিনটি অঙ্ক '০০০' হলে।",
@@ -248,6 +288,15 @@ object NumberSystemProvider {
             testExampleNumber = 91828L,
             exampleExplanationBn = "৯১৮২৮ সংখ্যাটি বিবেচনা করি:\nবিজোড় স্থানের অঙ্কসমূহ (ডান থেকে ১ম, ৩য়, ৫ম): ৮ + ৮ + ৯ = ২৫\nজোড় স্থানের অঙ্কসমূহ (ডান থেকে ২য়, ৪র্থ): ২ + ১ = ৩\nপার্থক্য = ২৫ - ৩ = ২২।\nযেহেতু ২২ সংখ্যাটি ১১ দ্বারা বিভাজ্য (২২ ÷ ১১ = ২), তাই ৯১৮২৮ সংখ্যাটি ১১ দ্বারা নিঃশেষে বিভাজ্য।",
             bcsShortcutBn = "বিসিএস সুপার শর্টকাট: বিজোড় স্থানগুলোর যোগফল - জোড় স্থানগুলোর যোগফল = ০ বা ১১, ২২, ৩৩... হলে ১১ দিয়ে বিভাজ্য।"
+        ),
+        DivisibilityRule(
+            divisor = 12,
+            ruleNameBn = "১২ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "সংখ্যাটি একই সাথে ৩ এবং ৪ উভয় সংখ্যা দ্বারাই বিভাজ্য হলে তা ১২ দ্বারা বিভাজ্য।",
+            detailedRuleBn = "১২ = ৩ × ৪ (সহমৌলিক উৎপাদক)। তাই সংখ্যাটির অঙ্কগুলোর সমষ্টি ৩ দ্বারা বিভাজ্য হতে হবে এবং শেষ দুটি অঙ্ক দ্বারা গঠিত সংখ্যা ৪ দ্বারা বিভাজ্য হতে হবে।",
+            testExampleNumber = 5184L,
+            exampleExplanationBn = "৫১৮৪ এর অঙ্কগুলোর যোগফল = ৫ + ১ + ৮ + ৪ = ১৮ (৩ দ্বারা বিভাজ্য) এবং শেষ দুটি অঙ্ক ৮৪ (৮৪ ÷ ৪ = ২১, অর্থাৎ ৪ দ্বারা বিভাজ্য)। সুতরাং ৫১৮৪ সংখ্যাটি ১২ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: আগে শেষ দুই অঙ্ক ৪ দিয়ে যায় কিনা দেখুন; গেলে অঙ্কগুলোর যোগফল ৩ দিয়ে যায় কিনা যাচাই করুন।"
         )
     )
 
@@ -255,13 +304,18 @@ object NumberSystemProvider {
      * Check divisibility dynamically for any number.
      */
     fun checkDivisibility(number: Long, divisor: Int): Pair<Boolean, String> {
-        val absNum = abs(number)
-        val bnNum = BengaliNumberFormatter.toBn(absNum)
-        val isDivisible = (absNum % divisor == 0L)
+        if (divisor == 0) {
+            return Pair(false, "শূন্য (০) দ্বারা বিভাজ্যতা সংজ্ঞায়িত নয় (শূন্য দ্বারা ভাগ অসম্ভব)।")
+        }
+        val absDiv = abs(divisor)
+        val absBig = java.math.BigInteger.valueOf(number).abs()
+        val absStr = absBig.toString()
+        val bnNum = BengaliNumberFormatter.toBn(absStr)
+        val isDivisible = (absBig.mod(java.math.BigInteger.valueOf(absDiv.toLong())) == java.math.BigInteger.ZERO)
 
-        val explanation = when (divisor) {
+        val explanation = when (absDiv) {
             2 -> {
-                val lastDigit = (absNum % 10).toInt()
+                val lastDigit = absStr.last().digitToInt()
                 val isEven = lastDigit % 2 == 0
                 if (isEven) {
                     "$bnNum এর শেষ অঙ্ক ${BengaliNumberFormatter.toBn(lastDigit)} যা একটি জোড় সংখ্যা। সুতরাং $bnNum সংখ্যাটি ২ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -270,7 +324,7 @@ object NumberSystemProvider {
                 }
             }
             3 -> {
-                val sum = absNum.toString().map { it.digitToInt() }.sum()
+                val sum = absStr.map { it.digitToInt() }.sum()
                 val sumBn = BengaliNumberFormatter.toBn(sum)
                 if (sum % 3 == 0) {
                     "$bnNum এর অঙ্কগুলোর যোগফল $sumBn, যা ৩ দ্বারা বিভাজ্য ($sumBn ÷ ৩ = ${BengaliNumberFormatter.toBn(sum / 3)})। তাই সংখ্যাটি ৩ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -279,7 +333,7 @@ object NumberSystemProvider {
                 }
             }
             4 -> {
-                val lastTwo = (absNum % 100).toInt()
+                val lastTwo = absStr.takeLast(2).toInt()
                 val lastTwoBn = BengaliNumberFormatter.toBn(lastTwo)
                 if (lastTwo % 4 == 0) {
                     "$bnNum এর শেষ দুটি অঙ্ক নিয়ে গঠিত সংখ্যা $lastTwoBn, যা ৪ দ্বারা বিভাজ্য ($lastTwoBn ÷ ৪ = ${BengaliNumberFormatter.toBn(lastTwo / 4)})। তাই এটি ৪ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -288,7 +342,7 @@ object NumberSystemProvider {
                 }
             }
             5 -> {
-                val lastDigit = (absNum % 10).toInt()
+                val lastDigit = absStr.last().digitToInt()
                 val lastDigitBn = BengaliNumberFormatter.toBn(lastDigit)
                 if (lastDigit == 0 || lastDigit == 5) {
                     "$bnNum এর শেষ অঙ্ক $lastDigitBn (০ বা ৫)। তাই এটি ৫ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -297,9 +351,9 @@ object NumberSystemProvider {
                 }
             }
             6 -> {
-                val lastDigit = (absNum % 10).toInt()
+                val lastDigit = absStr.last().digitToInt()
                 val isEven = lastDigit % 2 == 0
-                val sum = absNum.toString().map { it.digitToInt() }.sum()
+                val sum = absStr.map { it.digitToInt() }.sum()
                 val sumDiv3 = sum % 3 == 0
                 if (isEven && sumDiv3) {
                     "$bnNum সংখ্যাটি জোড় (২ দ্বারা বিভাজ্য) এবং অঙ্কগুলোর যোগফল ${BengaliNumberFormatter.toBn(sum)} (৩ দ্বারা বিভাজ্য)। যেহেতু ২ ও ৩ উভয় দ্বারা বিভাজ্য, তাই এটি ৬ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -308,8 +362,19 @@ object NumberSystemProvider {
                     "$bnNum সংখ্যাটি ৬ দ্বারা বিভাজ্য নয় কারণ: $reason।"
                 }
             }
+            7 -> {
+                val lastDigit = absStr.last().digitToInt().toLong()
+                val rest = absBig.divide(java.math.BigInteger.TEN)
+                val diff = rest.subtract(java.math.BigInteger.valueOf(2L * lastDigit))
+                val rem = absBig.mod(java.math.BigInteger.valueOf(7L)).toLong()
+                if (rem == 0L) {
+                    "$bnNum এর শেষ অঙ্কের দ্বিগুণ বিয়োগফল প্রক্রিয়ায় (${BengaliNumberFormatter.toBn(rest.toString())} - ২×${BengaliNumberFormatter.toBn(lastDigit)} = ${BengaliNumberFormatter.toBn(diff.toString())}) ফলাফল ৭ দ্বারা বিভাজ্য। সুতরাং $bnNum সংখ্যাটি ৭ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    "$bnNum কে ৭ দ্বারা ভাগ করলে ভাগশেষ ${BengaliNumberFormatter.toBn(rem)} থাকে (${BengaliNumberFormatter.toBn(rest.toString())} - ২×${BengaliNumberFormatter.toBn(lastDigit)} = ${BengaliNumberFormatter.toBn(diff.toString())}, যা ৭ দ্বারা বিভাজ্য নয়)। তাই এটি ৭ দ্বারা বিভাজ্য নয়।"
+                }
+            }
             8 -> {
-                val lastThree = (absNum % 1000).toInt()
+                val lastThree = absStr.takeLast(3).toInt()
                 val lastThreeBn = BengaliNumberFormatter.toBn(lastThree)
                 if (lastThree % 8 == 0) {
                     "$bnNum এর শেষ ৩টি অঙ্ক দ্বারা গঠিত সংখ্যা $lastThreeBn, যা ৮ দ্বারা বিভাজ্য ($lastThreeBn ÷ ৮ = ${BengaliNumberFormatter.toBn(lastThree / 8)})। তাই এটি ৮ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -318,7 +383,7 @@ object NumberSystemProvider {
                 }
             }
             9 -> {
-                val sum = absNum.toString().map { it.digitToInt() }.sum()
+                val sum = absStr.map { it.digitToInt() }.sum()
                 val sumBn = BengaliNumberFormatter.toBn(sum)
                 if (sum % 9 == 0) {
                     "$bnNum এর অঙ্কগুলোর যোগফল $sumBn, যা ৯ দ্বারা বিভাজ্য ($sumBn ÷ ৯ = ${BengaliNumberFormatter.toBn(sum / 9)})। তাই এটি ৯ দ্বারা নিঃশেষে বিভাজ্য।"
@@ -327,7 +392,7 @@ object NumberSystemProvider {
                 }
             }
             10 -> {
-                val lastDigit = (absNum % 10).toInt()
+                val lastDigit = absStr.last().digitToInt()
                 if (lastDigit == 0) {
                     "$bnNum এর শেষ অঙ্ক ০। তাই এটি ১০ দ্বারা নিঃশেষে বিভাজ্য।"
                 } else {
@@ -335,7 +400,7 @@ object NumberSystemProvider {
                 }
             }
             11 -> {
-                val digits = absNum.toString().map { it.digitToInt() }
+                val digits = absStr.map { it.digitToInt() }
                 var oddSum = 0
                 var evenSum = 0
                 val reversed = digits.reversed()
@@ -354,13 +419,64 @@ object NumberSystemProvider {
                     "বিজোড় স্থানের অঙ্কগুলোর যোগফল (${BengaliNumberFormatter.toBn(oddSum)}) এবং জোড় স্থানের অঙ্কগুলোর যোগফলের (${BengaliNumberFormatter.toBn(evenSum)}) পার্থক্য = $diffBn। যেহেতু $diffBn সংখ্যাটি ১১ দ্বারা বিভাজ্য নয়, তাই $bnNum সংখ্যাটি ১১ দ্বারা বিভাজ্য নয়।"
                 }
             }
+            12 -> {
+                val sum = absStr.map { it.digitToInt() }.sum()
+                val lastTwo = absStr.takeLast(2).toInt()
+                val div3 = sum % 3 == 0
+                val div4 = lastTwo % 4 == 0
+                if (div3 && div4) {
+                    "$bnNum এর অঙ্কগুলোর সমষ্টি ${BengaliNumberFormatter.toBn(sum)} (৩ দ্বারা বিভাজ্য) এবং শেষ দুই অঙ্ক ${BengaliNumberFormatter.toBn(lastTwo)} (৪ দ্বারা বিভাজ্য)। যেহেতু ৩ ও ৪ উভয় দ্বারা বিভাজ্য, তাই এটি ১২ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    val reason = if (!div3) "অঙ্কগুলোর সমষ্টি ৩ দ্বারা বিভাজ্য নয়" else "শেষ দুই অঙ্ক ৪ দ্বারা বিভাজ্য নয়"
+                    "$bnNum সংখ্যাটি ১২ দ্বারা বিভাজ্য নয় কারণ: $reason।"
+                }
+            }
             else -> {
-                if (isDivisible) "$bnNum সংখ্যাটি ${BengaliNumberFormatter.toBn(divisor)} দ্বারা নিঃশেষে বিভাজ্য।"
-                else "$bnNum সংখ্যাটি ${BengaliNumberFormatter.toBn(divisor)} দ্বারা নিঃশেষে বিভাজ্য নয়।"
+                if (isDivisible) "$bnNum সংখ্যাটি ${BengaliNumberFormatter.toBn(absDiv)} দ্বারা নিঃশেষে বিভাজ্য।"
+                else "$bnNum সংখ্যাটি ${BengaliNumberFormatter.toBn(absDiv)} দ্বারা নিঃশেষে বিভাজ্য নয়।"
             }
         }
 
         return Pair(isDivisible, explanation)
+    }
+
+    /**
+     * Analyzes Coprime status, Euclidean integer division (quotient + remainder), multiples, and prime-power representation.
+     */
+    fun analyzeCoprimeAndDivision(a: Long, b: Long): CoprimeAndDivisionResult {
+        val g = gcd(a, b)
+        val isCoprime = SharedMathEngine.areCoprime(a, b)
+        val divRes = try {
+            if (b != 0L) SharedMathEngine.integerDivision(a, b) else null
+        } catch (_: Exception) {
+            null
+        }
+        val safeAbsA = if (a == Long.MIN_VALUE) Long.MAX_VALUE else abs(a)
+        val safeAbsB = if (b == Long.MIN_VALUE) Long.MAX_VALUE else abs(b)
+        val aMults = if (a != 0L) (1..5).joinToString(", ") { BengaliNumberFormatter.toBn(java.math.BigInteger.valueOf(a).abs().multiply(java.math.BigInteger.valueOf(it.toLong())).toString()) } else "০"
+        val bMults = if (b != 0L) (1..5).joinToString(", ") { BengaliNumberFormatter.toBn(java.math.BigInteger.valueOf(b).abs().multiply(java.math.BigInteger.valueOf(it.toLong())).toString()) } else "০"
+
+        val coprimeExp = if (isCoprime) {
+            "${BengaliNumberFormatter.toBn(a)} এবং ${BengaliNumberFormatter.toBn(b)} এর গ.সা.গু = ১। সুতরাং সংখ্যা দুটি পরস্পর সহমৌলিক (Coprime)।"
+        } else {
+            "${BengaliNumberFormatter.toBn(a)} এবং ${BengaliNumberFormatter.toBn(b)} এর গ.সা.গু = ${BengaliNumberFormatter.toBn(g)} (১ নয়)। সুতরাং এরা সহমৌলিক নয়।"
+        }
+
+        return CoprimeAndDivisionResult(
+            a = a,
+            b = b,
+            isCoprime = isCoprime,
+            gcd = g,
+            coprimeExplanationBn = coprimeExp,
+            divisionValid = divRes != null,
+            quotient = divRes?.quotient ?: 0L,
+            remainder = divRes?.remainder ?: 0L,
+            euclideanIdentityBn = divRes?.formulaVerificationBn ?: "ভাজক শূন্য (০) বা সীমার বাইরে হওয়ায় ভাগ প্রক্রিয়া অসংজ্ঞায়িত।",
+            aMultiplesBn = aMults,
+            bMultiplesBn = bMults,
+            aPrimePowerBn = SharedMathEngine.formatPrimePowerBn(safeAbsA),
+            bPrimePowerBn = SharedMathEngine.formatPrimePowerBn(safeAbsB)
+        )
     }
 
     /**

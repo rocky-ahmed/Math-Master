@@ -5,12 +5,31 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.MathDatabase
 import com.example.data.model.BookmarkEntity
+import com.example.data.model.DailyStudyActivityEntity
+import com.example.data.model.ExamAttemptEntity
+import com.example.data.model.PracticeHistoryEntity
 import com.example.data.model.ProgressEntity
 import com.example.data.model.QuizScoreEntity
+import com.example.data.model.RecentFormulaEntity
+import com.example.data.model.SolverHistoryEntity
+import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.repository.MathRepository
+import com.example.math.AnalyticsTimeFilter
 import com.example.math.AnsweredMentalQuestion
+import com.example.math.BcsPreparationRepository
+import com.example.math.BcsSyllabusUnit
+import com.example.math.BcsSyllabusVersion
 import com.example.math.BengaliNumberFormatter
 import com.example.math.DefaultMonotonicClock
+import com.example.math.ExamConfig
+import com.example.math.ExamDetailedResult
+import com.example.math.ExamHistoryFilter
+import com.example.math.ExamHistorySort
+import com.example.math.ExamPresetType
+import com.example.math.ExamQuestionBank
+import com.example.math.ExamScoringEngine
+import com.example.math.LearningRecommendation
+import com.example.math.LibraryFormula
 import com.example.math.MentalMathCategory
 import com.example.math.MentalMathDifficulty
 import com.example.math.MentalMathGenerator
@@ -22,10 +41,20 @@ import com.example.math.PracticeCategory
 import com.example.math.PracticeDifficulty
 import com.example.math.PracticeLabGenerator
 import com.example.math.PracticeQuestion
+import com.example.math.PracticeQuestionGenerator
 import com.example.math.PracticeSessionState
+import com.example.math.QuestionInputFormat
 import com.example.math.QuizGenerator
+import com.example.math.QuizMode
 import com.example.math.QuizQuestion
+import com.example.math.QuizQuestionType
+import com.example.math.QuizState
 import com.example.math.QuizTopic
+import com.example.math.RecommendationActionType
+import com.example.math.SharedMathEngine
+import com.example.math.SimilarProblemGenerator
+import com.example.math.SolverResult
+import com.example.math.SolverTopic
 import com.example.math.TableRange
 import com.example.ui.customization.AppCustomizationState
 import com.example.ui.customization.CustomizationPreferences
@@ -40,9 +69,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
@@ -68,6 +96,7 @@ sealed class Screen(val route: String) {
     object Customize : Screen("customize")
     object ProblemSolver : Screen("problem_solver")
     object VisualExplorer : Screen("visual_explorer")
+    object BcsPreparation : Screen("bcs_preparation")
 }
 
 data class WeeklyDayStat(
@@ -79,16 +108,42 @@ data class WeeklyDayStat(
 )
 
 data class QuizSessionState(
+    val attemptId: String = "",
+    val examTitleBn: String = "",
+    val examConfig: ExamConfig = ExamConfig(),
+    val isFullExamMode: Boolean = false,
     val topic: QuizTopic = QuizTopic.MULTIPLICATION,
+    val mode: QuizMode = QuizMode.TOPIC,
+    val questionType: QuizQuestionType = QuizQuestionType.MCQ,
+    val difficulty: PracticeDifficulty = PracticeDifficulty.EASY,
+    val state: QuizState = QuizState.IDLE,
     val questions: List<QuizQuestion> = emptyList(),
     val currentIndex: Int = 0,
     val selectedOptionIndex: Int? = null,
+    val typedAnswer: String = "",
     val isAnswerSubmitted: Boolean = false,
     val correctCount: Int = 0,
     val isFinished: Boolean = false,
     val userAnswers: Map<Int, Int> = emptyMap(),
-    val isReviewMode: Boolean = false
-)
+    val userTypedAnswers: Map<Int, String> = emptyMap(),
+    val markedForReviewIndices: Set<Int> = emptySet(),
+    val visitedIndices: Set<Int> = setOf(0),
+    val questionTimeSeconds: Map<Int, Int> = emptyMap(),
+    val isReviewMode: Boolean = false,
+    val timeRemainingSeconds: Int = 120,
+    val configuredDurationSeconds: Int = 120,
+    val elapsedSeconds: Int = 0,
+    val startElapsedRealtimeMs: Long = 0L,
+    val deadlineElapsedRealtimeMs: Long = 0L,
+    val detailedResult: ExamDetailedResult? = null,
+    val showSubmitConfirmDialog: Boolean = false
+) {
+    val incorrectQuestions: List<QuizQuestion>
+        get() = questions.filterIndexed { index, q ->
+            val ans = userAnswers[index]
+            ans == null || ans != q.correctIndex
+        }
+}
 
 class MathViewModel @JvmOverloads constructor(
     application: Application,
@@ -113,7 +168,7 @@ class MathViewModel @JvmOverloads constructor(
     private val _customizationState = MutableStateFlow(initialCustomState)
     val customizationState: StateFlow<AppCustomizationState> = _customizationState.asStateFlow()
 
-    // Live Preview Customization State (Allows previewing live changes before saving or canceling)
+    // Live Preview Customization State
     private val _previewCustomizationState = MutableStateFlow(initialCustomState)
     val previewCustomizationState: StateFlow<AppCustomizationState> = _previewCustomizationState.asStateFlow()
 
@@ -165,9 +220,49 @@ class MathViewModel @JvmOverloads constructor(
     val progressList: StateFlow<List<ProgressEntity>> = repository.progressList
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Room v3 Analytics & History Flows
+    val practiceHistory: StateFlow<List<PracticeHistoryEntity>> = repository.allPracticeHistory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val topicAnalytics: StateFlow<List<TopicAnalyticsEntity>> = repository.allTopicAnalytics
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentFormulas: StateFlow<List<RecentFormulaEntity>> = repository.recentFormulas
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Room v4 Examination, Solver History & Daily Study Flows
+    val completedExamAttempts: StateFlow<List<ExamAttemptEntity>> = repository.completedExamAttempts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val activeExamAttempt: StateFlow<ExamAttemptEntity?> = repository.activeExamAttempt
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val solverHistory: StateFlow<List<SolverHistoryEntity>> = repository.allSolverHistory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dailyStudyActivities: StateFlow<List<DailyStudyActivityEntity>> = repository.allDailyStudyActivity
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Analytics & Exam History Filter State
+    private val _dashboardTimeFilter = MutableStateFlow(AnalyticsTimeFilter.ALL_TIME)
+    val dashboardTimeFilter: StateFlow<AnalyticsTimeFilter> = _dashboardTimeFilter.asStateFlow()
+
+    private val _examHistoryFilter = MutableStateFlow(ExamHistoryFilter.ALL)
+    val examHistoryFilter: StateFlow<ExamHistoryFilter> = _examHistoryFilter.asStateFlow()
+
+    private val _examHistorySort = MutableStateFlow(ExamHistorySort.NEWEST_FIRST)
+    val examHistorySort: StateFlow<ExamHistorySort> = _examHistorySort.asStateFlow()
+
+    private val _comparisonAttemptIds = MutableStateFlow<Set<String>>(emptySet())
+    val comparisonAttemptIds: StateFlow<Set<String>> = _comparisonAttemptIds.asStateFlow()
+
     // Quiz Session
     private val _quizSession = MutableStateFlow(QuizSessionState())
     val quizSession: StateFlow<QuizSessionState> = _quizSession.asStateFlow()
+
+    // Last incorrect quiz questions for Review Incorrect Quiz mode
+    private val _incorrectQuizQuestionPool = MutableStateFlow<List<QuizQuestion>>(emptyList())
+    val incorrectQuizQuestionPool: StateFlow<List<QuizQuestion>> = _incorrectQuizQuestionPool.asStateFlow()
 
     // Math Practice Lab State
     private val _practiceSession = MutableStateFlow(PracticeSessionState())
@@ -188,7 +283,6 @@ class MathViewModel @JvmOverloads constructor(
     val tutorFeedback: StateFlow<String?> = _tutorFeedback.asStateFlow()
     private val _tutorCompleted = MutableStateFlow(false)
     val tutorCompleted: StateFlow<Boolean> = _tutorCompleted.asStateFlow()
-
 
     fun navigateTo(screen: Screen) {
         val current = _screenStack.value
@@ -240,6 +334,17 @@ class MathViewModel @JvmOverloads constructor(
         navigateTo(Screen.FormulaDetail)
     }
 
+    fun recordFormulaView(formula: LibraryFormula) {
+        viewModelScope.launch {
+            repository.recordFormulaViewed(
+                formulaId = formula.id,
+                titleBn = formula.titleBn,
+                subjectName = formula.subject.name
+            )
+            recordDailyActivity(1)
+        }
+    }
+
     fun isBookmarked(id: String): Boolean {
         return bookmarkedIds.value.contains(id)
     }
@@ -271,80 +376,702 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
-    // Quiz Operations
-    fun startQuiz(topic: QuizTopic, count: Int = 10) {
-        val questions = QuizGenerator.generateQuiz(topic, count)
-        _quizSession.value = QuizSessionState(
+    // ==========================================
+    // MODULE 06: INTERACTIVE QUIZ OPERATIONS
+    // ==========================================
+    fun startQuiz(
+        topic: QuizTopic,
+        count: Int,
+        mode: QuizMode,
+        questionType: QuizQuestionType,
+        difficulty: PracticeDifficulty
+    ) {
+        startQuiz(
             topic = topic,
+            count = count,
+            mode = mode,
+            difficulty = difficulty,
+            questionType = questionType,
+            timedSeconds = 120
+        )
+    }
+
+    @JvmOverloads
+    fun startQuiz(
+        topic: QuizTopic,
+        count: Int = 10,
+        mode: QuizMode = QuizMode.TOPIC,
+        difficulty: PracticeDifficulty = PracticeDifficulty.EASY,
+        questionType: QuizQuestionType = QuizQuestionType.MCQ,
+        timedSeconds: Int = 120
+    ) {
+        _quizSession.value = _quizSession.value.copy(state = QuizState.LOADING)
+        val effectiveTopic = if (mode == QuizMode.MIXED) QuizTopic.MIXED_CHALLENGE else topic
+        val questions = if (mode == QuizMode.REVIEW_INCORRECT && _incorrectQuizQuestionPool.value.isNotEmpty()) {
+            _incorrectQuizQuestionPool.value.shuffled().take(count)
+        } else {
+            QuizGenerator.generateQuiz(
+                topic = effectiveTopic,
+                questionCount = count,
+                difficulty = difficulty,
+                questionType = questionType
+            )
+        }
+
+        val now = clock.elapsedRealtime()
+        val deadline = if (mode == QuizMode.TIMED) now + timedSeconds * 1000L else 0L
+        val attemptId = "exam_${System.currentTimeMillis()}_${effectiveTopic.id}"
+        val preset = when (mode) {
+            QuizMode.TIMED -> ExamPresetType.TIMED_MOCK
+            QuizMode.MIXED -> ExamPresetType.MIXED_TEST
+            QuizMode.PRACTICE -> ExamPresetType.PRACTICE_EXAM
+            QuizMode.REVIEW_INCORRECT -> ExamPresetType.REVIEW_INCORRECT
+            else -> ExamPresetType.TOPIC_TEST
+        }
+        val config = ExamConfig(
+            preset = preset,
+            selectedTopics = setOf(effectiveTopic),
+            difficulty = difficulty,
+            questionType = questionType,
+            questionCount = questions.size.coerceAtLeast(1),
+            durationMinutes = (timedSeconds / 60).coerceAtLeast(1),
+            marksPerCorrect = 1.0,
+            negativeMarksPerWrong = 0.0,
+            immediateFeedback = (mode == QuizMode.PRACTICE)
+        )
+
+        val newState = QuizSessionState(
+            attemptId = attemptId,
+            examTitleBn = effectiveTopic.titleBn,
+            examConfig = config,
+            isFullExamMode = false,
+            topic = effectiveTopic,
+            mode = mode,
+            questionType = questionType,
+            difficulty = difficulty,
+            state = if (questions.isNotEmpty()) QuizState.IN_PROGRESS else QuizState.ERROR,
             questions = questions,
             currentIndex = 0,
             selectedOptionIndex = null,
+            typedAnswer = "",
             isAnswerSubmitted = false,
             correctCount = 0,
             isFinished = false,
             userAnswers = emptyMap(),
-            isReviewMode = false
+            userTypedAnswers = emptyMap(),
+            markedForReviewIndices = emptySet(),
+            visitedIndices = setOf(0),
+            questionTimeSeconds = emptyMap(),
+            isReviewMode = false,
+            timeRemainingSeconds = if (mode == QuizMode.TIMED) timedSeconds else 0,
+            configuredDurationSeconds = timedSeconds,
+            elapsedSeconds = 0,
+            startElapsedRealtimeMs = now,
+            deadlineElapsedRealtimeMs = deadline,
+            detailedResult = null,
+            showSubmitConfirmDialog = false
         )
+        _quizSession.value = newState
+        persistActiveExamStateAsync(newState)
+        navigateTo(Screen.QuizPlay)
+    }
+
+    fun startConfiguredExam(config: ExamConfig) {
+        _quizSession.value = _quizSession.value.copy(state = QuizState.LOADING)
+        val questions = if (config.preset == ExamPresetType.REVIEW_INCORRECT && _incorrectQuizQuestionPool.value.isNotEmpty()) {
+            _incorrectQuizQuestionPool.value.shuffled().take(config.questionCount)
+        } else {
+            ExamQuestionBank.generateExamQuestions(config)
+        }
+        val primaryTopic = config.selectedTopics.firstOrNull() ?: QuizTopic.MIXED_CHALLENGE
+        val mappedMode = when (config.preset) {
+            ExamPresetType.PRACTICE_EXAM -> QuizMode.PRACTICE
+            ExamPresetType.REVIEW_INCORRECT -> QuizMode.REVIEW_INCORRECT
+            ExamPresetType.MIXED_TEST, ExamPresetType.FULL_LENGTH_MOCK, ExamPresetType.BCS_PRELIMINARY_MOCK -> QuizMode.TIMED
+            else -> if (config.durationSeconds > 0) QuizMode.TIMED else QuizMode.TOPIC
+        }
+        val durationSec = config.durationSeconds
+        val now = clock.elapsedRealtime()
+        val deadline = if (durationSec > 0) now + durationSec * 1000L else 0L
+        val attemptId = "exam_${System.currentTimeMillis()}_${config.preset.id}"
+
+        val newState = QuizSessionState(
+            attemptId = attemptId,
+            examTitleBn = config.toExamTitleBn(),
+            examConfig = config,
+            isFullExamMode = !config.immediateFeedback,
+            topic = primaryTopic,
+            mode = mappedMode,
+            questionType = config.questionType,
+            difficulty = config.difficulty,
+            state = if (questions.isNotEmpty()) QuizState.IN_PROGRESS else QuizState.ERROR,
+            questions = questions,
+            currentIndex = 0,
+            selectedOptionIndex = null,
+            typedAnswer = "",
+            isAnswerSubmitted = false,
+            correctCount = 0,
+            isFinished = false,
+            userAnswers = emptyMap(),
+            userTypedAnswers = emptyMap(),
+            markedForReviewIndices = emptySet(),
+            visitedIndices = setOf(0),
+            questionTimeSeconds = emptyMap(),
+            isReviewMode = false,
+            timeRemainingSeconds = durationSec,
+            configuredDurationSeconds = durationSec,
+            elapsedSeconds = 0,
+            startElapsedRealtimeMs = now,
+            deadlineElapsedRealtimeMs = deadline,
+            detailedResult = null,
+            showSubmitConfirmDialog = false
+        )
+        _quizSession.value = newState
+        persistActiveExamStateAsync(newState)
         navigateTo(Screen.QuizPlay)
     }
 
     fun selectQuizOption(index: Int) {
         val current = _quizSession.value
-        if (!current.isAnswerSubmitted && !current.isFinished) {
+        if (current.isFinished) return
+        if (current.isFullExamMode) {
+            val updatedAnswers = current.userAnswers + (current.currentIndex to index)
+            val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
+                current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
+            }
+            val nextState = current.copy(
+                selectedOptionIndex = index,
+                userAnswers = updatedAnswers,
+                correctCount = recomputedCorrect
+            )
+            _quizSession.value = nextState
+            persistActiveExamStateAsync(nextState)
+        } else if (!current.isAnswerSubmitted) {
             _quizSession.value = current.copy(selectedOptionIndex = index)
         }
     }
 
+    fun setQuizTypedAnswer(text: String) {
+        val current = _quizSession.value
+        if (!current.isAnswerSubmitted && !current.isFinished) {
+            _quizSession.value = current.copy(typedAnswer = text)
+        }
+    }
+
+    fun toggleMarkCurrentQuestionForReview() {
+        val current = _quizSession.value
+        if (current.isFinished) return
+        val idx = current.currentIndex
+        val updatedMarked = if (current.markedForReviewIndices.contains(idx)) {
+            current.markedForReviewIndices - idx
+        } else {
+            current.markedForReviewIndices + idx
+        }
+        val nextState = current.copy(markedForReviewIndices = updatedMarked)
+        _quizSession.value = nextState
+        persistActiveExamStateAsync(nextState)
+    }
+
+    fun clearCurrentQuizAnswer() {
+        val current = _quizSession.value
+        if (current.isFinished) return
+        if (!current.isFullExamMode && current.isAnswerSubmitted) return
+        val idx = current.currentIndex
+        val updatedAnswers = current.userAnswers - idx
+        val updatedTyped = current.userTypedAnswers - idx
+        val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
+            current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
+        }
+        val nextState = current.copy(
+            selectedOptionIndex = null,
+            typedAnswer = "",
+            isAnswerSubmitted = false,
+            state = QuizState.IN_PROGRESS,
+            userAnswers = updatedAnswers,
+            userTypedAnswers = updatedTyped,
+            correctCount = recomputedCorrect
+        )
+        _quizSession.value = nextState
+        persistActiveExamStateAsync(nextState)
+    }
+
+    fun jumpToQuizQuestion(targetIndex: Int) {
+        val current = _quizSession.value
+        if (current.isFinished || targetIndex !in current.questions.indices) return
+        val existingChoice = current.userAnswers[targetIndex]?.takeIf { it >= 0 }
+        val existingTyped = current.userTypedAnswers[targetIndex] ?: ""
+        val alreadyAnswered = if (current.isFullExamMode) false else current.userAnswers.containsKey(targetIndex)
+        val nextState = current.copy(
+            currentIndex = targetIndex,
+            selectedOptionIndex = existingChoice,
+            typedAnswer = existingTyped,
+            isAnswerSubmitted = alreadyAnswered,
+            visitedIndices = current.visitedIndices + targetIndex,
+            state = if (alreadyAnswered) QuizState.ANSWER_SUBMITTED else QuizState.IN_PROGRESS
+        )
+        _quizSession.value = nextState
+        persistActiveExamStateAsync(nextState)
+    }
+
     fun submitQuizAnswer() {
         val current = _quizSession.value
-        val selectedOpt = current.selectedOptionIndex
-        if (selectedOpt == null || current.isAnswerSubmitted || current.isFinished) return
-
+        if (current.isAnswerSubmitted || current.isFinished) return
         val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
-        val isCorrect = selectedOpt == currentQ.correctIndex
-        val updatedCorrectCount = if (isCorrect) current.correctCount + 1 else current.correctCount
-        val updatedAnswers = current.userAnswers + (current.currentIndex to selectedOpt)
 
-        _quizSession.value = current.copy(
+        val selectedOpt = current.selectedOptionIndex
+        val isCorrect: Boolean
+        val recordedOption: Int
+        val updatedTypedMap = current.userTypedAnswers.toMutableMap()
+
+        if (currentQ.questionType == QuizQuestionType.NUMERICAL && selectedOpt == null) {
+            val typed = current.typedAnswer.trim()
+            if (typed.isEmpty()) return
+            isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerText)
+            val matchIdx = currentQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
+            recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -1
+            updatedTypedMap[current.currentIndex] = typed
+        } else {
+            if (selectedOpt == null) return
+            recordedOption = selectedOpt
+            isCorrect = selectedOpt == currentQ.correctIndex
+        }
+
+        val updatedAnswers = current.userAnswers + (current.currentIndex to recordedOption)
+        val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
+            current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
+        }
+
+        if (!isCorrect) {
+            val pool = _incorrectQuizQuestionPool.value
+            if (pool.none { it.questionBn == currentQ.questionBn }) {
+                _incorrectQuizQuestionPool.value = (pool + currentQ).takeLast(30)
+            }
+        }
+
+        val nextState = current.copy(
+            state = QuizState.ANSWER_SUBMITTED,
             isAnswerSubmitted = true,
-            correctCount = updatedCorrectCount,
-            userAnswers = updatedAnswers
+            selectedOptionIndex = if (recordedOption >= 0) recordedOption else null,
+            correctCount = recomputedCorrect,
+            userAnswers = updatedAnswers,
+            userTypedAnswers = updatedTypedMap,
+            visitedIndices = current.visitedIndices + current.currentIndex
         )
+        _quizSession.value = nextState
+        persistActiveExamStateAsync(nextState)
+
         if (isCorrect) {
             recordDailyActivity(1)
         }
     }
 
+    fun previousQuizQuestion() {
+        val current = _quizSession.value
+        if (current.isFinished || current.currentIndex <= 0) return
+        val prevIdx = current.currentIndex - 1
+        val prevSelected = current.userAnswers[prevIdx]?.takeIf { it >= 0 }
+        val prevTyped = current.userTypedAnswers[prevIdx] ?: ""
+        val alreadySubmitted = if (current.isFullExamMode) false else current.userAnswers.containsKey(prevIdx)
+        val nextState = current.copy(
+            currentIndex = prevIdx,
+            selectedOptionIndex = prevSelected,
+            typedAnswer = prevTyped,
+            isAnswerSubmitted = alreadySubmitted,
+            visitedIndices = current.visitedIndices + prevIdx,
+            state = if (alreadySubmitted) QuizState.ANSWER_SUBMITTED else QuizState.IN_PROGRESS
+        )
+        _quizSession.value = nextState
+        persistActiveExamStateAsync(nextState)
+    }
+
     fun nextQuizQuestion() {
         val current = _quizSession.value
-        if (!current.isAnswerSubmitted) return
+        if (!current.isFullExamMode && !current.isAnswerSubmitted) return
 
         val nextIndex = current.currentIndex + 1
         if (nextIndex < current.questions.size) {
-            _quizSession.value = current.copy(
+            val existingChoice = current.userAnswers[nextIndex]?.takeIf { it >= 0 }
+            val existingTyped = current.userTypedAnswers[nextIndex] ?: ""
+            val alreadyAnswered = if (current.isFullExamMode) false else current.userAnswers.containsKey(nextIndex)
+            val nextState = current.copy(
                 currentIndex = nextIndex,
-                selectedOptionIndex = null,
-                isAnswerSubmitted = false
+                selectedOptionIndex = existingChoice,
+                typedAnswer = existingTyped,
+                isAnswerSubmitted = alreadyAnswered,
+                visitedIndices = current.visitedIndices + nextIndex,
+                state = if (alreadyAnswered) QuizState.ANSWER_SUBMITTED else QuizState.IN_PROGRESS
             )
+            _quizSession.value = nextState
+            persistActiveExamStateAsync(nextState)
         } else {
-            // Quiz completed
-            val total = current.questions.size
-            val percentage = if (total > 0) (current.correctCount * 100) / total else 0
-            _quizSession.value = current.copy(isFinished = true)
-
-            viewModelScope.launch {
-                repository.recordQuizScore(
-                    QuizScoreEntity(
-                        topicId = current.topic.id,
-                        topicTitleBn = current.topic.titleBn,
-                        score = current.correctCount,
-                        totalQuestions = total,
-                        percentage = percentage
-                    )
-                )
-                recordDailyActivity(4)
-            }
+            finishQuizSession()
         }
+    }
+
+    fun requestExamSubmitConfirmation() {
+        val current = _quizSession.value
+        if (!current.isFinished) {
+            _quizSession.value = current.copy(showSubmitConfirmDialog = true)
+        }
+    }
+
+    fun dismissExamSubmitConfirmation() {
+        val current = _quizSession.value
+        _quizSession.value = current.copy(showSubmitConfirmDialog = false)
+    }
+
+    fun submitFullExamNow() {
+        _quizSession.value = _quizSession.value.copy(showSubmitConfirmDialog = false)
+        finishQuizSession()
+    }
+
+    fun tickQuizTimer() {
+        val current = _quizSession.value
+        if (current.isFinished) return
+        val now = clock.elapsedRealtime()
+        val elapsedSec = if (current.startElapsedRealtimeMs > 0L) {
+            ((now - current.startElapsedRealtimeMs) / 1000L).toInt().coerceAtLeast(0)
+        } else {
+            current.elapsedSeconds + 1
+        }
+        val curQTime = (current.questionTimeSeconds[current.currentIndex] ?: 0) + 1
+        val updatedQTimes = current.questionTimeSeconds + (current.currentIndex to curQTime)
+
+        if (current.mode != QuizMode.TIMED && current.configuredDurationSeconds <= 0) {
+            _quizSession.value = current.copy(
+                elapsedSeconds = elapsedSec,
+                questionTimeSeconds = updatedQTimes
+            )
+            return
+        }
+
+        val deadline = current.deadlineElapsedRealtimeMs
+        val rem = if (deadline > 0L) {
+            val diff = deadline - now
+            if (diff <= 0L) 0 else ((diff + 999L) / 1000L).toInt()
+        } else {
+            (current.timeRemainingSeconds - 1).coerceAtLeast(0)
+        }
+        if (rem <= 0) {
+            finishQuizSession()
+        } else if (rem != current.timeRemainingSeconds || elapsedSec != current.elapsedSeconds) {
+            _quizSession.value = current.copy(
+                timeRemainingSeconds = rem,
+                elapsedSeconds = elapsedSec,
+                questionTimeSeconds = updatedQTimes
+            )
+        }
+    }
+
+    private fun finishQuizSession() {
+        val current = _quizSession.value
+        if (current.isFinished) return
+
+        // If user selected an option on the last question without pressing submit yet, include it
+        val finalAnswers = if (current.selectedOptionIndex != null && !current.userAnswers.containsKey(current.currentIndex)) {
+            current.userAnswers + (current.currentIndex to current.selectedOptionIndex)
+        } else {
+            current.userAnswers
+        }
+
+        val elapsedSec = if (current.startElapsedRealtimeMs > 0L) {
+            ((clock.elapsedRealtime() - current.startElapsedRealtimeMs) / 1000L).toInt().coerceAtLeast(1)
+        } else {
+            current.elapsedSeconds.coerceAtLeast(10)
+        }
+
+        val resolvedAttemptId = current.attemptId.ifBlank { "exam_${System.currentTimeMillis()}" }
+        val resolvedTitle = current.examTitleBn.ifBlank { current.topic.titleBn }
+
+        val detailed = ExamScoringEngine.evaluateExam(
+            attemptId = resolvedAttemptId,
+            examTitleBn = resolvedTitle,
+            examType = current.examConfig.preset.id,
+            questions = current.questions,
+            selectedAnswers = finalAnswers,
+            markedForReview = current.markedForReviewIndices,
+            questionTimeSeconds = current.questionTimeSeconds,
+            marksPerCorrect = current.examConfig.marksPerCorrect,
+            negativeMarksPerWrong = current.examConfig.negativeMarksPerWrong,
+            timeSpentSeconds = elapsedSec,
+            durationLimitSeconds = current.configuredDurationSeconds,
+            completedAt = System.currentTimeMillis()
+        )
+
+        // Track wrong questions in incorrectQuizQuestionPool for Review Incorrect mode
+        val wrongQs = current.questions.filterIndexed { index, q ->
+            val ans = finalAnswers[index]
+            ans == null || ans != q.correctIndex
+        }
+        if (wrongQs.isNotEmpty()) {
+            _incorrectQuizQuestionPool.value = (_incorrectQuizQuestionPool.value + wrongQs)
+                .distinctBy { it.questionBn }
+                .takeLast(30)
+        }
+
+        _quizSession.value = current.copy(
+            attemptId = resolvedAttemptId,
+            examTitleBn = resolvedTitle,
+            userAnswers = finalAnswers,
+            correctCount = detailed.correctCount,
+            isFinished = true,
+            state = QuizState.COMPLETED,
+            timeRemainingSeconds = 0,
+            elapsedSeconds = elapsedSec,
+            detailedResult = detailed,
+            showSubmitConfirmDialog = false
+        )
+
+        viewModelScope.launch {
+            val completedEntity = ExamAttemptEntity(
+                attemptId = resolvedAttemptId,
+                examTitleBn = resolvedTitle,
+                examType = current.examConfig.preset.id,
+                selectedTopicsCsv = current.examConfig.selectedTopics.joinToString(",") { it.id }.ifBlank { current.topic.id },
+                difficulty = current.difficulty.id,
+                questionType = current.questionType.id,
+                totalQuestions = detailed.totalQuestions,
+                durationLimitSeconds = current.configuredDurationSeconds,
+                marksPerCorrect = detailed.marksPerCorrect,
+                negativeMarksPerWrong = detailed.negativeMarksPerWrong,
+                status = "COMPLETED",
+                currentQuestionIndex = current.currentIndex,
+                elapsedSeconds = elapsedSec,
+                remainingSeconds = 0,
+                questionsJson = ExamQuestionBank.serializeQuestions(current.questions),
+                answersJson = ExamQuestionBank.serializeIntMap(finalAnswers),
+                markedForReviewCsv = ExamQuestionBank.serializeIntSet(current.markedForReviewIndices),
+                visitedIndicesCsv = ExamQuestionBank.serializeIntSet(current.visitedIndices),
+                questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(current.questionTimeSeconds),
+                correctCount = detailed.correctCount,
+                wrongCount = detailed.wrongCount,
+                unansweredCount = detailed.unansweredCount,
+                earnedMarks = detailed.earnedPositiveMarks,
+                negativeMarksDeducted = detailed.negativeMarksDeducted,
+                finalScore = detailed.finalScore,
+                percentage = detailed.percentage,
+                accuracyPercent = detailed.accuracyPercent,
+                startedAt = System.currentTimeMillis() - (elapsedSec * 1000L),
+                updatedAt = System.currentTimeMillis(),
+                completedAt = detailed.completedAt
+            )
+            repository.finalizeExamAttempt(
+                completedAttempt = completedEntity,
+                perTopicStats = ExamScoringEngine.toTopicExamStats(detailed.topicBreakdown)
+            )
+            recordDailyActivity(4)
+        }
+    }
+
+    private fun persistActiveExamStateAsync(state: QuizSessionState) {
+        if (state.isFinished || state.questions.isEmpty() || state.attemptId.isBlank()) return
+        viewModelScope.launch {
+            val entity = ExamAttemptEntity(
+                attemptId = state.attemptId,
+                examTitleBn = state.examTitleBn.ifBlank { state.topic.titleBn },
+                examType = state.examConfig.preset.id,
+                selectedTopicsCsv = state.examConfig.selectedTopics.joinToString(",") { it.id }.ifBlank { state.topic.id },
+                difficulty = state.difficulty.id,
+                questionType = state.questionType.id,
+                totalQuestions = state.questions.size,
+                durationLimitSeconds = state.configuredDurationSeconds,
+                marksPerCorrect = state.examConfig.marksPerCorrect,
+                negativeMarksPerWrong = state.examConfig.negativeMarksPerWrong,
+                status = "IN_PROGRESS",
+                currentQuestionIndex = state.currentIndex,
+                elapsedSeconds = state.elapsedSeconds,
+                remainingSeconds = state.timeRemainingSeconds,
+                questionsJson = ExamQuestionBank.serializeQuestions(state.questions),
+                answersJson = ExamQuestionBank.serializeIntMap(state.userAnswers),
+                markedForReviewCsv = ExamQuestionBank.serializeIntSet(state.markedForReviewIndices),
+                visitedIndicesCsv = ExamQuestionBank.serializeIntSet(state.visitedIndices),
+                questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(state.questionTimeSeconds),
+                correctCount = state.correctCount,
+                wrongCount = (state.userAnswers.size - state.correctCount).coerceAtLeast(0),
+                unansweredCount = (state.questions.size - state.userAnswers.size).coerceAtLeast(0),
+                earnedMarks = state.correctCount * state.examConfig.marksPerCorrect,
+                negativeMarksDeducted = 0.0,
+                finalScore = state.correctCount * state.examConfig.marksPerCorrect,
+                percentage = if (state.questions.isNotEmpty()) (state.correctCount * 100.0) / state.questions.size else 0.0,
+                accuracyPercent = if (state.userAnswers.isNotEmpty()) (state.correctCount * 100.0) / state.userAnswers.size else 0.0,
+                startedAt = System.currentTimeMillis() - (state.elapsedSeconds * 1000L),
+                updatedAt = System.currentTimeMillis(),
+                completedAt = null
+            )
+            repository.saveExamAttemptState(entity)
+        }
+    }
+
+    fun resumeActiveExamAttempt(attemptEntity: ExamAttemptEntity? = null) {
+        viewModelScope.launch {
+            val entity = attemptEntity ?: repository.getActiveExamAttemptSnapshot() ?: return@launch
+            val questions = ExamQuestionBank.deserializeQuestions(entity.questionsJson)
+            if (questions.isEmpty()) return@launch
+            val answers = ExamQuestionBank.deserializeIntMap(entity.answersJson)
+            val marked = ExamQuestionBank.deserializeIntSet(entity.markedForReviewCsv)
+            val visited = ExamQuestionBank.deserializeIntSet(entity.visitedIndicesCsv).ifEmpty { setOf(0) }
+            val qTimes = ExamQuestionBank.deserializeIntMap(entity.questionTimeSecondsJson)
+            val preset = runCatching { ExamPresetType.valueOf(entity.examType) }.getOrDefault(ExamPresetType.QUICK_TEST)
+            val topics = entity.selectedTopicsCsv.split(",")
+                .mapNotNull { id -> QuizTopic.values().firstOrNull { it.id == id.trim() } }
+                .toSet()
+                .ifEmpty { setOf(QuizTopic.MIXED_CHALLENGE) }
+            val diff = PracticeDifficulty.values().firstOrNull { it.id == entity.difficulty } ?: PracticeDifficulty.MEDIUM
+            val qType = QuizQuestionType.values().firstOrNull { it.id == entity.questionType } ?: QuizQuestionType.MCQ
+
+            val remSec = entity.remainingSeconds.coerceAtLeast(30)
+            val now = clock.elapsedRealtime()
+            val deadline = if (entity.durationLimitSeconds > 0) now + remSec * 1000L else 0L
+            val curIdx = entity.currentQuestionIndex.coerceIn(0, questions.lastIndex)
+
+            val restoredState = QuizSessionState(
+                attemptId = entity.attemptId,
+                examTitleBn = entity.examTitleBn,
+                examConfig = ExamConfig(
+                    preset = preset,
+                    selectedTopics = topics,
+                    difficulty = diff,
+                    questionType = qType,
+                    questionCount = questions.size,
+                    durationMinutes = (entity.durationLimitSeconds / 60).coerceAtLeast(0),
+                    marksPerCorrect = entity.marksPerCorrect,
+                    negativeMarksPerWrong = entity.negativeMarksPerWrong,
+                    immediateFeedback = (preset == ExamPresetType.PRACTICE_EXAM)
+                ),
+                isFullExamMode = (preset != ExamPresetType.PRACTICE_EXAM),
+                topic = topics.first(),
+                mode = if (entity.durationLimitSeconds > 0) QuizMode.TIMED else QuizMode.TOPIC,
+                questionType = qType,
+                difficulty = diff,
+                state = QuizState.IN_PROGRESS,
+                questions = questions,
+                currentIndex = curIdx,
+                selectedOptionIndex = answers[curIdx],
+                typedAnswer = "",
+                isAnswerSubmitted = false,
+                correctCount = answers.count { (i, a) -> questions.getOrNull(i)?.correctIndex == a },
+                isFinished = false,
+                userAnswers = answers,
+                userTypedAnswers = emptyMap(),
+                markedForReviewIndices = marked,
+                visitedIndices = visited + curIdx,
+                questionTimeSeconds = qTimes,
+                isReviewMode = false,
+                timeRemainingSeconds = remSec,
+                configuredDurationSeconds = entity.durationLimitSeconds,
+                elapsedSeconds = entity.elapsedSeconds,
+                startElapsedRealtimeMs = now - (entity.elapsedSeconds * 1000L),
+                deadlineElapsedRealtimeMs = deadline
+            )
+            _quizSession.value = restoredState
+            navigateTo(Screen.QuizPlay)
+        }
+    }
+
+    fun discardActiveExamAttempt() {
+        viewModelScope.launch {
+            repository.abandonActiveExams()
+        }
+    }
+
+    fun openCompletedExamResult(entity: ExamAttemptEntity) {
+        val questions = ExamQuestionBank.deserializeQuestions(entity.questionsJson)
+        val answers = ExamQuestionBank.deserializeIntMap(entity.answersJson)
+        val marked = ExamQuestionBank.deserializeIntSet(entity.markedForReviewCsv)
+        val visited = ExamQuestionBank.deserializeIntSet(entity.visitedIndicesCsv)
+        val detailed = ExamQuestionBank.reconstructDetailedResult(entity)
+        val preset = runCatching { ExamPresetType.valueOf(entity.examType) }.getOrDefault(ExamPresetType.QUICK_TEST)
+
+        _quizSession.value = QuizSessionState(
+            attemptId = entity.attemptId,
+            examTitleBn = entity.examTitleBn,
+            examConfig = ExamConfig(
+                preset = preset,
+                questionCount = entity.totalQuestions,
+                durationMinutes = entity.durationLimitSeconds / 60,
+                marksPerCorrect = entity.marksPerCorrect,
+                negativeMarksPerWrong = entity.negativeMarksPerWrong
+            ),
+            isFullExamMode = true,
+            state = QuizState.COMPLETED,
+            questions = questions,
+            currentIndex = 0,
+            correctCount = entity.correctCount,
+            isFinished = true,
+            userAnswers = answers,
+            markedForReviewIndices = marked,
+            visitedIndices = visited,
+            isReviewMode = false,
+            timeRemainingSeconds = 0,
+            configuredDurationSeconds = entity.durationLimitSeconds,
+            elapsedSeconds = entity.elapsedSeconds,
+            detailedResult = detailed
+        )
+        navigateTo(Screen.QuizPlay)
+    }
+
+    fun deleteExamAttemptFromHistory(attemptId: String) {
+        viewModelScope.launch {
+            repository.deleteExamAttempt(attemptId)
+            _comparisonAttemptIds.value = _comparisonAttemptIds.value - attemptId
+        }
+    }
+
+    fun toggleExamComparisonSelection(attemptId: String) {
+        val cur = _comparisonAttemptIds.value
+        _comparisonAttemptIds.value = if (cur.contains(attemptId)) {
+            cur - attemptId
+        } else if (cur.size < 2) {
+            cur + attemptId
+        } else {
+            setOf(cur.last(), attemptId)
+        }
+    }
+
+    fun setExamHistoryFilter(filter: ExamHistoryFilter) {
+        _examHistoryFilter.value = filter
+    }
+
+    fun setExamHistorySort(sort: ExamHistorySort) {
+        _examHistorySort.value = sort
+    }
+
+    fun practiceWeakExamTopics(weakTopicTitles: List<String>) {
+        val matchedTopics = QuizTopic.values().filter { t ->
+            weakTopicTitles.any { it.contains(t.titleBn.substringBefore(" ")) }
+        }.toSet().ifEmpty { setOf(QuizTopic.MIXED_CHALLENGE) }
+
+        startConfiguredExam(
+            ExamConfig(
+                preset = ExamPresetType.PRACTICE_EXAM,
+                selectedTopics = matchedTopics,
+                difficulty = PracticeDifficulty.MEDIUM,
+                questionCount = 10,
+                durationMinutes = 0,
+                immediateFeedback = true
+            )
+        )
+    }
+
+    fun startReviewIncorrectQuiz() {
+        val current = _quizSession.value
+        val wrongFromCurrent = current.questions.filterIndexed { index, q ->
+            val ans = current.userAnswers[index]
+            ans == null || ans != q.correctIndex
+        }
+        val pool = if (wrongFromCurrent.isNotEmpty()) wrongFromCurrent else _incorrectQuizQuestionPool.value
+        if (pool.isEmpty()) {
+            startQuiz(current.topic, 10)
+            return
+        }
+        _incorrectQuizQuestionPool.value = pool
+        startQuiz(
+            topic = current.topic,
+            count = pool.size,
+            mode = QuizMode.REVIEW_INCORRECT,
+            difficulty = current.difficulty,
+            questionType = current.questionType
+        )
     }
 
     fun exitQuizToTopicList() {
@@ -372,23 +1099,42 @@ class MathViewModel @JvmOverloads constructor(
 
     fun toggleQuizReviewMode() {
         val current = _quizSession.value
-        _quizSession.value = current.copy(isReviewMode = !current.isReviewMode)
+        val nextReview = !current.isReviewMode
+        _quizSession.value = current.copy(
+            isReviewMode = nextReview,
+            state = if (nextReview) QuizState.REVIEWING else QuizState.COMPLETED
+        )
     }
 
     // ==========================================
-    // MATH PRACTICE LAB OPERATIONS
+    // MODULE 02: MATH PRACTICE LAB OPERATIONS
     // ==========================================
-    fun startPracticeSession(category: PracticeCategory, difficulty: PracticeDifficulty, count: Int = 10) {
-        val questions = PracticeLabGenerator.generateSession(category, difficulty, count)
+    @JvmOverloads
+    fun startPracticeSession(
+        category: PracticeCategory,
+        difficulty: PracticeDifficulty,
+        count: Int = 10,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
+        isUnlimitedMode: Boolean = false
+    ) {
+        val initialCount = if (isUnlimitedMode) 15 else count
+        val questions = PracticeLabGenerator.generateSession(category, difficulty, initialCount, inputFormat)
         _practiceSession.value = PracticeSessionState(
             category = category,
             difficulty = difficulty,
+            activeAdaptiveDifficulty = if (difficulty == PracticeDifficulty.ADAPTIVE) PracticeDifficulty.EASY else difficulty,
+            inputFormat = inputFormat,
+            isUnlimitedMode = isUnlimitedMode,
             questions = questions,
             currentIndex = 0,
             selectedOptionIndex = null,
             customInputText = "",
             isAnswerSubmitted = false,
             isCorrect = false,
+            isHintRevealed = false,
+            hintsUsedCount = 0,
+            consecutiveCorrect = 0,
+            consecutiveWrong = 0,
             correctCount = 0,
             wrongCount = 0,
             startTimeMs = System.currentTimeMillis(),
@@ -414,6 +1160,16 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
+    fun revealPracticeHint() {
+        val current = _practiceSession.value
+        if (!current.isHintRevealed && !current.isAnswerSubmitted && !current.isFinished) {
+            _practiceSession.value = current.copy(
+                isHintRevealed = true,
+                hintsUsedCount = current.hintsUsedCount + 1
+            )
+        }
+    }
+
     fun submitPracticeAnswer() {
         val current = _practiceSession.value
         if (current.isAnswerSubmitted || current.isFinished) return
@@ -423,26 +1179,75 @@ class MathViewModel @JvmOverloads constructor(
         val isCorrect: Boolean
         val effectiveSelectedOpt: Int
 
-        if (selectedOpt != null) {
-            effectiveSelectedOpt = selectedOpt
-            isCorrect = selectedOpt == currentQ.correctIndex
-        } else if (current.customInputText.trim().isNotEmpty()) {
-            val userText = current.customInputText.trim()
-            val correctAns = currentQ.correctAnswerBn
-            val matchedIndex = currentQ.optionsBn.indexOfFirst {
-                it.equals(userText, ignoreCase = true) || BengaliNumberFormatter.toBn(it) == userText
+        when (current.inputFormat) {
+            QuestionInputFormat.TRUE_FALSE -> {
+                if (selectedOpt == null) return
+                effectiveSelectedOpt = selectedOpt
+                // Option 0 = সত্য (True), Option 1 = মিথ্যা (False)
+                val chosenTrue = (selectedOpt == 0)
+                isCorrect = (chosenTrue == currentQ.isStatementTrue)
             }
-            effectiveSelectedOpt = if (matchedIndex != -1) matchedIndex else -1
-            isCorrect = userText == correctAns ||
-                    userText == currentQ.optionsBn.getOrNull(currentQ.correctIndex) ||
-                    BengaliNumberFormatter.toBn(userText) == correctAns
-        } else {
-            return
+            QuestionInputFormat.KEYPAD -> {
+                if (selectedOpt != null) {
+                    effectiveSelectedOpt = selectedOpt
+                    isCorrect = selectedOpt == currentQ.correctIndex
+                } else if (current.customInputText.trim().isNotEmpty()) {
+                    val userText = current.customInputText.trim()
+                    val correctAns = currentQ.correctAnswerBn
+                    val matchedIndex = currentQ.optionsBn.indexOfFirst {
+                        SharedMathEngine.isAnswerCorrect(userText, it)
+                    }
+                    effectiveSelectedOpt = if (matchedIndex != -1) matchedIndex else -1
+                    isCorrect = SharedMathEngine.isAnswerCorrect(userText, correctAns) ||
+                            SharedMathEngine.isAnswerCorrect(userText, currentQ.optionsBn.getOrNull(currentQ.correctIndex) ?: "")
+                } else {
+                    return
+                }
+            }
+            QuestionInputFormat.MCQ -> {
+                if (selectedOpt != null) {
+                    effectiveSelectedOpt = selectedOpt
+                    isCorrect = selectedOpt == currentQ.correctIndex
+                } else if (current.customInputText.trim().isNotEmpty()) {
+                    val userText = current.customInputText.trim()
+                    val correctAns = currentQ.correctAnswerBn
+                    val matchedIndex = currentQ.optionsBn.indexOfFirst {
+                        SharedMathEngine.isAnswerCorrect(userText, it)
+                    }
+                    effectiveSelectedOpt = if (matchedIndex != -1) matchedIndex else -1
+                    isCorrect = SharedMathEngine.isAnswerCorrect(userText, correctAns) ||
+                            SharedMathEngine.isAnswerCorrect(userText, currentQ.optionsBn.getOrNull(currentQ.correctIndex) ?: "")
+                } else {
+                    return
+                }
+            }
         }
 
         val updatedCorrect = if (isCorrect) current.correctCount + 1 else current.correctCount
         val updatedWrong = if (isCorrect) current.wrongCount else current.wrongCount + 1
+        val newConsecCorrect = if (isCorrect) current.consecutiveCorrect + 1 else 0
+        val newConsecWrong = if (!isCorrect) current.consecutiveWrong + 1 else 0
+        val newBestStreak = maxOf(current.bestStreak, newConsecCorrect)
         val updatedAnswers = current.userAnswers + (current.currentIndex to effectiveSelectedOpt)
+        val updatedOutcomes = current.questionOutcomes + (current.currentIndex to isCorrect)
+        val updatedTextAnswers = if (current.customInputText.isNotBlank()) {
+            current.userTextAnswers + (current.currentIndex to current.customInputText.trim())
+        } else {
+            current.userTextAnswers
+        }
+
+        // Dynamic adaptive difficulty adjustment
+        val nextAdaptiveDiff = if (current.difficulty == PracticeDifficulty.ADAPTIVE) {
+            when {
+                newConsecCorrect >= 2 && current.activeAdaptiveDifficulty == PracticeDifficulty.EASY -> PracticeDifficulty.MEDIUM
+                newConsecCorrect >= 2 && current.activeAdaptiveDifficulty == PracticeDifficulty.MEDIUM -> PracticeDifficulty.HARD
+                newConsecWrong >= 2 && current.activeAdaptiveDifficulty == PracticeDifficulty.HARD -> PracticeDifficulty.MEDIUM
+                newConsecWrong >= 2 && current.activeAdaptiveDifficulty == PracticeDifficulty.MEDIUM -> PracticeDifficulty.EASY
+                else -> current.activeAdaptiveDifficulty
+            }
+        } else {
+            current.activeAdaptiveDifficulty
+        }
 
         _practiceSession.value = current.copy(
             isAnswerSubmitted = true,
@@ -450,7 +1255,15 @@ class MathViewModel @JvmOverloads constructor(
             selectedOptionIndex = if (effectiveSelectedOpt >= 0) effectiveSelectedOpt else null,
             correctCount = updatedCorrect,
             wrongCount = updatedWrong,
-            userAnswers = updatedAnswers
+            consecutiveCorrect = newConsecCorrect,
+            consecutiveWrong = newConsecWrong,
+            currentStreak = newConsecCorrect,
+            bestStreak = newBestStreak,
+            activeAdaptiveDifficulty = nextAdaptiveDiff,
+            adaptiveTier = nextAdaptiveDiff,
+            userAnswers = updatedAnswers,
+            userTextAnswers = updatedTextAnswers,
+            questionOutcomes = updatedOutcomes
         )
 
         if (isCorrect) {
@@ -463,45 +1276,122 @@ class MathViewModel @JvmOverloads constructor(
         if (!current.isAnswerSubmitted) return
 
         val nextIndex = current.currentIndex + 1
-        if (nextIndex < current.questions.size) {
+        val updatedQuestions = if (current.isUnlimitedMode && nextIndex >= current.questions.size - 2) {
+            val newQ = PracticeQuestionGenerator.generateNextAdaptiveQuestion(
+                category = current.category,
+                currentDifficulty = current.activeAdaptiveDifficulty,
+                consecutiveCorrect = current.consecutiveCorrect,
+                consecutiveWrong = current.consecutiveWrong,
+                questionIndex = current.questions.size + 1,
+                inputFormat = current.inputFormat
+            )
+            current.questions + newQ
+        } else {
+            current.questions
+        }
+
+        if (nextIndex < updatedQuestions.size) {
             _practiceSession.value = current.copy(
+                questions = updatedQuestions,
                 currentIndex = nextIndex,
                 selectedOptionIndex = null,
                 customInputText = "",
                 isAnswerSubmitted = false,
-                isCorrect = false
+                isCorrect = false,
+                isHintRevealed = false
             )
         } else {
-            val elapsedSec = ((System.currentTimeMillis() - current.startTimeMs) / 1000).coerceAtLeast(1)
-            val total = current.questions.size
-            val percentage = if (total > 0) (current.correctCount * 100) / total else 0
+            finishPracticeSessionNow()
+        }
+    }
 
-            _practiceSession.value = current.copy(
-                isFinished = true,
-                totalTimeSeconds = elapsedSec
-            )
+    fun finishPracticeSessionNow() {
+        val current = _practiceSession.value
+        if (current.isFinished) return
+        val elapsedSec = ((System.currentTimeMillis() - current.startTimeMs) / 1000).coerceAtLeast(1)
+        val totalAttempted = (current.correctCount + current.wrongCount).coerceAtLeast(1)
+        val total = if (current.isUnlimitedMode) totalAttempted else current.questions.size.coerceAtLeast(1)
+        val percentage = (current.correctCount * 100) / total
 
-            viewModelScope.launch {
-                val topicId = "PRACTICE_${current.category.id}_${current.difficulty.id}"
-                val titleBn = "প্র্যাকটিস: ${current.category.titleBn} (${current.difficulty.titleBn})"
-                repository.recordQuizScore(
-                    QuizScoreEntity(
-                        topicId = topicId,
-                        topicTitleBn = titleBn,
-                        score = current.correctCount,
-                        totalQuestions = total,
-                        percentage = percentage
-                    )
+        _practiceSession.value = current.copy(
+            isFinished = true,
+            totalTimeSeconds = elapsedSec
+        )
+
+        viewModelScope.launch {
+            val topicId = "PRACTICE_${current.category.id}_${current.difficulty.id}"
+            val titleBn = "প্র্যাকটিস: ${current.category.titleBn} (${current.difficulty.titleBn})"
+            repository.recordQuizScore(
+                QuizScoreEntity(
+                    topicId = topicId,
+                    topicTitleBn = titleBn,
+                    score = current.correctCount,
+                    totalQuestions = total,
+                    percentage = percentage
                 )
-                repository.recordPractice("practice_${current.category.id}")
-                recordDailyActivity(4)
-            }
+            )
+            repository.recordPractice("practice_${current.category.id}")
+            repository.recordSessionAndAnalytics(
+                moduleType = "PRACTICE_LAB",
+                categoryId = current.category.id,
+                categoryTitleBn = current.category.titleBn,
+                difficulty = current.difficulty.id,
+                mode = if (current.isUnlimitedMode) "unlimited" else "fixed",
+                inputFormat = current.inputFormat.id,
+                score = current.correctCount * 10,
+                correctCount = current.correctCount,
+                wrongCount = current.wrongCount,
+                totalQuestions = total,
+                accuracyPercent = percentage,
+                durationSeconds = elapsedSec,
+                highestStreak = maxOf(current.bestStreak, current.consecutiveCorrect)
+            )
+            recordDailyActivity(4)
         }
     }
 
     fun retryPracticeSession() {
         val current = _practiceSession.value
-        startPracticeSession(current.category, current.difficulty, current.questions.size.coerceAtLeast(5))
+        startPracticeSession(
+            category = current.category,
+            difficulty = current.difficulty,
+            count = current.questions.size.coerceAtLeast(5),
+            inputFormat = current.inputFormat,
+            isUnlimitedMode = current.isUnlimitedMode
+        )
+    }
+
+    fun retryIncorrectPracticeQuestions() {
+        val current = _practiceSession.value
+        val wrongQuestions = current.incorrectQuestions
+        if (wrongQuestions.isEmpty()) {
+            retryPracticeSession()
+            return
+        }
+        _practiceSession.value = PracticeSessionState(
+            category = current.category,
+            difficulty = current.difficulty,
+            activeAdaptiveDifficulty = current.activeAdaptiveDifficulty,
+            inputFormat = current.inputFormat,
+            isUnlimitedMode = false,
+            questions = wrongQuestions,
+            currentIndex = 0,
+            selectedOptionIndex = null,
+            customInputText = "",
+            isAnswerSubmitted = false,
+            isCorrect = false,
+            isHintRevealed = false,
+            hintsUsedCount = 0,
+            consecutiveCorrect = 0,
+            consecutiveWrong = 0,
+            correctCount = 0,
+            wrongCount = 0,
+            startTimeMs = System.currentTimeMillis(),
+            totalTimeSeconds = 0L,
+            isFinished = false,
+            userAnswers = emptyMap(),
+            isReviewMode = false
+        )
     }
 
     fun togglePracticeReviewMode() {
@@ -520,36 +1410,56 @@ class MathViewModel @JvmOverloads constructor(
         _practiceSession.value = PracticeSessionState()
     }
 
-    // --- Mental Math Challenge Engine ---
+    // ==========================================
+    // MODULE 03: MENTAL MATH CHALLENGE ENGINE
+    // ==========================================
+    @JvmOverloads
     fun startMentalMathChallenge(
         category: MentalMathCategory,
         difficulty: MentalMathDifficulty,
         mode: MentalMathMode,
-        durationOrCount: Int
+        durationOrCount: Int,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ
     ) {
-        val countToGenerate = if (mode == MentalMathMode.FIXED_QUESTIONS) durationOrCount else 35
+        val isTimedMode = mode.isTimed
+        val resolvedDuration = when (mode) {
+            MentalMathMode.TIMED_SPRINT, MentalMathMode.CUSTOM_CHALLENGE -> durationOrCount.coerceAtLeast(1)
+            MentalMathMode.QUICK_CHALLENGE, MentalMathMode.SPRINT_60S,
+            MentalMathMode.SPRINT_2M, MentalMathMode.SPRINT_5M,
+            MentalMathMode.DAILY_CHALLENGE -> if (durationOrCount > 0) durationOrCount else mode.presetDurationSeconds
+            else -> 0
+        }
+        val resolvedQuestionCount = when (mode) {
+            MentalMathMode.FIXED_QUESTIONS -> durationOrCount.coerceAtLeast(1)
+            MentalMathMode.ACCURACY_CHALLENGE -> if (durationOrCount > 0) durationOrCount else mode.presetQuestionCount
+            MentalMathMode.DAILY_CHALLENGE -> mode.presetQuestionCount
+            else -> 0
+        }
+        val countToGenerate = if (resolvedQuestionCount > 0) resolvedQuestionCount else 35
         val initialQuestions = MentalMathGenerator.generateQuestions(category, difficulty, countToGenerate)
-        val initialDuration = if (mode == MentalMathMode.TIMED_SPRINT) durationOrCount else 0
         val now = clock.elapsedRealtime()
-        val deadline = if (mode == MentalMathMode.TIMED_SPRINT) now + initialDuration * 1000L else 0L
+        val deadline = if (isTimedMode) now + resolvedDuration * 1000L else 0L
 
         _mentalMathSession.value = MentalMathSessionState(
             category = category,
             difficulty = difficulty,
             mode = mode,
-            configuredDurationSeconds = if (mode == MentalMathMode.TIMED_SPRINT) durationOrCount else 0,
-            configuredQuestionCount = if (mode == MentalMathMode.FIXED_QUESTIONS) durationOrCount else 0,
+            inputFormat = inputFormat,
+            configuredDurationSeconds = resolvedDuration,
+            configuredQuestionCount = resolvedQuestionCount,
             questions = initialQuestions,
             currentIndex = 0,
             score = 0,
+            timeBonusPoints = 0,
             streak = 0,
             highestStreak = 0,
             correctCount = 0,
             wrongCount = 0,
-            timeRemainingSeconds = initialDuration,
+            timeRemainingSeconds = resolvedDuration,
             elapsedSeconds = 0,
             isAnswerSubmitted = false,
             selectedOptionIndex = null,
+            typedInput = "",
             lastAnswerCorrect = null,
             feedbackMessageBn = null,
             isFinished = false,
@@ -559,6 +1469,37 @@ class MathViewModel @JvmOverloads constructor(
             deadlineElapsedRealtimeMs = deadline
         )
         navigateTo(Screen.MentalMathPlay)
+    }
+
+    fun setMentalMathTypedInput(text: String) {
+        val current = _mentalMathSession.value
+        if (!current.isAnswerSubmitted && !current.isFinished) {
+            _mentalMathSession.value = current.copy(typedInput = text)
+        }
+    }
+
+    fun submitMentalMathTypedAnswer() {
+        val current = _mentalMathSession.value
+        if (current.isAnswerSubmitted || current.isFinished) return
+        val typed = current.typedInput.trim()
+        if (typed.isEmpty()) return
+        val asciiDigits = BengaliNumberFormatter.toEnglishDigits(typed)
+        val parsed = asciiDigits.toIntOrNull() ?: -999999
+        submitMentalMathAnswer(parsed)
+    }
+
+    fun submitMentalMathTrueFalse(chosenTrue: Boolean) = submitMentalMathTrueFalseAnswer(chosenTrue)
+
+    fun submitMentalMathTrueFalseAnswer(chosenTrue: Boolean) {
+        val current = _mentalMathSession.value
+        if (current.isAnswerSubmitted || current.isFinished) return
+        val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
+        val valueToPass = if (chosenTrue == currentQ.isStatementTrue) {
+            currentQ.correctAnswer
+        } else {
+            currentQ.options.firstOrNull { it != currentQ.correctAnswer } ?: -1
+        }
+        submitMentalMathAnswer(valueToPass)
     }
 
     fun submitMentalMathAnswer(optionValue: Int) {
@@ -579,7 +1520,12 @@ class MathViewModel @JvmOverloads constructor(
             newStreak >= 2 -> 1.5f
             else -> 1.0f
         }
-        val pointsEarned = if (isCorrect) (current.difficulty.basePoints * comboMultiplier).toInt() else 0
+        val baseEarned = if (isCorrect) (current.difficulty.basePoints * comboMultiplier).toInt() else 0
+        // Speed / time bonus when in a timed mode
+        val speedBonus = if (isCorrect && current.mode.isTimed && current.timeRemainingSeconds > 0) {
+            (current.timeRemainingSeconds / 15).coerceIn(1, 5)
+        } else 0
+        val pointsEarned = baseEarned + speedBonus
 
         val feedbackMsg = if (isCorrect) {
             if (newStreak >= 3) "চমৎকার! ${BengaliNumberFormatter.toBn(newStreak)}টি টানা সঠিক (+${BengaliNumberFormatter.toBn(pointsEarned)})"
@@ -600,6 +1546,7 @@ class MathViewModel @JvmOverloads constructor(
             selectedOptionIndex = optionIndex,
             lastAnswerCorrect = isCorrect,
             score = current.score + pointsEarned,
+            timeBonusPoints = current.timeBonusPoints + speedBonus,
             streak = newStreak,
             highestStreak = newHighestStreak,
             correctCount = if (isCorrect) current.correctCount + 1 else current.correctCount,
@@ -619,16 +1566,22 @@ class MathViewModel @JvmOverloads constructor(
 
         val nextIndex = current.currentIndex + 1
 
-        // Check if finished in FIXED_QUESTIONS mode
-        if (current.mode == MentalMathMode.FIXED_QUESTIONS && nextIndex >= current.configuredQuestionCount) {
+        // Check if finished in fixed question count modes
+        if (current.configuredQuestionCount > 0 && nextIndex >= current.configuredQuestionCount) {
             finishMentalMathSession()
             return
         }
 
-        // In TIMED_SPRINT mode, if questions are running low, generate more
+        // Dynamic difficulty progression on high streaks
+        val dynamicDifficulty = when {
+            current.streak >= 8 -> MentalMathDifficulty.HARD
+            current.streak >= 4 && current.difficulty == MentalMathDifficulty.EASY -> MentalMathDifficulty.MEDIUM
+            else -> current.difficulty
+        }
+
         val currentQuestions = current.questions
         val updatedQuestions = if (nextIndex >= currentQuestions.size - 3) {
-            currentQuestions + MentalMathGenerator.generateQuestions(current.category, current.difficulty, 20)
+            currentQuestions + MentalMathGenerator.generateQuestions(current.category, dynamicDifficulty, 20)
         } else {
             currentQuestions
         }
@@ -637,6 +1590,7 @@ class MathViewModel @JvmOverloads constructor(
             questions = updatedQuestions,
             currentIndex = nextIndex,
             selectedOptionIndex = null,
+            typedInput = "",
             lastAnswerCorrect = null,
             feedbackMessageBn = null,
             isAnswerSubmitted = false
@@ -655,7 +1609,7 @@ class MathViewModel @JvmOverloads constructor(
             current.elapsedSeconds + 1
         }
 
-        if (current.mode == MentalMathMode.TIMED_SPRINT) {
+        if (current.mode.isTimed) {
             val deadlineMs = current.deadlineElapsedRealtimeMs
             val remainingSec = if (deadlineMs > 0L) {
                 val remMs = deadlineMs - now
@@ -687,16 +1641,17 @@ class MathViewModel @JvmOverloads constructor(
 
         val totalAttempted = current.correctCount + current.wrongCount
         val percentage = if (totalAttempted > 0) (current.correctCount * 100) / totalAttempted else 0
+        val finalElapsed = if (current.mode.isTimed) {
+            maxOf(current.configuredDurationSeconds, current.elapsedSeconds)
+        } else {
+            current.elapsedSeconds.coerceAtLeast(1)
+        }
 
         _mentalMathSession.value = current.copy(
             isFinished = true,
             isAnswerSubmitted = true,
             timeRemainingSeconds = 0,
-            elapsedSeconds = if (current.mode == MentalMathMode.TIMED_SPRINT) {
-                maxOf(current.configuredDurationSeconds, current.elapsedSeconds)
-            } else {
-                current.elapsedSeconds
-            }
+            elapsedSeconds = finalElapsed
         )
 
         viewModelScope.launch {
@@ -712,13 +1667,28 @@ class MathViewModel @JvmOverloads constructor(
                 )
             )
             repository.recordPractice("mental_math_${current.category.id}")
+            repository.recordSessionAndAnalytics(
+                moduleType = "MENTAL_MATH",
+                categoryId = current.category.id,
+                categoryTitleBn = current.category.titleBn,
+                difficulty = current.difficulty.id,
+                mode = current.mode.id,
+                inputFormat = current.inputFormat.id,
+                score = current.score,
+                correctCount = current.correctCount,
+                wrongCount = current.wrongCount,
+                totalQuestions = totalAttempted,
+                accuracyPercent = percentage,
+                durationSeconds = finalElapsed.toLong(),
+                highestStreak = current.highestStreak
+            )
             recordDailyActivity(4)
         }
     }
 
     fun retryMentalMathChallenge() {
         val current = _mentalMathSession.value
-        val durationOrCount = if (current.mode == MentalMathMode.TIMED_SPRINT) {
+        val durationOrCount = if (current.mode.isTimed) {
             current.configuredDurationSeconds
         } else {
             current.configuredQuestionCount
@@ -727,7 +1697,8 @@ class MathViewModel @JvmOverloads constructor(
             category = current.category,
             difficulty = current.difficulty,
             mode = current.mode,
-            durationOrCount = durationOrCount
+            durationOrCount = durationOrCount,
+            inputFormat = current.inputFormat
         )
     }
 
@@ -766,8 +1737,7 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun setTutorAnswerInput(input: String) {
-        // filter only digits
-        _tutorUserAnswer.value = input.filter { it.isDigit() }
+        _tutorUserAnswer.value = BengaliNumberFormatter.toEnglishDigits(input).filter { it.isDigit() }
     }
 
     fun checkTutorStep() {
@@ -775,7 +1745,7 @@ class MathViewModel @JvmOverloads constructor(
         val num = _tutorNumber.value
         val step = _tutorStep.value
         val expected = num * step
-        val userAnsInt = _tutorUserAnswer.value.toIntOrNull()
+        val userAnsInt = BengaliNumberFormatter.toEnglishDigits(_tutorUserAnswer.value).toIntOrNull()
 
         if (userAnsInt == null) {
             _tutorFeedback.value = "অনুগ্রহ করে উত্তর লিখুন"
@@ -801,7 +1771,6 @@ class MathViewModel @JvmOverloads constructor(
             _tutorFeedback.value = "ভুল হয়েছে! সঠিক উত্তর: $num × $step = $expected"
         }
     }
-
 
     // --- Streak & Daily Activity Helpers ---
     private fun getTodayDateStr(): String {
@@ -836,7 +1805,6 @@ class MathViewModel @JvmOverloads constructor(
         var longestStreak = prefs.getInt("streak_longest_days", 0)
 
         if (lastDate == null) {
-            // First time initialization
             currentStreak = 1
             longestStreak = 1
             prefs.edit()
@@ -848,7 +1816,6 @@ class MathViewModel @JvmOverloads constructor(
         } else if (lastDate == yesterday) {
             if (currentStreak < 1) currentStreak = 1
         } else if (lastDate != today) {
-            // Missed more than a day
             currentStreak = 1
             prefs.edit().putInt("streak_current_days", 1).apply()
         }
@@ -920,7 +1887,6 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     // --- Customization Management ---
-
     fun updatePreviewGlobal(updater: (GlobalCustomConfig) -> GlobalCustomConfig) {
         val current = _previewCustomizationState.value
         _previewCustomizationState.value = current.copy(global = updater(current.global))
@@ -1006,21 +1972,27 @@ class MathViewModel @JvmOverloads constructor(
         _previewCustomizationState.value = clean
     }
 
-    // --- Phase 3: Number System & Divisibility Practice State ---
+    // ==========================================
+    // MODULE 07: NUMBER SYSTEM & DIVISIBILITY PRACTICE
+    // ==========================================
     private val _numberSystemPracticeState = MutableStateFlow(com.example.math.NumberSystemPracticeState())
     val numberSystemPracticeState: StateFlow<com.example.math.NumberSystemPracticeState> = _numberSystemPracticeState.asStateFlow()
 
+    @JvmOverloads
     fun startNumberSystemPractice(
         topic: com.example.math.NumberSystemTopic = com.example.math.NumberSystemTopic.ALL,
-        difficulty: com.example.math.NumberSystemDifficulty = com.example.math.NumberSystemDifficulty.EASY
+        difficulty: com.example.math.NumberSystemDifficulty = com.example.math.NumberSystemDifficulty.EASY,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ
     ) {
         val questions = com.example.math.NumberSystemProvider.getPracticeQuestions(topic, difficulty)
         _numberSystemPracticeState.value = com.example.math.NumberSystemPracticeState(
             topic = topic,
             difficulty = difficulty,
+            inputFormat = inputFormat,
             questions = questions,
             currentIndex = 0,
             selectedOptionIndex = null,
+            typedInput = "",
             isSubmitted = false,
             score = 0,
             isCompleted = false,
@@ -1052,7 +2024,6 @@ class MathViewModel @JvmOverloads constructor(
             userAnswers = updatedAnswers
         )
 
-        // Award daily activity points if correct
         if (isCorrect) {
             recordDailyActivity(1)
         }
@@ -1064,10 +2035,10 @@ class MathViewModel @JvmOverloads constructor(
             _numberSystemPracticeState.value = current.copy(
                 currentIndex = current.currentIndex + 1,
                 selectedOptionIndex = null,
+                typedInput = "",
                 isSubmitted = false
             )
         } else {
-            // Completed session: save quiz score to Room DB
             val total = current.questions.size
             val percentage = if (total > 0) (current.score * 100) / total else 0
             val topicTitle = "বাস্তব সংখ্যা ও বিভাজ্যতা (${current.difficulty.titleBn})"
@@ -1082,6 +2053,21 @@ class MathViewModel @JvmOverloads constructor(
                         percentage = percentage
                     )
                 )
+                repository.recordSessionAndAnalytics(
+                    moduleType = "NUMBER_SYSTEM",
+                    categoryId = current.topic.id,
+                    categoryTitleBn = topicTitle,
+                    difficulty = current.difficulty.id,
+                    mode = "practice",
+                    inputFormat = current.inputFormat.id,
+                    score = current.score * 10,
+                    correctCount = current.score,
+                    wrongCount = (total - current.score).coerceAtLeast(0),
+                    totalQuestions = total,
+                    accuracyPercent = percentage,
+                    durationSeconds = 30L,
+                    highestStreak = current.score
+                )
                 recordDailyActivity(3)
             }
 
@@ -1093,7 +2079,159 @@ class MathViewModel @JvmOverloads constructor(
 
     fun restartNumberSystemPractice() {
         val current = _numberSystemPracticeState.value
-        startNumberSystemPractice(current.topic, current.difficulty)
+        startNumberSystemPractice(current.topic, current.difficulty, current.inputFormat)
+    }
+
+    // ==========================================
+    // PRIORITY 2 & 3: DASHBOARD, SOLVER HISTORY & BCS PREPARATION ACTIONS
+    // ==========================================
+    fun setDashboardTimeFilter(filter: AnalyticsTimeFilter) {
+        _dashboardTimeFilter.value = filter
+    }
+
+    fun updateDailyStudyTargets(targetQuestions: Int, targetMinutes: Int) {
+        viewModelScope.launch {
+            repository.updateDailyStudyTargets(targetQuestions, targetMinutes)
+        }
+    }
+
+    fun executeLearningRecommendation(rec: LearningRecommendation) {
+        when (rec.actionType) {
+            RecommendationActionType.RESUME_ACTIVE_EXAM -> resumeActiveExamAttempt()
+            RecommendationActionType.OPEN_QUIZ_TOPIC -> {
+                val topic = QuizTopic.values().firstOrNull { it.id == rec.targetTopicId } ?: QuizTopic.MIXED_CHALLENGE
+                startQuiz(topic = topic, count = 10, mode = QuizMode.TOPIC)
+            }
+            RecommendationActionType.OPEN_EXAM_PRESET -> {
+                val preset = runCatching { ExamPresetType.valueOf(rec.targetTopicId) }.getOrDefault(ExamPresetType.QUICK_TEST)
+                startConfiguredExam(ExamConfig(preset = preset))
+            }
+            RecommendationActionType.OPEN_PRACTICE_LAB -> navigateTo(Screen.PracticeLab)
+            RecommendationActionType.OPEN_MENTAL_MATH -> navigateTo(Screen.MentalMath)
+            RecommendationActionType.OPEN_FORMULA_LIBRARY -> navigateTo(Screen.FormulaLibrary)
+            RecommendationActionType.OPEN_PROBLEM_SOLVER -> navigateTo(Screen.ProblemSolver)
+            RecommendationActionType.OPEN_BCS_PREPARATION -> navigateTo(Screen.BcsPreparation)
+        }
+    }
+
+    fun saveSolverResultToHistory(
+        topic: SolverTopic,
+        inputs: Map<String, String>,
+        result: SolverResult
+    ) {
+        if (!result.isSuccess) return
+        viewModelScope.launch {
+            val summary = inputs.entries.joinToString(", ") { "${it.key} = ${it.value}" }.ifBlank { result.originalProblemBn }
+            val entity = SolverHistoryEntity(
+                topicId = topic.name,
+                topicTitleBn = topic.titleBn,
+                categoryTitleBn = topic.titleEn,
+                inputSummaryBn = summary,
+                inputsJson = SimilarProblemGenerator.serializeInputs(inputs),
+                finalAnswerBn = result.finalAnswerBn,
+                stepsJson = SimilarProblemGenerator.serializeSteps(result.steps),
+                formulaUsedBn = result.formulaUsedBn ?: "",
+                verificationBn = result.verificationBn ?: "",
+                timestamp = System.currentTimeMillis()
+            )
+            repository.saveSolvedProblemHistory(entity)
+            repository.recordDailyStudyDelta(
+                questionsAttemptedDelta = 1,
+                correctDelta = 1,
+                wrongDelta = 0,
+                studyTimeSecondsDelta = 30,
+                examsCompletedDelta = 0,
+                practiceSessionsCompletedDelta = 1
+            )
+            recordDailyActivity(1)
+        }
+    }
+
+    fun deleteSolverHistoryItem(id: Int) {
+        viewModelScope.launch {
+            repository.deleteSolvedProblemHistory(id)
+        }
+    }
+
+    fun clearAllSolverHistory() {
+        viewModelScope.launch {
+            repository.clearSolvedProblemHistory()
+        }
+    }
+
+    private val _selectedBcsSyllabusVersion = MutableStateFlow(BcsSyllabusVersion.BCS_50TH_CURRENT)
+    val selectedBcsSyllabusVersion: StateFlow<BcsSyllabusVersion> = _selectedBcsSyllabusVersion.asStateFlow()
+
+    fun setBcsSyllabusVersion(version: BcsSyllabusVersion) {
+        _selectedBcsSyllabusVersion.value = version
+    }
+
+    fun startBcsMockExam(
+        unit: BcsSyllabusUnit? = null,
+        syllabusVersion: BcsSyllabusVersion = _selectedBcsSyllabusVersion.value,
+        questionCount: Int = syllabusVersion.totalMarks,
+        durationMinutes: Int = syllabusVersion.totalMarks,
+        negativeMarking: Double = 0.0
+    ) {
+        val questions = BcsPreparationRepository.generateBcsExamQuestions(
+            count = questionCount,
+            difficulty = PracticeDifficulty.MEDIUM,
+            unit = unit,
+            includePreviousBcs = true,
+            syllabusVersion = syllabusVersion
+        )
+        val durationSec = (durationMinutes * 60).coerceAtLeast(60)
+        val now = clock.elapsedRealtime()
+        val deadline = now + durationSec * 1000L
+        val attemptId = "bcs_mock_${System.currentTimeMillis()}"
+        val titleBn = when {
+            unit != null -> "বিসিএস অনুশীলন (${syllabusVersion.shortBadgeBn}): ${unit.titleBn}"
+            syllabusVersion == BcsSyllabusVersion.BCS_50TH_CURRENT -> "৫০তম বিসিএস প্রিলিমিনারি গাণিতিক যুক্তি মক টেস্ট (২০ নম্বর)"
+            else -> "প্রাক্তন বিসিএস গাণিতিক যুক্তি মক টেস্ট (১৫ নম্বর • আর্কাইভড)"
+        }
+        val config = ExamConfig(
+            preset = ExamPresetType.BCS_PRELIMINARY_MOCK,
+            selectedTopics = setOf(unit?.mappedQuizTopic ?: QuizTopic.MIXED_CHALLENGE),
+            difficulty = PracticeDifficulty.MEDIUM,
+            questionType = QuizQuestionType.MCQ,
+            questionCount = questions.size,
+            durationMinutes = durationMinutes,
+            marksPerCorrect = 1.0,
+            negativeMarksPerWrong = negativeMarking,
+            immediateFeedback = false
+        )
+
+        val newState = QuizSessionState(
+            attemptId = attemptId,
+            examTitleBn = titleBn,
+            examConfig = config,
+            isFullExamMode = true,
+            topic = unit?.mappedQuizTopic ?: QuizTopic.MIXED_CHALLENGE,
+            mode = QuizMode.TIMED,
+            questionType = QuizQuestionType.MCQ,
+            difficulty = PracticeDifficulty.MEDIUM,
+            state = if (questions.isNotEmpty()) QuizState.IN_PROGRESS else QuizState.ERROR,
+            questions = questions,
+            currentIndex = 0,
+            selectedOptionIndex = null,
+            typedAnswer = "",
+            isAnswerSubmitted = false,
+            correctCount = 0,
+            isFinished = false,
+            userAnswers = emptyMap(),
+            userTypedAnswers = emptyMap(),
+            markedForReviewIndices = emptySet(),
+            visitedIndices = setOf(0),
+            questionTimeSeconds = emptyMap(),
+            isReviewMode = false,
+            timeRemainingSeconds = durationSec,
+            configuredDurationSeconds = durationSec,
+            elapsedSeconds = 0,
+            startElapsedRealtimeMs = now,
+            deadlineElapsedRealtimeMs = deadline
+        )
+        _quizSession.value = newState
+        persistActiveExamStateAsync(newState)
+        navigateTo(Screen.QuizPlay)
     }
 }
-

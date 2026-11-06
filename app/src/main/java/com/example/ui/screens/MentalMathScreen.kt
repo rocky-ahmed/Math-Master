@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,7 +48,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +57,7 @@ import com.example.math.BengaliNumberFormatter
 import com.example.math.MentalMathCategory
 import com.example.math.MentalMathDifficulty
 import com.example.math.MentalMathMode
+import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathSectionHeader
 import com.example.ui.components.MathTopAppBar
@@ -80,6 +79,7 @@ fun MentalMathScreen(
     var selectedMode by remember { mutableStateOf(MentalMathMode.TIMED_SPRINT) }
     var sprintDurationSec by remember { mutableIntStateOf(60) }
     var fixedQuestionCount by remember { mutableIntStateOf(10) }
+    var selectedInputFormat by remember { mutableStateOf(QuestionInputFormat.MCQ) }
 
     Column(
         modifier = modifier
@@ -88,7 +88,7 @@ fun MentalMathScreen(
     ) {
         MathTopAppBar(
             title = "মেন্টাল ম্যাথ চ্যালেঞ্জ",
-            subtitle = "দ্রুত গণনা, ক্ষিপ্রতা ও তীব্র মানসিক অনুশীলন",
+            subtitle = "১০টি বিভাগ ও ৭টি চ্যালেঞ্জ মোডে দ্রুত মানসিক গণনা",
             onBackClick = { viewModel.navigateBack() }
         )
 
@@ -131,7 +131,7 @@ fun MentalMathScreen(
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                        text = "মেন্টাল ম্যাথ চ্যালেঞ্জ",
+                                    text = "মেন্টাল ম্যাথ চ্যালেঞ্জ",
                                     style = MaterialTheme.typography.headlineSmall.copy(
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 22.sp
@@ -197,7 +197,7 @@ fun MentalMathScreen(
                 }
             }
 
-            // Challenge Mode Selector
+            // Challenge Mode Selector (All modes in a scrollable row, preserving mode_${mode.id} tags)
             item {
                 Column {
                     Text(
@@ -206,19 +206,26 @@ fun MentalMathScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(
+                    LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MentalMathMode.values().forEach { mode ->
+                        items(MentalMathMode.values()) { mode ->
                             val isSelected = selectedMode == mode
                             Surface(
                                 shape = RoundedCornerShape(14.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                                 border = if (isSelected) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { selectedMode = mode }
+                                    .width(175.dp)
+                                    .clickable {
+                                        selectedMode = mode
+                                        if (mode.isTimed) {
+                                            sprintDurationSec = mode.defaultSeconds
+                                        } else {
+                                            fixedQuestionCount = mode.defaultQuestions
+                                        }
+                                    }
                                     .testTag("mode_${mode.id}")
                             ) {
                                 Column(
@@ -228,7 +235,8 @@ fun MentalMathScreen(
                                     Text(
                                         text = mode.titleBn,
                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
@@ -248,17 +256,17 @@ fun MentalMathScreen(
             item {
                 Column {
                     Text(
-                        text = if (selectedMode == MentalMathMode.TIMED_SPRINT) "২. সময়সীমা নির্ধারণ (সেকেন্ড)" else "২. প্রশ্ন সংখ্যা নির্ধারণ",
+                        text = if (selectedMode.isTimed) "২. সময়সীমা নির্ধারণ (সেকেন্ড)" else "২. প্রশ্ন সংখ্যা নির্ধারণ",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Row(
+                    LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        if (selectedMode == MentalMathMode.TIMED_SPRINT) {
-                            listOf(30, 60, 120).forEach { sec ->
+                        if (selectedMode.isTimed) {
+                            items(listOf(30, 60, 120, 300)) { sec ->
                                 FilterChip(
                                     selected = sprintDurationSec == sec,
                                     onClick = { sprintDurationSec = sec },
@@ -272,7 +280,7 @@ fun MentalMathScreen(
                                 )
                             }
                         } else {
-                            listOf(10, 20, 30).forEach { count ->
+                            items(listOf(10, 15, 20, 30)) { count ->
                                 FilterChip(
                                     selected = fixedQuestionCount == count,
                                     onClick = { fixedQuestionCount = count },
@@ -294,7 +302,7 @@ fun MentalMathScreen(
             item {
                 Column {
                     Text(
-                        text = "৩. কাঠিন্যের স্তর নির্বাচন করুন",
+                        text = "৩. কাঠিন্যের স্তর ও উত্তরের ধরন",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -324,13 +332,36 @@ fun MentalMathScreen(
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        QuestionInputFormat.values().forEach { fmt ->
+                            val isSelected = selectedInputFormat == fmt
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { selectedInputFormat = fmt },
+                                label = {
+                                    Text(
+                                        text = fmt.titleBn,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("mm_format_${fmt.name}")
+                            )
+                        }
+                    }
                 }
             }
 
-            // Category Selector
+            // Category Selector (10 Mental Math Categories)
             item {
                 Text(
-                    text = "৪. গণিত বিষয় নির্বাচন করুন",
+                    text = "৪. গণিত বিষয় নির্বাচন করুন (১০টি)",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -414,7 +445,7 @@ fun MentalMathScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = {
-                        val durationOrCount = if (selectedMode == MentalMathMode.TIMED_SPRINT) {
+                        val durationOrCount = if (selectedMode.isTimed) {
                             sprintDurationSec
                         } else {
                             fixedQuestionCount
@@ -423,7 +454,8 @@ fun MentalMathScreen(
                             category = selectedCategory,
                             difficulty = selectedDifficulty,
                             mode = selectedMode,
-                            durationOrCount = durationOrCount
+                            durationOrCount = durationOrCount,
+                            inputFormat = selectedInputFormat
                         )
                     },
                     modifier = Modifier
@@ -481,7 +513,7 @@ fun MentalMathScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "সঠিক: ${BengaliNumberFormatter.toBn(item.totalQuestions)} টির মধ্যে ${BengaliNumberFormatter.toBn(item.score)} পয়েন্ট • নির্ভুলতা ${BengaliNumberFormatter.toBn(item.percentage)}%",
+                                    text = "সঠিক: ${BengaliNumberFormatter.toBn(item.totalQuestions)} টি প্রশ্ন • ${BengaliNumberFormatter.toBn(item.score)} পয়েন্ট • নির্ভুলতা ${BengaliNumberFormatter.toBn(item.percentage)}%",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                 )

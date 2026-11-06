@@ -92,6 +92,7 @@ import com.example.math.NumberSystemCategory
 import com.example.math.NumberSystemDifficulty
 import com.example.math.NumberSystemProvider
 import com.example.math.NumberSystemTopic
+import com.example.math.RealNumberGuidedExplorer
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathSectionHeader
@@ -174,12 +175,196 @@ fun NumberClassificationTab(
     var testNumberInput by remember { mutableStateOf("") }
     var classificationResult by remember { mutableStateOf<String?>(null) }
     var expandedCategory by remember { mutableStateOf<String?>(null) }
+    var activeGuidedStepIdx by remember { mutableIntStateOf(0) }
+    var currentExerciseIdx by remember { mutableIntStateOf(0) }
+    var selectedExerciseOption by remember(currentExerciseIdx) { mutableStateOf<Int?>(null) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // P1 UPGRADE: Guided Step-by-Step Real Numbers Explorer (ℕ ⊂ W ⊂ ℤ ⊂ ℚ ⊂ ℝ & ℚ')
+        item {
+            val steps = RealNumberGuidedExplorer.guidedSteps
+            val currentStep = steps[activeGuidedStepIdx.coerceIn(0, steps.lastIndex)]
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("real_numbers_guided_explorer_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "ধাপে ধাপে বাস্তব সংখ্যার গাইডেড এক্সপ্লোরার (ℕ ⊂ W ⊂ ℤ ⊂ ℚ ⊂ ℝ)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(steps.size) { idx ->
+                            val st = steps[idx]
+                            FilterChip(
+                                selected = activeGuidedStepIdx == idx,
+                                onClick = { activeGuidedStepIdx = idx },
+                                label = { Text("ধাপ ${BengaliNumberFormatter.toBn(st.stepIndex)}: ${st.symbol}", fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.testTag("guided_step_chip_${st.stepIndex}")
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "${currentStep.symbol} — ${currentStep.titleBn}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                    Text(
+                        text = currentStep.definitionBn,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "সেট সম্পর্ক: ${currentStep.subsetRelationshipBn}",
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+
+                    // Interactive Number Line Representation
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("guided_number_line_box")
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "সংখ্যা রেখায় অবস্থান (Number Line):",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                currentStep.numberLinePoints.forEach { (_, labelBn) ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = labelBn,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    currentStep.keyPropertiesBn.forEach { prop ->
+                        Text(
+                            text = "• $prop",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Text(
+                        text = "উদাহরণ: ${currentStep.examplesBn.joinToString(", ")}  |  অন্তর্ভুক্ত নয়: ${currentStep.nonExamplesBn.joinToString(", ")}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        // P1 UPGRADE: Interactive Set Classification Exercise Card
+        item {
+            val exercises = RealNumberGuidedExplorer.classificationExercises
+            val ex = exercises[currentExerciseIdx.coerceIn(0, exercises.lastIndex)]
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("set_classification_exercise_card"),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "শ্রেণিবিন্যাস অনুশীলন (${BengaliNumberFormatter.toBn(currentExerciseIdx + 1)}/${BengaliNumberFormatter.toBn(exercises.size)})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                currentExerciseIdx = (currentExerciseIdx + 1) % exercises.size
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.testTag("btn_next_classification_ex")
+                        ) {
+                            Text("পরবর্তী প্রশ্ন", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    Text(
+                        text = ex.questionBn,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    ex.optionsBn.forEachIndexed { idx, optText ->
+                        FilterChip(
+                            selected = selectedExerciseOption == idx,
+                            onClick = { selectedExerciseOption = idx },
+                            label = { Text(optText) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("classification_opt_$idx")
+                        )
+                    }
+
+                    if (selectedExerciseOption != null) {
+                        val isRight = selectedExerciseOption == ex.correctIndex
+                        Text(
+                            text = if (isRight) "সঠিক উত্তর! ${ex.stepByStepReasonBn}" else "ভুল উত্তর। সঠিক: ${ex.optionsBn[ex.correctIndex]}। ${ex.stepByStepReasonBn}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isRight) Color(0xFF15803D) else MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+        }
+
         // Interactive Live Classifier Box
         item {
             ElevatedCard(
@@ -885,6 +1070,42 @@ fun GcdLcmCalculatorTab(
                             style = MaterialTheme.typography.bodySmall,
                             lineHeight = 20.sp,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
+
+            // Coprime & Euclidean Integer Division Analyzer Card
+            item {
+                val coprimeInfo = remember(res.a, res.b) {
+                    NumberSystemProvider.analyzeCoprimeAndDivision(res.a, res.b)
+                }
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("coprime_division_card")
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "সহমৌলিকতা ও ইউক্লিডীয় ভাগশেষ বিশ্লেষণ",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = coprimeInfo.coprimeExplanationBn,
+                            style = MaterialTheme.typography.bodySmall,
+                            lineHeight = 20.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = coprimeInfo.divisionEquationBn,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.secondary
                         )
                     }
                 }

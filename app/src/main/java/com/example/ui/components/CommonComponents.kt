@@ -161,3 +161,73 @@ fun LearnedStatusBadge(
         }
     }
 }
+
+@Composable
+fun BanglaNumericKeypad(
+    currentValue: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val rows = listOf(
+        listOf("১" to "1", "২" to "2", "৩" to "3", "-" to "-"),
+        listOf("৪" to "4", "৫" to "5", "৬" to "6", "." to "."),
+        listOf("৭" to "7", "৮" to "8", "৯" to "9", "/" to "/"),
+        listOf("০" to "0", "⌫" to "BACK", "মুছুন" to "CLEAR")
+    )
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            rows.forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    row.forEach { (label, keyAction) ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .clickable {
+                                    when (keyAction) {
+                                        "CLEAR" -> onClear()
+                                        "BACK" -> if (currentValue.isNotEmpty()) {
+                                            onValueChange(currentValue.dropLast(1))
+                                        }
+                                        else -> onValueChange(currentValue + label)
+                                    }
+                                }
+                                .testTag("keypad_btn_$keyAction")
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

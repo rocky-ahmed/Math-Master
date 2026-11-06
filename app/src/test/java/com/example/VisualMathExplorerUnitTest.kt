@@ -212,4 +212,28 @@ class VisualMathExplorerUnitTest {
         assertEquals(64.0, result.outputValue, 0.001)
         assertTrue(result.calculationStepsBn.any { it.contains("ঘন একক") })
     }
+
+    @Test
+    fun testAnglesLinearGraphRatioPatternAndTransformations() {
+        val angle = VisualMathEngine.calculateAngle(35.0)
+        assertEquals(55.0, angle.complementaryDegrees!!, 0.001)
+        assertEquals(145.0, angle.supplementaryDegrees!!, 0.001)
+
+        val graph = VisualMathEngine.evaluateLinearGraph(2.0, -4.0, 3.0)
+        assertEquals(2.0, graph.sampleY, 0.001)
+        assertEquals(2.0, graph.xIntercept!!, 0.001)
+        assertEquals(-4.0, graph.yIntercept, 0.001)
+
+        val ratio = VisualMathEngine.analyzeRatioAndPercentage(6, 9, 40)
+        assertEquals(2, ratio.simplifiedA)
+        assertEquals(3, ratio.simplifiedB)
+        assertEquals(40.0, ratio.shareAPercent, 0.001)
+
+        val pattern = VisualMathEngine.generateVisualPattern("square", 5)
+        assertEquals(listOf(1, 4, 9, 16, 25), pattern.terms)
+
+        val transform = VisualMathEngine.calculate2DTransformation(3.0, 4.0, "reflect_x")
+        assertEquals(3.0, transform.transformedX, 0.001)
+        assertEquals(-4.0, transform.transformedY, 0.001)
+    }
 }

@@ -86,8 +86,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BookmarkEntity
+import com.example.data.model.SolverHistoryEntity
 import com.example.math.BengaliNumberFormatter
 import com.example.math.MathProblemSolverEngine
+import com.example.math.SimilarProblemGenerator
 import com.example.math.SolutionStep
 import com.example.math.SolverMode
 import com.example.math.SolverResult
@@ -103,6 +105,7 @@ fun ProblemSolverScreen(
 ) {
     val context = LocalContext.current
     val bookmarks by viewModel.bookmarks.collectAsState()
+    val solverHistory by viewModel.solverHistory.collectAsState()
 
     BackHandler {
         viewModel.navigateBack()
@@ -174,6 +177,17 @@ fun ProblemSolverScreen(
 
     // Linear Equation
     var linearEqInput by remember { mutableStateOf("৩x + ১২ = ৪৫") }
+
+    // Quadratic Equation (ax² + bx + c = 0)
+    var quadA by remember { mutableStateOf("১") }
+    var quadB by remember { mutableStateOf("-৫") }
+    var quadC by remember { mutableStateOf("৬") }
+
+    // Factorization
+    var factorInput by remember { mutableStateOf("x² - 5x + 6") }
+
+    // Simplification
+    var simplifyInput by remember { mutableStateOf("√72") }
 
     // Result State
     var solverResult by remember { mutableStateOf<SolverResult?>(null) }
@@ -278,6 +292,18 @@ fun ProblemSolverScreen(
                 SolverTopic.LINEAR_EQUATIONS -> {
                     MathProblemSolverEngine.solveLinearEquation(linearEqInput, selectedMode)
                 }
+                SolverTopic.QUADRATIC_EQUATIONS -> {
+                    val a = parseBnToDouble(quadA) ?: 1.0
+                    val b = parseBnToDouble(quadB) ?: -5.0
+                    val c = parseBnToDouble(quadC) ?: 6.0
+                    MathProblemSolverEngine.solveQuadraticEquation(a, b, c, selectedMode)
+                }
+                SolverTopic.FACTORIZATION -> {
+                    MathProblemSolverEngine.solveFactorization(factorInput, selectedMode)
+                }
+                SolverTopic.SIMPLIFICATION -> {
+                    MathProblemSolverEngine.solveSimplification(simplifyInput, selectedMode)
+                }
             }
         } catch (e: Exception) {
             SolverResult(
@@ -299,7 +325,7 @@ fun ProblemSolverScreen(
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
             title = "গণিত সমাধানকারী",
-            subtitle = "ধাপভিত্তিক বাংলা সমাধান • ১৩টি বিষয়",
+            subtitle = "ধাপভিত্তিক বাংলা সমাধান • ১৬টি বিষয়",
             onBackClick = { viewModel.navigateBack() }
         )
 
@@ -441,8 +467,34 @@ fun ProblemSolverScreen(
                     // Linear Equations
                     linearEqInput = linearEqInput,
                     onLinearEqChange = { linearEqInput = it },
+                    // Quadratic Equations
+                    quadA = quadA,
+                    quadB = quadB,
+                    quadC = quadC,
+                    onQuadChange = { a, b, c ->
+                        quadA = a
+                        quadB = b
+                        quadC = c
+                    },
+                    // Factorization
+                    factorInput = factorInput,
+                    onFactorChange = { factorInput = it },
+                    // Simplification
+                    simplifyInput = simplifyInput,
+                    onSimplifyChange = { simplifyInput = it },
                     // Solve trigger
-                    onSolveClick = { solveCurrentTopic() }
+                    onSolveClick = {
+                        solveCurrentTopic()
+                        solverResult?.let { res ->
+                            if (res.isSuccess) {
+                                viewModel.saveSolverResultToHistory(
+                                    topic = selectedTopic,
+                                    inputs = mapOf("problem" to res.originalProblemBn),
+                                    result = res
+                                )
+                            }
+                        }
+                    }
                 )
             }
 
@@ -538,11 +590,213 @@ fun ProblemSolverScreen(
                                     sqCubeOp = 1
                                 }
                                 SolverTopic.LINEAR_EQUATIONS -> linearEqInput = BengaliNumberFormatter.toBn(inputs["equation"] ?: "3x + 9 = 27")
+                                SolverTopic.QUADRATIC_EQUATIONS -> {
+                                    quadA = BengaliNumberFormatter.toBn(inputs["a"] ?: "1")
+                                    quadB = BengaliNumberFormatter.toBn(inputs["b"] ?: "-5")
+                                    quadC = BengaliNumberFormatter.toBn(inputs["c"] ?: "6")
+                                }
+                                SolverTopic.FACTORIZATION -> {
+                                    factorInput = inputs["expression"] ?: "x² - 7x + 12"
+                                }
+                                SolverTopic.SIMPLIFICATION -> {
+                                    simplifyInput = inputs["expression"] ?: "√50"
+                                }
                             }
                             solveCurrentTopic()
                             Toast.makeText(context, "অনুরূপ নতুন সমস্যা লোড হয়েছে!", Toast.LENGTH_SHORT).show()
                         }
                     )
+                }
+
+                // P1 UPGRADE: Multi-Difficulty (Easy / Medium / Hard) Similar Problem Generator
+                item {
+                    val similarProblems = remember(selectedTopic) {
+                        SimilarProblemGenerator.generateSimilarProblems(selectedTopic)
+                    }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("solver_similar_problems_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "অনুরূপ অনুশীলন সমস্যা জেনারেটর (সহজ • মাঝারি • কঠিন)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            similarProblems.forEach { sim ->
+                                var expandedSteps by remember(sim.problemStatementBn) { mutableStateOf(false) }
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("similar_prob_${sim.difficulty.name}")
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = sim.difficultyLabelBn,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            OutlinedButton(
+                                                onClick = { expandedSteps = !expandedSteps },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (expandedSteps) "সমাধান লুকান" else "ধাপসহ উত্তর দেখুন",
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = "সমস্যা: ${sim.problemStatementBn}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        if (expandedSteps) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            sim.solution.steps.forEach { st ->
+                                                Text(
+                                                    text = "${BengaliNumberFormatter.toBn(st.stepIndex)}. ${st.titleBn}: ${st.expressionOrMathBn} (${st.explanationBn})",
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                            Text(
+                                                text = "চূড়ান্ত উত্তর: ${sim.solution.finalAnswerBn}",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color(0xFF059669)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // P1 UPGRADE: Saved Problem Solver History
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("solver_history_card"),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "সংরক্ষিত সমাধান ইতিহাস (${BengaliNumberFormatter.toBn(solverHistory.size)})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (solverHistory.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = { viewModel.clearAllSolverHistory() },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier.testTag("btn_clear_solver_history")
+                                ) {
+                                    Text("সব মুছুন", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+
+                        if (solverHistory.isEmpty()) {
+                            Text(
+                                text = "এখনো কোনো সমাধান ইতিহাসে সংরক্ষিত হয়নি। 'সমাধান করুন' বাটনে চাপলে স্বয়ংক্রিয়ভাবে এখানে সংরক্ষিত হবে।",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            solverHistory.take(10).forEach { hist ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            val matchedTopic = SolverTopic.entries.firstOrNull { it.name == hist.topicId }
+                                            if (matchedTopic != null) {
+                                                selectedTopic = matchedTopic
+                                            }
+                                            val restoredSteps = SimilarProblemGenerator.deserializeSteps(hist.stepsJson)
+                                            solverResult = SolverResult(
+                                                topic = matchedTopic ?: selectedTopic,
+                                                mode = selectedMode,
+                                                originalProblemBn = hist.inputSummaryBn,
+                                                formulaUsedBn = hist.formulaUsedBn.ifBlank { null },
+                                                steps = restoredSteps,
+                                                finalAnswerBn = hist.finalAnswerBn,
+                                                verificationBn = hist.verificationBn.ifBlank { null },
+                                                isSuccess = true
+                                            )
+                                        }
+                                        .testTag("solver_history_item_${hist.id}")
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = hist.topicTitleBn,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = hist.inputSummaryBn,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "উত্তর: ${hist.finalAnswerBn}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF059669),
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.deleteSolverHistoryItem(hist.id) },
+                                            modifier = Modifier.testTag("delete_solver_history_${hist.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "মুছুন",
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -747,6 +1001,17 @@ fun TopicInputCard(
     // Linear Equations
     linearEqInput: String,
     onLinearEqChange: (String) -> Unit,
+    // Quadratic Equations
+    quadA: String = "১",
+    quadB: String = "-৫",
+    quadC: String = "৬",
+    onQuadChange: (String, String, String) -> Unit = { _, _, _ -> },
+    // Factorization
+    factorInput: String = "x² - 5x + 6",
+    onFactorChange: (String) -> Unit = {},
+    // Simplification
+    simplifyInput: String = "√72",
+    onSimplifyChange: (String) -> Unit = {},
     // Actions
     onSolveClick: () -> Unit
 ) {
@@ -1241,7 +1506,7 @@ fun TopicInputCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
-                        listOf(2, 3, 4, 5, 6, 7, 8, 9, 10, 11).forEach { d ->
+                        listOf(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12).forEach { d ->
                             FilterChip(
                                 selected = divDivisor == d,
                                 onClick = { onDivChange(divNumber, d) },
@@ -1300,6 +1565,85 @@ fun TopicInputCard(
                         listOf("3x + 12 = 45", "5x - 8 = 2x + 16", "4x + 10 = 34", "7x - 5 = 3x + 15").forEach { sample ->
                             OutlinedButton(
                                 onClick = { onLinearEqChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(sample, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+                SolverTopic.QUADRATIC_EQUATIONS -> {
+                    Text(
+                        text = "দ্বিঘাত সমীকরণ ax² + bx + c = 0 এর সহগ দিন:",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = quadA,
+                            onValueChange = { onQuadChange(it, quadB, quadC) },
+                            label = { Text("a (x² সহগ)") },
+                            modifier = Modifier.weight(1f).testTag("quad_input_a"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = quadB,
+                            onValueChange = { onQuadChange(quadA, it, quadC) },
+                            label = { Text("b (x সহগ)") },
+                            modifier = Modifier.weight(1f).testTag("quad_input_b"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = quadC,
+                            onValueChange = { onQuadChange(quadA, quadB, it) },
+                            label = { Text("c (ধ্রুবক)") },
+                            modifier = Modifier.weight(1f).testTag("quad_input_c"),
+                            singleLine = true
+                        )
+                    }
+                }
+                SolverTopic.FACTORIZATION -> {
+                    OutlinedTextField(
+                        value = factorInput,
+                        onValueChange = onFactorChange,
+                        label = { Text("রাশি বা সংখ্যা (যেমন: x² - 5x + 6 বা 360)") },
+                        modifier = Modifier.fillMaxWidth().testTag("factorization_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        listOf("x² - 5x + 6", "x² - 9", "2x² + 7x + 3", "360").forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onFactorChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(sample, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+                SolverTopic.SIMPLIFICATION -> {
+                    OutlinedTextField(
+                        value = simplifyInput,
+                        onValueChange = onSimplifyChange,
+                        label = { Text("রাশি, করণী বা ভগ্নাংশ (যেমন: √72, 24/36, 3x + 2y + 5x)") },
+                        modifier = Modifier.fillMaxWidth().testTag("simplification_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        listOf("√72", "45/60", "3x + 5y + 4x - 2y", "(24 + 12) ÷ 6").forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onSimplifyChange(sample) },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
@@ -1452,13 +1796,38 @@ fun SolutionDisplayCard(
                     color = MaterialTheme.colorScheme.surface,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = result.finalAnswerBn,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                    )
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Text(
+                            text = result.finalAnswerBn,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (result.isExactResult) Color(0xFFDCFCE7) else Color(0xFFFEF3C7)
+                            ) {
+                                Text(
+                                    text = if (result.isExactResult) "নির্ভুল মান (Exact)" else "আসন্ন মান (Approximate)",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (result.isExactResult) Color(0xFF166534) else Color(0xFF92400E),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            result.approximateResultBn?.let { approx ->
+                                Text(
+                                    text = "দশমিক মান: $approx",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

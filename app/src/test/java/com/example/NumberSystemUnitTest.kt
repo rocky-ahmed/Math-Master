@@ -197,4 +197,54 @@ class NumberSystemUnitTest {
             assertTrue(q.explanationBn.isNotBlank())
         }
     }
+
+    @Test
+    fun testDivisibilityBy7And12AndCoprimeDivision() {
+        // Divisibility by 7: 343 = 7^3
+        assertTrue(NumberSystemProvider.checkDivisibility(343L, 7).first)
+        assertFalse(NumberSystemProvider.checkDivisibility(344L, 7).first)
+
+        // Divisibility by 12: 144 = 12^2 (div by 3 and 4)
+        assertTrue(NumberSystemProvider.checkDivisibility(144L, 12).first)
+        assertFalse(NumberSystemProvider.checkDivisibility(148L, 12).first) // div by 4, not by 3
+
+        // Verify all 11 divisibility rules (2..12) exist
+        assertEquals(11, NumberSystemProvider.divisibilityRules.size)
+
+        // Coprime and Euclidean integer division
+        val coprimeRes = NumberSystemProvider.analyzeCoprimeAndDivision(35L, 12L)
+        assertTrue(coprimeRes.isCoprime)
+        assertEquals(1L, coprimeRes.gcd)
+        assertEquals(2L, coprimeRes.quotient)
+        assertEquals(11L, coprimeRes.remainder)
+    }
+
+    @Test
+    fun testDivisibilityAndCoprimeExtremeBoundaries() {
+        // Divisor = 0 must safely return false without ArithmeticException
+        val divZero = NumberSystemProvider.checkDivisibility(100L, 0)
+        assertFalse(divZero.first)
+
+        // Long.MIN_VALUE (-9223372036854775808 = -2^63) must not crash on digit extraction for any rule 2..12
+        for (divisor in 2..12) {
+            val (isDiv, explanation) = NumberSystemProvider.checkDivisibility(Long.MIN_VALUE, divisor)
+            assertTrue(explanation.isNotBlank())
+            if (divisor == 2 || divisor == 4 || divisor == 8) {
+                assertTrue("Long.MIN_VALUE (-2^63) is divisible by $divisor", isDiv)
+            } else {
+                assertFalse("Long.MIN_VALUE (-2^63) is not divisible by $divisor", isDiv)
+            }
+        }
+
+        // Negative Euclidean division in analyzeCoprimeAndDivision
+        val negCoprime = NumberSystemProvider.analyzeCoprimeAndDivision(-17L, 5L)
+        assertTrue(negCoprime.isCoprime)
+        assertEquals(-4L, negCoprime.quotient)
+        assertEquals(3L, negCoprime.remainder)
+
+        // Long.MIN_VALUE in analyzeCoprimeAndDivision must not throw
+        val minValAnalysis = NumberSystemProvider.analyzeCoprimeAndDivision(Long.MIN_VALUE, 8L)
+        assertEquals(8L, minValAnalysis.gcd)
+    }
 }
+

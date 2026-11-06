@@ -1027,4 +1027,154 @@ class MathProblemSolverUnitTest {
         assertFalse(negSideTri.isValid)
         assertNotNull(negSideTri.errorMessageBn)
     }
+
+    // -------------------------------------------------------------
+    // 14. QUADRATIC EQUATIONS, FACTORIZATION & SIMPLIFICATION
+    // -------------------------------------------------------------
+    @Test
+    fun testQuadraticEquationsRealEqualAndComplex() {
+        // x^2 - 5x + 6 = 0 -> roots 3 and 2
+        val qReal = MathProblemSolverEngine.solveQuadraticEquation(1.0, -5.0, 6.0, SolverMode.LEARNING)
+        assertTrue(qReal.isSuccess)
+        assertTrue(qReal.isExactResult)
+        assertTrue(qReal.finalAnswerBn.contains("৩") && qReal.finalAnswerBn.contains("২"))
+
+        // x^2 - 4x + 4 = 0 -> equal root 2
+        val qEqual = MathProblemSolverEngine.solveQuadraticEquation(1.0, -4.0, 4.0, SolverMode.QUICK)
+        assertTrue(qEqual.isSuccess)
+        assertTrue(qEqual.finalAnswerBn.contains("২"))
+
+        // x^2 + x + 1 = 0 -> discriminant -3 < 0 (complex conjugate roots)
+        val qComplex = MathProblemSolverEngine.solveQuadraticEquation(1.0, 1.0, 1.0, SolverMode.BCS)
+        assertTrue(qComplex.isSuccess)
+        assertTrue(qComplex.finalAnswerBn.contains("i"))
+
+        // a = 0 invalid quadratic
+        val qZeroA = MathProblemSolverEngine.solveQuadraticEquation(0.0, 2.0, -4.0, SolverMode.QUICK)
+        assertFalse(qZeroA.isSuccess)
+    }
+
+    @Test
+    fun testFactorizationAndSimplification() {
+        // Integer prime factorization: 360 = 2^3 * 3^2 * 5
+        val fInt = MathProblemSolverEngine.solveFactorization("360", SolverMode.LEARNING)
+        assertTrue(fInt.isSuccess)
+        assertTrue(fInt.finalAnswerBn.contains("২") && fInt.finalAnswerBn.contains("৩") && fInt.finalAnswerBn.contains("৫"))
+
+        // Algebraic trinomial: x^2 + 5x + 6 = (x + 2)(x + 3)
+        val fAlg = MathProblemSolverEngine.solveFactorization("x^2 + 5x + 6", SolverMode.LEARNING)
+        assertTrue(fAlg.isSuccess)
+        assertTrue(fAlg.finalAnswerBn.contains("x + ২") || fAlg.finalAnswerBn.contains("x + ৩"))
+
+        // Radical simplification: √72 = 6√2
+        val sRad = MathProblemSolverEngine.solveSimplification("√72", SolverMode.LEARNING)
+        assertTrue(sRad.isSuccess)
+        assertFalse(sRad.isExactResult)
+        assertTrue(sRad.finalAnswerBn.contains("৬√২"))
+        assertNotNull(sRad.approximateResultBn)
+
+        // Fraction simplification: 48/72 = 2/3
+        val sFrac = MathProblemSolverEngine.solveSimplification("48/72", SolverMode.QUICK)
+        assertTrue(sFrac.isSuccess)
+        assertTrue(sFrac.isExactResult)
+        assertTrue(sFrac.finalAnswerBn.contains("২/৩"))
+    }
+
+    @Test
+    fun testSharedMathEngineRationalAndAnswerEquivalence() {
+        val r1 = com.example.math.Rational.of(2, 4)
+        val r2 = com.example.math.Rational.of(1, 2)
+        assertEquals(r1, r2)
+        assertEquals(com.example.math.Rational.of(5, 6), r1 + com.example.math.Rational.of(1, 3))
+
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("২/৪", "1/2"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0.5", "১/২"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("সত্য", "True"))
+    }
+
+    @Test
+    fun testEuclideanDivisionNegativeOperandsAndBoundaryOverflow() {
+        // -17 = 5 * (-4) + 3 (remainder must be non-negative: 0 <= r < |5|)
+        val divNegDividend = com.example.math.SharedMathEngine.integerDivision(-17L, 5L)
+        assertEquals(-4L, divNegDividend.quotient)
+        assertEquals(3L, divNegDividend.remainder)
+        assertEquals(-17L, 5L * divNegDividend.quotient + divNegDividend.remainder)
+
+        // 17 = (-5) * (-3) + 2
+        val divNegDivisor = com.example.math.SharedMathEngine.integerDivision(17L, -5L)
+        assertEquals(-3L, divNegDivisor.quotient)
+        assertEquals(2L, divNegDivisor.remainder)
+        assertEquals(17L, -5L * divNegDivisor.quotient + divNegDivisor.remainder)
+
+        // -17 = (-5) * 4 + 3
+        val divBothNeg = com.example.math.SharedMathEngine.integerDivision(-17L, -5L)
+        assertEquals(4L, divBothNeg.quotient)
+        assertEquals(3L, divBothNeg.remainder)
+        assertEquals(-17L, -5L * divBothNeg.quotient + divBothNeg.remainder)
+
+        // Division by zero and Long.MIN_VALUE / -1L overflow protection must throw controlled ArithmeticException
+        var caughtZero = false
+        try {
+            com.example.math.SharedMathEngine.integerDivision(10L, 0L)
+        } catch (_: ArithmeticException) {
+            caughtZero = true
+        }
+        assertTrue(caughtZero)
+
+        var caughtOverflow1 = false
+        try {
+            com.example.math.SharedMathEngine.integerDivision(Long.MIN_VALUE, -1L)
+        } catch (_: ArithmeticException) {
+            caughtOverflow1 = true
+        }
+        assertTrue("Long.MIN_VALUE / -1L must throw ArithmeticException due to 64-bit signed overflow", caughtOverflow1)
+
+        // Divisor == Long.MIN_VALUE where quotient and remainder fit in Long
+        val divSameMin = com.example.math.SharedMathEngine.integerDivision(Long.MIN_VALUE, Long.MIN_VALUE)
+        assertEquals(1L, divSameMin.quotient)
+        assertEquals(0L, divSameMin.remainder)
+
+        val divPosByMin = com.example.math.SharedMathEngine.integerDivision(10L, Long.MIN_VALUE)
+        assertEquals(0L, divPosByMin.quotient)
+        assertEquals(10L, divPosByMin.remainder)
+
+        val divNegByMin = com.example.math.SharedMathEngine.integerDivision(-10L, Long.MIN_VALUE)
+        assertEquals(1L, divNegByMin.quotient)
+        assertEquals(Long.MAX_VALUE - 9L, divNegByMin.remainder)
+    }
+
+    @Test
+    fun testBigIntegerFractionSimplificationAndFractionalQuadraticClassification() {
+        // Arbitrary-precision fraction exceeding Long.MAX_VALUE
+        val hugeFrac = com.example.math.SharedMathEngine.simplify("100000000000000000000/200000000000000000000")
+        assertTrue(hugeFrac.isSuccess)
+        assertTrue(hugeFrac.isExact)
+        assertTrue(hugeFrac.simplifiedFormBn.contains("১/২"))
+
+        // Very large BigInteger Rational arithmetic & sign normalization
+        val bigN1 = java.math.BigInteger("999999999999999999999999999999")
+        val bigD1 = java.math.BigInteger("-333333333333333333333333333333")
+        val rHuge = com.example.math.Rational(bigN1, bigD1)
+        assertEquals(java.math.BigInteger.valueOf(-3L), rHuge.simplifiedNumerator)
+        assertEquals(java.math.BigInteger.ONE, rHuge.simplifiedDenominator)
+        assertEquals("-3", rHuge.toPlainString())
+
+        val rNegNeg = com.example.math.Rational(java.math.BigInteger.valueOf(-15L), java.math.BigInteger.valueOf(-25L))
+        assertEquals(java.math.BigInteger.valueOf(3L), rNegNeg.simplifiedNumerator)
+        assertEquals(java.math.BigInteger.valueOf(5L), rNegNeg.simplifiedDenominator)
+
+        // Fractional quadratic: 0.5x^2 - 2.5x + 3 = 0 -> discriminant = 6.25 - 6 = 0.25 = (1/2)^2
+        // Roots are rational: x = 3 and x = 2
+        val quadFrac = com.example.math.SharedMathEngine.solveQuadratic(0.5, -2.5, 3.0)
+        assertTrue(quadFrac.isValidQuadratic)
+        assertTrue(quadFrac.natureOfRootsBn.contains("মূলদ"))
+        assertTrue(quadFrac.natureOfRootsBn.contains("Rational"))
+        assertEquals("৩", quadFrac.root1TextBn)
+        assertEquals("২", quadFrac.root2TextBn)
+
+        // Large coefficient quadratic factorization without Long overflow
+        val largeFactor = com.example.math.SharedMathEngine.factorize("x^2 + 2000000000x + 1000000000000000000")
+        assertTrue(largeFactor.isSuccess)
+    }
 }
+

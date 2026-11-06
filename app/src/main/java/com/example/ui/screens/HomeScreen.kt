@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -185,7 +186,7 @@ fun HomeScreen(
                 sectionKey = SectionKey.PROBLEM_SOLVER,
                 titleBn = "সমস্যা সমাধানকারী\n(Problem Solver)",
                 subtitleBn = "পাটিগণিত ও বীজগণিতের ব্যাখ্যাসহ সমাধান",
-                badgeBn = "১৩টি বিষয়",
+                badgeBn = "১৬টি বিষয়",
                 defaultIcon = Icons.Default.Calculate,
                 defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
                 testTag = "module_problem_solver_card",
@@ -195,7 +196,7 @@ fun HomeScreen(
                 sectionKey = SectionKey.VISUAL_EXPLORER,
                 titleBn = "ভিজ্যুয়াল ম্যাথ\nএক্সপ্লোরার",
                 subtitleBn = "জ্যামিতি, দাঁড়িপাল্লা ও সূত্র ভিজ্যুয়ালাইজার",
-                badgeBn = "৪টি বিভাগ",
+                badgeBn = "১০টি বিভাগ",
                 defaultIcon = Icons.Default.Straighten,
                 defaultGradient = listOf(Color(0xFF059669), Color(0xFF047857)),
                 testTag = "module_visual_explorer_card",
@@ -390,6 +391,50 @@ fun HomeScreen(
                             item = item,
                             global = customState.global,
                             sectionConfig = sectionConfig
+                        )
+                    }
+                }
+            }
+
+            // Dedicated BCS Mathematics Preparation Mode Featured Card
+            item(span = { GridItemSpan(maxLineSpan) }, key = "home_bcs_prep_card") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.navigateTo(Screen.BcsPreparation) }
+                        .testTag("home_bcs_prep_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "বিসিএস গাণিতিক যুক্তি প্রস্তুতি (BCS Prep)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "৫০তম বিসিএস পিএসসি সিলেবাস (২০ নম্বর), যাচাইকৃত বিগত বিসিএস প্রশ্ন, শর্টকাট কৌশল ও মক টেস্ট",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = "বিসিএস প্রস্তুতি",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                 }

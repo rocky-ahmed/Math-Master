@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -100,8 +101,10 @@ import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
 import com.example.math.GeoShapeType
 import com.example.math.VisualAlgebraResult
+import com.example.math.VisualKnowledgeCheckProvider
 import com.example.math.VisualMathEngine
 import com.example.ui.MathViewModel
+import com.example.ui.Screen
 import com.example.ui.components.MathTopAppBar
 import kotlin.math.PI
 import kotlin.math.abs
@@ -175,6 +178,136 @@ fun VisualExplorerScreen(
                 VisualExplorerSection.FORMULAS -> VisualFormulaTab()
             }
         }
+
+        // P1 UPGRADE: Interactive Mini Knowledge Check & Cross-Module Practice Links
+        VisualKnowledgeCheckAndLinksBar(
+            tabIndex = selectedSection.ordinal,
+            viewModel = viewModel
+        )
+    }
+}
+
+@Composable
+private fun VisualKnowledgeCheckAndLinksBar(
+    tabIndex: Int,
+    viewModel: MathViewModel
+) {
+    val questions = remember(tabIndex) { VisualKnowledgeCheckProvider.getKnowledgeChecksForTab(tabIndex) }
+    var expanded by remember { mutableStateOf(false) }
+    var qIdx by remember(tabIndex) { mutableIntStateOf(0) }
+    var chosenOpt by remember(tabIndex, qIdx) { mutableStateOf<Int?>(null) }
+
+    val currentQ = questions.getOrNull(qIdx.coerceIn(0, (questions.size - 1).coerceAtLeast(0)))
+
+    Surface(
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("visual_knowledge_check_bar")
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ধারণা যাচাই (Mini Knowledge Check) ও অনুশীলন লিংক",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                OutlinedButton(
+                    onClick = { expanded = !expanded },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.testTag("btn_toggle_visual_kc")
+                ) {
+                    Text(
+                        text = if (expanded) "সংক্ষিপ্ত করুন" else "কুইজ ও অনুশীলন খুলুন",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            AnimatedVisibility(visible = expanded && currentQ != null) {
+                if (currentQ != null) {
+                    Column(
+                        modifier = Modifier.padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = currentQ.questionBn,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            currentQ.optionsBn.forEachIndexed { idx, opt ->
+                                FilterChip(
+                                    selected = chosenOpt == idx,
+                                    onClick = { chosenOpt = idx },
+                                    label = { Text(opt, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.testTag("visual_kc_opt_$idx")
+                                )
+                            }
+                        }
+
+                        if (chosenOpt != null) {
+                            val isRight = chosenOpt == currentQ.correctIndex
+                            Text(
+                                text = if (isRight) "সঠিক উত্তর! ${currentQ.explanationBn}" else "সঠিক উত্তর: ${currentQ.optionsBn[currentQ.correctIndex]}। ${currentQ.explanationBn}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isRight) Color(0xFF15803D) else MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.startQuiz(
+                                        topic = currentQ.relatedQuizTopic,
+                                        count = 10
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_visual_link_quiz"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("সম্পর্কিত কুইজ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.navigateTo(Screen.FormulaLibrary) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_visual_link_formula"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("সূত্র লাইব্রেরি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.navigateTo(Screen.ProblemSolver) },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("btn_visual_link_solver"),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text("সমস্যা সমাধানকারী", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -185,10 +318,11 @@ fun VisualExplorerScreen(
 @Composable
 fun GeometryExplorerTab() {
     var selectedShape by remember { mutableStateOf(GeoShapeType.RECTANGLE) }
-    
+
     // Sliders / Parameters State
-    var baseParam by remember { mutableDoubleStateOf(10.0) } // base or length or side or radius
+    var baseParam by remember { mutableDoubleStateOf(10.0) } // base or length or side or radius or angleDeg
     var heightParam by remember { mutableDoubleStateOf(6.0) } // height or width
+    var zoomScale by remember { mutableFloatStateOf(1.0f) }
 
     val calcResult = remember(selectedShape, baseParam, heightParam) {
         when (selectedShape) {
@@ -196,6 +330,18 @@ fun GeometryExplorerTab() {
             GeoShapeType.RECTANGLE -> VisualMathEngine.calculateRectangle(baseParam, heightParam)
             GeoShapeType.SQUARE -> VisualMathEngine.calculateSquare(baseParam)
             GeoShapeType.CIRCLE -> VisualMathEngine.calculateCircle(baseParam)
+            GeoShapeType.ANGLES -> {
+                val ang = VisualMathEngine.calculateAngle(baseParam)
+                com.example.math.GeoVisualCalculation(
+                    shapeType = GeoShapeType.ANGLES,
+                    primaryArea = ang.degrees,
+                    primaryPerimeterOrCircumference = ang.complementDegrees ?: 0.0,
+                    isPerimeterExact = true,
+                    SecondaryMetricLabelBn = "সম্পূরক কোণ",
+                    secondaryMetricValue = ang.supplementDegrees ?: 0.0,
+                    explanationStepsBn = ang.explanationStepsBn
+                )
+            }
         }
     }
 
@@ -206,17 +352,25 @@ fun GeometryExplorerTab() {
         item {
             Spacer(modifier = Modifier.height(8.dp))
             // Shape selector chips
-            Row(
+            androidx.compose.foundation.lazy.LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                GeoShapeType.entries.forEach { shape ->
+                items(GeoShapeType.entries) { shape ->
                     FilterChip(
                         selected = selectedShape == shape,
                         onClick = {
                             selectedShape = shape
-                            if (shape == GeoShapeType.SQUARE) baseParam = 8.0
-                            if (shape == GeoShapeType.CIRCLE) baseParam = 7.0
+                            zoomScale = 1.0f
+                            when (shape) {
+                                GeoShapeType.SQUARE -> baseParam = 8.0
+                                GeoShapeType.CIRCLE -> baseParam = 7.0
+                                GeoShapeType.ANGLES -> baseParam = 60.0
+                                else -> {
+                                    baseParam = 10.0
+                                    heightParam = 6.0
+                                }
+                            }
                         },
                         label = { Text(shape.titleBn.split(" ")[0]) },
                         leadingIcon = if (selectedShape == shape) {
@@ -402,7 +556,7 @@ fun GeometryExplorerTab() {
                                 }
                             }
                             GeoShapeType.CIRCLE -> {
-                                val maxRadiusPx = min(canvasWidth, canvasHeight) * 0.35f
+                                val maxRadiusPx = min(canvasWidth, canvasHeight) * 0.35f * zoomScale
                                 val normR = (baseParam / 30.0).coerceIn(0.25, 1.0)
                                 val rPx = (maxRadiusPx * normR).toFloat()
 
@@ -440,6 +594,87 @@ fun GeometryExplorerTab() {
                                     drawText("r = ${VisualMathEngine.formatNumberBn(baseParam)}", cx + rPx / 2f, cy - 14f, paint)
                                 }
                             }
+                            GeoShapeType.ANGLES -> {
+                                val deg = baseParam.coerceIn(0.0, 360.0).toFloat()
+                                val rayLen = min(canvasWidth, canvasHeight) * 0.36f * zoomScale
+                                val origin = Offset(cx - rayLen * 0.2f, cy + rayLen * 0.25f)
+                                val rad = Math.toRadians(-deg.toDouble())
+                                val endRay1 = Offset(origin.x + rayLen, origin.y)
+                                val endRay2 = Offset(
+                                    origin.x + (rayLen * cos(rad)).toFloat(),
+                                    origin.y + (rayLen * sin(rad)).toFloat()
+                                )
+
+                                drawArc(
+                                    color = primaryColor.copy(alpha = 0.22f),
+                                    startAngle = 0f,
+                                    sweepAngle = -deg,
+                                    useCenter = true,
+                                    topLeft = Offset(origin.x - rayLen * 0.45f, origin.y - rayLen * 0.45f),
+                                    size = Size(rayLen * 0.9f, rayLen * 0.9f)
+                                )
+                                drawLine(primaryColor, origin, endRay1, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                                drawLine(secondaryColor, origin, endRay2, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+                                drawCircle(primaryColor, radius = 6.dp.toPx(), center = origin)
+
+                                drawContext.canvas.nativeCanvas.apply {
+                                    val paint = android.graphics.Paint().apply {
+                                        color = android.graphics.Color.DKGRAY
+                                        textSize = 32f
+                                        textAlign = android.graphics.Paint.Align.CENTER
+                                        isAntiAlias = true
+                                    }
+                                    val angleInfo = VisualMathEngine.calculateAngle(baseParam)
+                                    drawText(
+                                        "θ = ${VisualMathEngine.formatNumberBn(baseParam)}° (${angleInfo.angleTypeBn})",
+                                        cx,
+                                        38f,
+                                        paint
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = { zoomScale = (zoomScale - 0.15f).coerceAtLeast(0.7f) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp).testTag("btn_geo_zoom_out")
+                            ) {
+                                Text("জুম -", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { zoomScale = (zoomScale + 0.15f).coerceAtMost(1.4f) },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp).testTag("btn_geo_zoom_in")
+                            ) {
+                                Text("জুম +", fontSize = 11.sp)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                zoomScale = 1.0f
+                                when (selectedShape) {
+                                    GeoShapeType.SQUARE -> baseParam = 8.0
+                                    GeoShapeType.CIRCLE -> baseParam = 7.0
+                                    GeoShapeType.ANGLES -> baseParam = 60.0
+                                    else -> {
+                                        baseParam = 10.0
+                                        heightParam = 6.0
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp).testTag("btn_geo_reset")
+                        ) {
+                            Text("রিসেট", fontSize = 11.sp)
                         }
                     }
                 }
@@ -467,8 +702,15 @@ fun GeometryExplorerTab() {
                         GeoShapeType.SQUARE -> "বাহু (Side a)"
                         GeoShapeType.TRIANGLE -> "ভূমি (Base b)"
                         GeoShapeType.CIRCLE -> "ব্যাসার্ধ (Radius r)"
+                        GeoShapeType.ANGLES -> "কোণ (Angle θ°)"
                     }
-                    val maxVal1 = if (selectedShape == GeoShapeType.CIRCLE) 30f else 25f
+                    val maxVal1 = when (selectedShape) {
+                        GeoShapeType.ANGLES -> 360f
+                        GeoShapeType.CIRCLE -> 30f
+                        else -> 25f
+                    }
+                    val minVal1 = if (selectedShape == GeoShapeType.ANGLES) 0f else 1f
+                    val unitLabel = if (selectedShape == GeoShapeType.ANGLES) "ডিগ্রি (°)" else "একক"
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -476,15 +718,15 @@ fun GeometryExplorerTab() {
                     ) {
                         Text(text = p1Label, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "${VisualMathEngine.formatNumberBn(baseParam)} একক",
+                            text = "${VisualMathEngine.formatNumberBn(baseParam)} $unitLabel",
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                     Slider(
                         value = baseParam.toFloat(),
-                        onValueChange = { baseParam = it.toDouble().coerceIn(1.0, maxVal1.toDouble()) },
-                        valueRange = 1f..maxVal1,
+                        onValueChange = { baseParam = it.toDouble().coerceIn(minVal1.toDouble(), maxVal1.toDouble()) },
+                        valueRange = minVal1..maxVal1,
                         steps = 29,
                         modifier = Modifier.testTag("slider_base_param")
                     )
@@ -891,7 +1133,107 @@ fun VisualAlgebraTab() {
                 }
             }
         }
+
+        // Coordinate Plane & Linear Graph (y = mx + c)
+        item {
+            LinearGraphExplorerCard()
+        }
+
         item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+fun LinearGraphExplorerCard() {
+    var mSlope by remember { mutableDoubleStateOf(1.5) }
+    var cIntercept by remember { mutableDoubleStateOf(1.0) }
+    val graphModel = remember(mSlope, cIntercept) {
+        VisualMathEngine.evaluateLinearGraph(mSlope, cIntercept)
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth().testTag("linear_graph_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "স্থানাঙ্ক সমতল ও সরলরেখার লেখচিত্র (${graphModel.equationBn})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "ঢাল (m) ও ছেদক (c) পরিবর্তন করে X-Y সমতলে রেখার পরিবর্তন দেখুন",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val primColor = MaterialTheme.colorScheme.primary
+            val secColor = MaterialTheme.colorScheme.secondary
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(210.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                    .testTag("linear_graph_canvas")
+            ) {
+                val w = size.width
+                val h = size.height
+                val cx = w / 2f
+                val cy = h / 2f
+                val unitPx = min(w, h) / 12f // -6 to +6
+
+                // Grid lines
+                for (i in -5..5) {
+                    val gx = cx + i * unitPx
+                    val gy = cy - i * unitPx
+                    drawLine(Color.Gray.copy(alpha = 0.2f), Offset(gx, 0f), Offset(gx, h), 1f)
+                    drawLine(Color.Gray.copy(alpha = 0.2f), Offset(0f, gy), Offset(w, gy), 1f)
+                }
+
+                // Axes
+                drawLine(Color.DarkGray, Offset(0f, cy), Offset(w, cy), 2.5f)
+                drawLine(Color.DarkGray, Offset(cx, 0f), Offset(cx, h), 2.5f)
+
+                // Line y = mx + c for x in [-6, 6]
+                val x1 = -6.0
+                val y1 = mSlope * x1 + cIntercept
+                val x2 = 6.0
+                val y2 = mSlope * x2 + cIntercept
+
+                val p1 = Offset(cx + (x1 * unitPx).toFloat(), cy - (y1 * unitPx).toFloat())
+                val p2 = Offset(cx + (x2 * unitPx).toFloat(), cy - (y2 * unitPx).toFloat())
+                drawLine(primColor, p1, p2, strokeWidth = 3.5.dp.toPx(), cap = StrokeCap.Round)
+
+                // Y-intercept point (0, c)
+                val yIntOffset = Offset(cx, cy - (cIntercept * unitPx).toFloat())
+                drawCircle(secColor, radius = 6.dp.toPx(), center = yIntOffset)
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text("ঢাল (Slope m): ${VisualMathEngine.formatNumberBn(mSlope)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Slider(
+                value = mSlope.toFloat(),
+                onValueChange = { mSlope = ((it * 2).toInt() / 2.0) },
+                valueRange = -3f..3f,
+                modifier = Modifier.testTag("slider_graph_m")
+            )
+            Text("Y-অক্ষ ছেদক (Intercept c): ${VisualMathEngine.formatNumberBn(cIntercept)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Slider(
+                value = cIntercept.toFloat(),
+                onValueChange = { cIntercept = ((it * 2).toInt() / 2.0) },
+                valueRange = -4f..4f,
+                modifier = Modifier.testTag("slider_graph_c")
+            )
+            graphModel.explanationStepsBn.forEach { step ->
+                Text("• $step", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 
@@ -1241,6 +1583,57 @@ fun NumberLineTab() {
                 }
             }
         }
+
+        // Ratio & 10x10 Percentage Grid Visual Card
+        item {
+            val ratioInfo = remember(numerator, denominator) {
+                VisualMathEngine.analyzeRatioAndPercentage(numerator, denominator)
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth().testTag("ratio_percentage_visual_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "অনুপাত ও ১০×১০ শতকরা গ্রিড (${ratioInfo.simplifiedRatioBn} • ${VisualMathEngine.formatNumberBn(ratioInfo.partAPercentage)}%)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val primColor = MaterialTheme.colorScheme.primary
+                    val secColor = MaterialTheme.colorScheme.secondary
+
+                    Canvas(
+                        modifier = Modifier
+                            .size(160.dp)
+                            .align(Alignment.CenterHorizontally)
+                            .testTag("percentage_grid_canvas")
+                    ) {
+                        val cellSize = size.width / 10f
+                        for (idx in 0 until 100) {
+                            val r = idx / 10
+                            val c = idx % 10
+                            val isFilled = idx < ratioInfo.gridCellsFilledOutOf100
+                            drawRect(
+                                color = if (isFilled) primColor else secColor.copy(alpha = 0.2f),
+                                topLeft = Offset(c * cellSize + 1f, r * cellSize + 1f),
+                                size = Size(cellSize - 2f, cellSize - 2f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    ratioInfo.explanationStepsBn.forEach { step ->
+                        Text("• $step", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
@@ -1584,6 +1977,53 @@ fun VisualFormulaTab() {
                 }
             }
         }
+
+        // Visual Number Patterns & 2D Transformations Card
+        item {
+            var patternType by remember { mutableIntStateOf(0) }
+            var patternStep by remember { mutableIntStateOf(4) }
+            val patternModel = remember(patternType, patternStep) {
+                VisualMathEngine.generateVisualPattern(patternType, patternStep)
+            }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth().testTag("pattern_transformation_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "সংখ্যার প্যাটার্ন ও জ্যামিতিক রূপান্তর (Patterns & Transformations)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("বর্গ সংখ্যা", "ত্রিভুজ সংখ্যা", "বিজোড় সংখ্যা").forEachIndexed { idx, label ->
+                            FilterChip(
+                                selected = patternType == idx,
+                                onClick = { patternType = idx },
+                                label = { Text(label, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "${patternModel.patternNameBn} (${patternModel.formulaBn}): পদসমূহ = ${patternModel.terms.joinToString(", ") { BengaliNumberFormatter.toBn(it) }}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = patternModel.explanationBn,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }

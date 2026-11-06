@@ -126,7 +126,7 @@ fun BookmarksScreen(
                                     "PRIME" -> viewModel.navigateTo(Screen.Primes)
                                     "SQUARE_CUBE" -> viewModel.navigateTo(Screen.SquaresCubes)
                                     "NUMBER_SYSTEM" -> viewModel.navigateTo(Screen.NumberSystem)
-                                    "SOLVER" -> viewModel.navigateTo(Screen.ProblemSolver)
+                                    "SOLVER", "PROBLEM_SOLVER" -> viewModel.navigateTo(Screen.ProblemSolver)
                                 }
                             }
                             .testTag("bookmark_item_${bm.id}"),
@@ -153,7 +153,7 @@ fun BookmarksScreen(
                                         "SQUARE_CUBE" -> Icons.Default.Straighten
                                         "FORMULA_LIBRARY" -> Icons.Default.School
                                         "NUMBER_SYSTEM" -> Icons.Default.Functions
-                                        "SOLVER" -> Icons.Default.Calculate
+                                        "SOLVER", "PROBLEM_SOLVER" -> Icons.Default.Calculate
                                         else -> Icons.Default.Functions
                                     }
                                     Icon(

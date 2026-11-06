@@ -30,27 +30,23 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lightbulb
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -61,7 +57,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
@@ -72,12 +67,12 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -88,8 +83,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.math.FormulaInteractiveEngine
 import com.example.data.model.BookmarkEntity
 import com.example.math.BengaliNumberFormatter
+import com.example.math.FormulaDifficulty
 import com.example.math.FormulaLibraryProvider
 import com.example.math.FormulaSubject
 import com.example.math.LibraryFormula
@@ -106,17 +103,21 @@ fun FormulaLibraryScreen(
 
     val context = LocalContext.current
     val bookmarks by viewModel.bookmarks.collectAsState()
+    val recentFormulas by viewModel.recentFormulas.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedSubject by remember { mutableStateOf<FormulaSubject?>(null) } // null = All
     var selectedSubCategory by remember { mutableStateOf<String?>(null) }
+    var selectedDifficulty by remember { mutableStateOf<FormulaDifficulty?>(null) }
     var showOnlyBookmarked by remember { mutableStateOf(false) }
+    var showOnlyRecent by remember { mutableStateOf(false) }
     var showCheatSheetDialog by remember { mutableStateOf(false) }
+    // 0 = Unicode, 1 = LaTeX, 2 = Plain Text
+    var notationMode by remember { mutableIntStateOf(0) }
 
     // Expanded formula cards set
     var expandedFormulaIds by remember { mutableStateOf(setOf<String>()) }
 
-    // Filter formulas based on state
     val availableSubCategories = remember(selectedSubject) {
         FormulaLibraryProvider.getSubCategories(selectedSubject)
     }
@@ -125,28 +126,22 @@ fun FormulaLibraryScreen(
         searchQuery,
         selectedSubject,
         selectedSubCategory,
+        selectedDifficulty,
         showOnlyBookmarked,
-        bookmarks
+        showOnlyRecent,
+        bookmarks,
+        recentFormulas
     ) {
         val bookmarkedIds = bookmarks.map { it.id }.toSet()
-        FormulaLibraryProvider.allFormulas.filter { formula ->
-            // Subject filter
-            val matchesSubject = selectedSubject == null || formula.subject == selectedSubject
-            // Sub-category filter
-            val matchesSubCategory = selectedSubCategory == null || formula.subCategory == selectedSubCategory
-            // Bookmark filter
-            val matchesBookmark = !showOnlyBookmarked || bookmarkedIds.contains(formula.id)
-            // Search query filter
-            val query = searchQuery.trim().lowercase()
-            val matchesSearch = query.isEmpty() ||
-                    formula.titleBn.lowercase().contains(query) ||
-                    formula.titleEn.lowercase().contains(query) ||
-                    formula.formulaExpression.lowercase().contains(query) ||
-                    formula.explanationBn.lowercase().contains(query) ||
-                    formula.tags.any { it.lowercase().contains(query) }
-
-            matchesSubject && matchesSubCategory && matchesBookmark && matchesSearch
-        }
+        val recentIds = recentFormulas.map { it.formulaId }.toSet()
+        FormulaLibraryProvider.searchFormulas(
+            query = searchQuery,
+            subject = selectedSubject,
+            subCategory = selectedSubCategory,
+            difficulty = selectedDifficulty,
+            onlyBookmarkedIds = if (showOnlyBookmarked) bookmarkedIds else null,
+            onlyRecentIds = if (showOnlyRecent) recentIds else null
+        )
     }
 
     Column(
@@ -154,12 +149,24 @@ fun FormulaLibraryScreen(
             .fillMaxSize()
             .testTag("screen_formula_library")
     ) {
-        // App Bar with Cheat Sheet and Bookmark filters
+        // App Bar with Cheat Sheet, Recent, and Bookmark filters
         MathTopAppBar(
             title = "ফর্মুলা লাইব্রেরি",
-            subtitle = "বীজগণিত, জ্যামিতি ও ক্যালকুলাসের পূর্ণাঙ্গ সূত্র ভাণ্ডার",
+            subtitle = "১২টি বিভাগের পূর্ণাঙ্গ গাণিতিক সূত্র ভাণ্ডার",
             onBackClick = { viewModel.navigateBack() },
             actions = {
+                // Toggle recently viewed
+                IconButton(
+                    onClick = { showOnlyRecent = !showOnlyRecent },
+                    modifier = Modifier.testTag("btn_filter_recent")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = "সাম্প্রতিক পঠিত সূত্রসমূহ",
+                        tint = if (showOnlyRecent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 // Toggle bookmarked-only view
                 IconButton(
                     onClick = { showOnlyBookmarked = !showOnlyBookmarked },
@@ -200,7 +207,7 @@ fun FormulaLibraryScreen(
                     .testTag("formula_search_input"),
                 placeholder = {
                     Text(
-                        text = "সূত্র বা বিষয়ের নাম দিয়ে খুঁজুন... (যেমন: a², বৃত্ত, derivative)",
+                        text = "সূত্র বা বিষয়ের নাম দিয়ে খুঁজুন... (যেমন: a², বৃত্ত, sin, গ.সা.গু)",
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -235,7 +242,7 @@ fun FormulaLibraryScreen(
             )
         }
 
-        // Subject Tabs: সবগুলো, বীজগণিত, জ্যামিতি, ক্যালকুলাস
+        // Primary Subject Tabs (kept for core navigation & test compatibility: সবগুলো, বীজগণিত, জ্যামিতি, ক্যালকুলাস)
         val tabs = listOf(
             null to "সবগুলো (${BengaliNumberFormatter.toBn(FormulaLibraryProvider.allFormulas.size)})",
             FormulaSubject.ALGEBRA to "বীজগণিত (${BengaliNumberFormatter.toBn(FormulaLibraryProvider.algebraFormulas.size)})",
@@ -254,16 +261,16 @@ fun FormulaLibraryScreen(
         ) {
             tabs.forEachIndexed { index, pair ->
                 Tab(
-                    selected = selectedTabIndex == index,
+                    selected = selectedSubject == pair.first,
                     onClick = {
                         selectedSubject = pair.first
-                        selectedSubCategory = null // reset subcategory on subject switch
+                        selectedSubCategory = null
                     },
                     text = {
                         Text(
                             text = pair.second,
                             style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (selectedSubject == pair.first) FontWeight.Bold else FontWeight.Normal,
                                 fontSize = 13.sp
                             ),
                             maxLines = 1,
@@ -275,42 +282,110 @@ fun FormulaLibraryScreen(
             }
         }
 
-        // Subcategory Filter Chips Row
-        if (availableSubCategories.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .testTag("subcategory_filter_row"),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                item {
-                    FilterChip(
-                        selected = selectedSubCategory == null,
-                        onClick = { selectedSubCategory = null },
-                        label = { Text("সব উপবিভাগ") },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    )
-                }
+        // Full 12-Category Horizontal Filter Row
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+                .testTag("all_subjects_chip_row"),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedSubject == null,
+                    onClick = {
+                        selectedSubject = null
+                        selectedSubCategory = null
+                    },
+                    label = { Text("সকল ১২ বিভাগ") },
+                    modifier = Modifier.testTag("chip_subject_ALL")
+                )
+            }
+            items(FormulaSubject.values()) { subj ->
+                val count = remember(subj) { FormulaLibraryProvider.getFormulasBySubject(subj).size }
+                FilterChip(
+                    selected = selectedSubject == subj,
+                    onClick = {
+                        selectedSubject = if (selectedSubject == subj) null else subj
+                        selectedSubCategory = null
+                    },
+                    label = {
+                        Text("${subj.titleBn} (${BengaliNumberFormatter.toBn(count)})")
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = subj.primaryColor.copy(alpha = 0.18f),
+                        selectedLabelColor = subj.primaryColor
+                    ),
+                    modifier = Modifier.testTag("chip_subject_${subj.name}")
+                )
+            }
+        }
 
-                items(availableSubCategories) { subCat ->
-                    FilterChip(
-                        selected = selectedSubCategory == subCat,
-                        onClick = {
-                            selectedSubCategory = if (selectedSubCategory == subCat) null else subCat
-                        },
-                        label = { Text(subCat) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
+        // Subcategory + Difficulty + Notation Mode Filter Chips Row
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .testTag("subcategory_filter_row"),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            item {
+                FilterChip(
+                    selected = selectedSubCategory == null,
+                    onClick = { selectedSubCategory = null },
+                    label = { Text("সব উপবিভাগ") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
+                )
+            }
+
+            items(availableSubCategories) { subCat ->
+                FilterChip(
+                    selected = selectedSubCategory == subCat,
+                    onClick = {
+                        selectedSubCategory = if (selectedSubCategory == subCat) null else subCat
+                    },
+                    label = { Text(subCat) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                )
+            }
+
+            items(FormulaDifficulty.values()) { diff ->
+                FilterChip(
+                    selected = selectedDifficulty == diff,
+                    onClick = {
+                        selectedDifficulty = if (selectedDifficulty == diff) null else diff
+                    },
+                    label = { Text(diff.titleBn) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = diff.badgeColor.copy(alpha = 0.2f),
+                        selectedLabelColor = diff.badgeColor
+                    ),
+                    modifier = Modifier.testTag("chip_formula_diff_${diff.name}")
+                )
+            }
+
+            item {
+                val notationLabel = when (notationMode) {
+                    1 -> "LaTeX"
+                    2 -> "Plain"
+                    else -> "Unicode"
                 }
+                FilterChip(
+                    selected = notationMode != 0,
+                    onClick = { notationMode = (notationMode + 1) % 3 },
+                    label = { Text("নোটেশন: $notationLabel") },
+                    modifier = Modifier.testTag("chip_notation_mode")
+                )
             }
         }
 
@@ -328,12 +403,14 @@ fun FormulaLibraryScreen(
                 color = MaterialTheme.colorScheme.primary
             )
 
-            if (searchQuery.isNotEmpty() || selectedSubCategory != null || showOnlyBookmarked) {
+            if (searchQuery.isNotEmpty() || selectedSubCategory != null || selectedDifficulty != null || showOnlyBookmarked || showOnlyRecent) {
                 TextButton(
                     onClick = {
                         searchQuery = ""
                         selectedSubCategory = null
+                        selectedDifficulty = null
                         showOnlyBookmarked = false
+                        showOnlyRecent = false
                     },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
@@ -348,7 +425,6 @@ fun FormulaLibraryScreen(
 
         // Formula List
         if (filteredFormulas.isEmpty()) {
-            // Empty State
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -375,7 +451,11 @@ fun FormulaLibraryScreen(
                     }
 
                     Text(
-                        text = if (showOnlyBookmarked) "কোনো বুকমার্ক করা সূত্র পাওয়া যায়নি" else "কোনো সূত্র পাওয়া যায়নি",
+                        text = when {
+                            showOnlyBookmarked -> "কোনো বুকমার্ক করা সূত্র পাওয়া যায়নি"
+                            showOnlyRecent -> "সাম্প্রতিক পঠিত কোনো সূত্র নেই"
+                            else -> "কোনো সূত্র পাওয়া যায়নি"
+                        },
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         textAlign = TextAlign.Center
                     )
@@ -392,7 +472,9 @@ fun FormulaLibraryScreen(
                             searchQuery = ""
                             selectedSubject = null
                             selectedSubCategory = null
+                            selectedDifficulty = null
                             showOnlyBookmarked = false
+                            showOnlyRecent = false
                         },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.padding(top = 8.dp)
@@ -415,14 +497,25 @@ fun FormulaLibraryScreen(
 
                     FormulaCard(
                         formula = formula,
+                        notationMode = notationMode,
                         isBookmarked = isBookmarked,
                         isExpanded = isExpanded,
                         onToggleExpand = {
+                            if (!isExpanded) {
+                                viewModel.recordFormulaView(formula)
+                            }
                             expandedFormulaIds = if (isExpanded) {
                                 expandedFormulaIds - formula.id
                             } else {
                                 expandedFormulaIds + formula.id
                             }
+                        },
+                        onSelectRelatedFormula = { related ->
+                            selectedSubject = related.subject
+                            selectedSubCategory = null
+                            searchQuery = related.titleBn
+                            expandedFormulaIds = expandedFormulaIds + related.id
+                            viewModel.recordFormulaView(related)
                         },
                         onToggleBookmark = {
                             val entity = BookmarkEntity(
@@ -438,7 +531,12 @@ fun FormulaLibraryScreen(
                         },
                         onCopyFormula = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText(formula.titleBn, formula.formulaExpression)
+                            val exprToCopy = when (notationMode) {
+                                1 -> formula.latexExpression.ifBlank { formula.formulaExpression }
+                                2 -> formula.plainTextExpression.ifBlank { formula.formulaExpression }
+                                else -> formula.formulaExpression
+                            }
+                            val clip = ClipData.newPlainText(formula.titleBn, exprToCopy)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "সূত্র ক্লিপবোর্ডে কপি হয়েছে!", Toast.LENGTH_SHORT).show()
                         }
@@ -463,20 +561,28 @@ fun FormulaLibraryScreen(
     }
 }
 
-/**
- * Reusable, visually striking Formula Card component adhering to M3 design rules.
- */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FormulaCard(
     formula: LibraryFormula,
+    notationMode: Int,
     isBookmarked: Boolean,
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
+    onSelectRelatedFormula: (LibraryFormula) -> Unit,
     onToggleBookmark: () -> Unit,
     onCopyFormula: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayedExpression = when (notationMode) {
+        1 -> formula.latexExpression.ifBlank { formula.formulaExpression }
+        2 -> formula.plainTextExpression.ifBlank { formula.formulaExpression }
+        else -> formula.formulaExpression
+    }
+    val relatedFormulas = remember(formula.id) {
+        FormulaLibraryProvider.getRelatedFormulas(formula.id)
+    }
+
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
@@ -492,7 +598,7 @@ private fun FormulaCard(
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header Row: Subject Badge + Subcategory Pill + Bookmark Icon
+            // Header Row: Subject Badge + Subcategory Pill + Difficulty Badge + Bookmark Icon
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -500,7 +606,8 @@ private fun FormulaCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     // Subject Chip
                     Surface(
@@ -538,7 +645,24 @@ private fun FormulaCard(
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    // Difficulty Chip
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = formula.difficultyLevel.badgeColor.copy(alpha = 0.14f)
+                    ) {
+                        Text(
+                            text = formula.difficultyLevel.titleBn,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = formula.difficultyLevel.badgeColor
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                 }
@@ -595,7 +719,7 @@ private fun FormulaCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formula.formulaExpression,
+                        text = displayedExpression,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
@@ -644,7 +768,7 @@ private fun FormulaCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isExpanded) "সংক্ষিপ্ত করুন" else "প্রতীক পরিচিতি, সমাধান ও পরীক্ষার টিপস দেখুন",
+                    text = if (isExpanded) "সংক্ষিপ্ত করুন" else "প্রতীক পরিচিতি, শর্ত, প্রমাণ ও সমাধান দেখুন",
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -664,6 +788,23 @@ private fun FormulaCard(
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Spacer(modifier = Modifier.height(10.dp))
+
+                    // Domain conditions / restrictions
+                    if (formula.conditionsBn.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "প্রযোজ্য শর্ত: ${formula.conditionsBn}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
                     // Variables Guide
                     if (formula.variables.isNotEmpty()) {
@@ -710,6 +851,25 @@ private fun FormulaCard(
                             }
                         }
                         Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Derivation Steps
+                    if (formula.derivationStepsBn.isNotEmpty()) {
+                        Text(
+                            text = "সূত্রের উৎপত্তি ও ধাপসমূহ:",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        formula.derivationStepsBn.forEachIndexed { idx, step ->
+                            Text(
+                                text = "${BengaliNumberFormatter.toBn(idx + 1)}. $step",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 1.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
                     }
 
                     // Worked Out Example
@@ -760,7 +920,7 @@ private fun FormulaCard(
                         Spacer(modifier = Modifier.height(10.dp))
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFFEF3C7).copy(alpha = 0.5f), // Light amber
+                            color = Color(0xFFFEF3C7).copy(alpha = 0.5f),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.3f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -793,15 +953,209 @@ private fun FormulaCard(
                             }
                         }
                     }
+
+                    // Related Formula Suggestions
+                    if (relatedFormulas.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "সম্পর্কিত অন্যান্য সূত্র:",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            relatedFormulas.forEach { rel ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onSelectRelatedFormula(rel) },
+                                    label = {
+                                        Text(
+                                            text = rel.titleBn,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("related_formula_${rel.id}")
+                                )
+                            }
+                        }
+                    }
+
+                    // P1 UPGRADE: Interactive Variable Calculator & Formula Mini-Quiz
+                    Spacer(modifier = Modifier.height(12.dp))
+                    FormulaInteractiveToolsSection(formula = formula)
                 }
             }
         }
     }
 }
 
-/**
- * Quick Exam Cheat Sheet Dialog for rapid student formula memorization.
- */
+@Composable
+private fun FormulaInteractiveToolsSection(formula: LibraryFormula) {
+    val specs = remember(formula.id) { FormulaInteractiveEngine.getVariableSpecsForFormula(formula) }
+    val miniQuizzes = remember(formula.id) { FormulaInteractiveEngine.generateMiniQuizForFormula(formula) }
+
+    var showCalculator by remember { mutableStateOf(false) }
+    var showMiniQuiz by remember { mutableStateOf(false) }
+
+    var inputValues by remember(formula.id) {
+        mutableStateOf(specs.associate { it.symbol to it.defaultValue })
+    }
+    var calcResult by remember(formula.id, inputValues) {
+        mutableStateOf(FormulaInteractiveEngine.evaluateFormula(formula, inputValues))
+    }
+
+    var quizIndex by remember(formula.id) { mutableIntStateOf(0) }
+    var selectedQuizOpt by remember(formula.id, quizIndex) { mutableStateOf<Int?>(null) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = showCalculator,
+                onClick = { showCalculator = !showCalculator },
+                label = { Text("চলক ক্যালকুলেটর", fontWeight = FontWeight.Bold) },
+                modifier = Modifier.testTag("btn_formula_calc_${formula.id}")
+            )
+            FilterChip(
+                selected = showMiniQuiz,
+                onClick = { showMiniQuiz = !showMiniQuiz },
+                label = { Text("মিনি-কুইজ অনুশীলন", fontWeight = FontWeight.Bold) },
+                modifier = Modifier.testTag("btn_formula_quiz_${formula.id}")
+            )
+        }
+
+        if (showCalculator) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("formula_calculator_panel_${formula.id}")
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "চলক ক্যালকুলেটর: ${formula.formulaExpression}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    specs.forEach { spec ->
+                        OutlinedTextField(
+                            value = inputValues[spec.symbol] ?: "",
+                            onValueChange = { newVal ->
+                                val nextMap = inputValues.toMutableMap()
+                                nextMap[spec.symbol] = newVal
+                                inputValues = nextMap
+                                calcResult = FormulaInteractiveEngine.evaluateFormula(formula, nextMap)
+                            },
+                            label = { Text(spec.labelBn) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("formula_var_input_${formula.id}_${spec.symbol}")
+                        )
+                    }
+
+                    if (!calcResult.isSuccess) {
+                        Text(
+                            text = calcResult.errorMessageBn ?: "ত্রুটি",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Bold
+                        )
+                    } else {
+                        calcResult.substitutionStepsBn.forEach { step ->
+                            Text(
+                                text = "• $step",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Text(
+                            text = "চূড়ান্ত ফলাফল: ${calcResult.finalAnswerBn}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("formula_calc_result_${formula.id}")
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showMiniQuiz && miniQuizzes.isNotEmpty()) {
+            val currentMq = miniQuizzes[quizIndex.coerceIn(0, miniQuizzes.lastIndex)]
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("formula_miniquiz_panel_${formula.id}")
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "মিনি-কুইজ (${quizIndex + 1}/${miniQuizzes.size}): ${currentMq.questionBn}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    currentMq.optionsBn.forEachIndexed { idx, opt ->
+                        val isChosen = selectedQuizOpt == idx
+                        FilterChip(
+                            selected = isChosen,
+                            onClick = { selectedQuizOpt = idx },
+                            label = { Text(opt) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("formula_mq_opt_${formula.id}_$idx")
+                        )
+                    }
+                    if (selectedQuizOpt != null) {
+                        val isRight = selectedQuizOpt == currentMq.correctIndex
+                        Text(
+                            text = if (isRight) "সঠিক উত্তর! ${currentMq.explanationBn}" else "ভুল উত্তর। সঠিক: ${currentMq.optionsBn[currentMq.correctIndex]}। ${currentMq.explanationBn}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isRight) Color(0xFF15803D) else MaterialTheme.colorScheme.error
+                        )
+                        if (miniQuizzes.size > 1) {
+                            TextButton(
+                                onClick = {
+                                    quizIndex = (quizIndex + 1) % miniQuizzes.size
+                                    selectedQuizOpt = null
+                                }
+                            ) {
+                                Text("পরবর্তী মিনি-কুইজ প্রশ্ন")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun QuickCheatSheetDialog(
     formulas: List<LibraryFormula>,
