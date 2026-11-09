@@ -1,19 +1,22 @@
 # Math Master — Final Bug Fix and Refinement Report
 
-**Phase**: Final Independent Adversarial Bug Hunt & Stabilization Pass  
-**Scope**: Surgical root-cause fixes (`BUG-22` through `BUG-35`) across Domain Engines, ViewModel State Management, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization.
+**Phase**: Final Independent Adversarial Bug Hunt & Pre-Freeze Stabilization Pass  
+**Scope**: Complete traceability for `BUG-01` through `BUG-35` (referencing [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md) for historical `BUG-01`–`BUG-21` and detailing all root-cause fixes for `BUG-22`–`BUG-35` across Domain Engines, ViewModel State Management, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization).
 
 ---
 
-## 1. Engineering Principles Followed
+## 1. Engineering Principles & Traceability
 
-1. **Root-Cause Resolution Only**: Every change targets a verified state, scoring, validation, concurrency, or UX defect without introducing speculative features or architectural churn.
-2. **Strict Module & Data Preservation**: Protected Modules 01–04 (`Tables`, `Primes`, `Squares`, `Formulas`), Room Database `v9` (`20` tables, `MIGRATION_1_2`..`MIGRATION_8_9`), and all 4 bundled NCTB PDFs (`894` pages) remain 100% untouched.
+1. **Preserved Historical Bug IDs (`BUG-01` – `BUG-28`)**:
+   - `BUG-01` through `BUG-21` preserve their exact historical definitions documented in [`../audits/ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/ROOT_CAUSE_DEFECT_REGISTER.md) and [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md).
+   - `BUG-22` through `BUG-28` preserve their exact pre-freeze stabilization definitions.
+   - `BUG-29` through `BUG-35` represent the 7 newly discovered defects from the final independent adversarial bug hunt (with `BUG-35` exclusively tracking `BookPdfRenderCache` `Mutex` + `LruCache(12)` + `RGB_565` + synchronized PDF extraction).
+2. **Strict Module & Data Preservation**: Protected Modules 01–04 (`Tables`, `Primes`, `Squares`, `Formulas`), Room Database `v9` (`20` tables, `MIGRATION_1_2`..`MIGRATION_8_9`), and all 4 bundled NCTB PDFs (`894` pages: `161 + 181 + 190 + 362`, `31,193,087` bytes) remain 100% untouched.
 3. **Deterministic State & Scoring**: All session counters (`correctCount`, `wrongCount`, `currentStreak`, `highestStreak`, `elapsedSeconds`, `pendingOptionSelections`, `pendingTypedAnswers`) are derived deterministically from authoritative session state.
 
 ---
 
-## 2. Detailed Root-Cause Fixes Implemented
+## 2. Detailed Root-Cause Fixes Implemented (`BUG-22` – `BUG-35`)
 
 ### 2.1 `BUG-22` — Book Practice Bidirectional Navigation & Score Deduplication
 - **Files Modified**:
@@ -68,21 +71,28 @@
 - **Fix**:
   - Added a horizontal filter chip bar (`সব বই` + `BookId.entries`) to `BookRevisionScreen` that filters Spaced Revisions, Mistake Notebook entries, Personal Notes, and Bookmarked PDF Pages by textbook and synchronizes `viewModel.selectBook(bId)` when a specific textbook chip is selected.
 
-### 2.7 `BUG-29` — Dotless Textbook Unit Suffixes & Mixed Fraction Equivalence
+### 2.7 `BUG-28` — Repository Hygiene & Documentation Organization
+- **Files Modified**: `.gitignore`, `README.md`, `docs/README.md`
+- **Problem**:
+  - `/public/assets/aistudio/` (~31 MB of temporary staging files) was not ignored in `.gitignore`, and `docs/README.md` needed an updated index of the final stabilization report suite.
+- **Fix**:
+  - Added `/public/assets/aistudio/` to `.gitignore` and organized the complete documentation index in `docs/README.md` and `README.md`.
+
+### 2.8 `BUG-29` — Dotless Textbook Unit Suffixes & Mixed Fraction Equivalence
 - **File Modified**: `app/src/main/java/com/example/math/SharedMathEngine.kt`
 - **Problem**:
   - `stripCommonUnitSuffixes()` stripped dotted units (`"সে.মি."`, `"কি.মি."`, `"মি."`) but missed dotless textbook units (`"সেমি"`, `"বর্গসেমি"`, `"ঘনসেমি"`, `"মিটার"`, `"বর্গমিটার"`, `"কিমি"`). Additionally, `normalizeAnswerToken()` stripped all spaces before fraction parsing, turning mixed fractions (`"1 1/2"`, `"১ ১/২"`, `"১ সমস্ত ১/২"`, `"১ পূর্ণ ১/২"`) into `"11/2"` instead of `"3/2"`.
 - **Fix**:
   - Expanded `stripCommonUnitSuffixes()` with iterative longest-first unit stripping and converted mixed fractions into improper fractions `"a/b"` inside `normalizeAnswerToken()` prior to removing whitespace.
 
-### 2.8 `BUG-30` — Distributive Parenthesized Linear & Quadratic Algebraic Simplification
+### 2.9 `BUG-30` — Distributive Parenthesized Linear & Quadratic Algebraic Simplification
 - **File Modified**: `app/src/main/java/com/example/math/SharedMathEngine.kt`
 - **Problem**:
   - `SharedMathEngine.simplify()` documented support for `2(x + 3) + 4x - 1`, but `parseQuadraticExpression()` lacked distributive parenthesis expansion.
 - **Fix**:
   - Added `expandAlgebraicParentheses()` in `SharedMathEngine` to expand `k(ax + b)` and `±(ax^2 + bx + c)` terms and include an explicit distributive expansion step in `simplify()`.
 
-### 2.9 `BUG-31` — Book Mistake & Spaced Revision ID Normalization + Cross-Table Sync
+### 2.10 `BUG-31` — Book Mistake & Spaced Revision ID Normalization + Cross-Table Sync
 - **Files Modified**:
   - `app/src/main/java/com/example/data/repository/MathRepository.kt`
   - `app/src/main/java/com/example/ui/MathViewModel.kt`
@@ -91,7 +101,7 @@
 - **Fix**:
   - Normalized `rawId` and `revItemId = "mistake_$rawId"` across `recordBookQuestionMistake`, `markBookMistakeResolved`, and `deleteBookMistake`, synchronized all three with `unified_mistake_notebook` (`"BOOK_$rawId"`), and invoked `markBookMistakeResolved` in `submitBookPracticeAnswer()` when `isCorrect == true`.
 
-### 2.10 `BUG-32` — Canonical BCS Question ID Resolution & Quiz/BCS Unified Mistake Sync
+### 2.11 `BUG-32` — Canonical BCS Question ID Resolution & Quiz/BCS Unified Mistake Sync
 - **Files Modified**:
   - `app/src/main/java/com/example/data/repository/MathRepository.kt`
   - `app/src/main/java/com/example/ui/MathViewModel.kt`
@@ -100,24 +110,23 @@
 - **Fix**:
   - Added `extractCanonicalBcsQuestionId()` in `MathRepository`, synchronized `recordBcsMistake`/`markBcsMistakeResolved`/`deleteBcsMistake` with `unified_mistake_notebook`, and wired `submitQuizAnswer()` and `finishQuizSession()` to record and resolve mistakes across both tables.
 
-### 2.11 `BUG-33` — Unsubmitted Quiz Draft Preservation Across Navigation & Timeout
+### 2.12 `BUG-33` — Unsubmitted Quiz Draft Preservation Across Navigation & Timeout
 - **File Modified**: `app/src/main/java/com/example/ui/MathViewModel.kt`
 - **Problem**:
   - In non-`isFullExamMode` quizzes (`TOPIC`, `TIMED`, `PRACTICE`, `MIXED`), selecting an option or typing a numerical answer without clicking "উত্তর যাচাই করুন" was lost when navigating via `jumpToQuizQuestion()` or `previousQuizQuestion()`, or when the timer expired on another question.
 - **Fix**:
   - Added `pendingOptionSelections` and `pendingTypedAnswers` to `QuizSessionState`, restored pending drafts on navigation, and rescued unsubmitted drafts in `finishQuizSession()`.
 
-### 2.12 `BUG-34` — Exclude Skipped Zero-Attempt Topics from `weakTopics`
+### 2.13 `BUG-34` — Exclude Skipped Zero-Attempt Topics from `weakTopics`
 - **File Modified**: `app/src/main/java/com/example/math/ExamEngineModels.kt`
 - **Problem**:
   - `ExamScoringEngine.evaluateExam()` marked topics with `attemptedCount == 0` (all questions skipped) as `weakTopics`.
 - **Fix**:
   - Added `it.attemptedCount > 0` to the `weakTopics` filter in `ExamScoringEngine.evaluateExam()`.
 
-### 2.13 `BUG-35` — Book PDF Reader `Mutex` + `LruCache(12)` + `RGB_565` & Synchronized Extraction
+### 2.14 `BUG-35` — Book PDF Reader `Mutex` + `LruCache(12)` + `RGB_565` & Synchronized Extraction
 - **File Modified**: `app/src/main/java/com/example/ui/screens/BookReaderAndLabsScreens.kt`
 - **Problem**:
   - `BookPdfReaderScreen` rendered `ARGB_8888` bitmaps without `Mutex` serialization or `LruCache(12)`, and `resolveOfflinePdfFile()` wrote to a shared `cached_${bookId.id}.pdf.tmp` without synchronization.
 - **Fix**:
-  - Added `BookPdfRenderCache` (`Mutex` + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` + OOM cache-eviction fallback) and synchronized atomic temp-file extraction in `resolveOfflinePdfFile()`.
-
+  - Added `BookPdfRenderCache` (`Mutex` + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` + OOM cache-eviction fallback) and synchronized atomic temp-file extraction (`cached_${bookId.id}_${System.nanoTime()}.pdf.tmp`) in `resolveOfflinePdfFile()`.
