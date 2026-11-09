@@ -132,6 +132,93 @@ object FormulaInteractiveEngine {
         val v2 = valuesList.getOrElse(1) { 3.0 }
         val v3 = valuesList.getOrElse(2) { 2.0 }
 
+        // Exact Formula-ID Dispatch first
+        val exactById: Pair<List<String>, String>? = when (entry.id) {
+            "nt_1" -> {
+                val nLong = v1.toLong().coerceAtLeast(1L)
+                val sum = nLong * (nLong + 1L) / 2L
+                listOf(
+                    "S = n(n + 1) / 2 = ${formatNumBn(nLong.toDouble())} × ${formatNumBn((nLong + 1).toDouble())} ÷ ২",
+                    "= ${BengaliNumberFormatter.toBn(sum)}"
+                ) to BengaliNumberFormatter.toBn(sum)
+            }
+            "nt_2" -> {
+                val nLong = v1.toLong().coerceAtLeast(1L)
+                val sumSq = nLong * (nLong + 1L) * (2L * nLong + 1L) / 6L
+                listOf(
+                    "S = n(n + 1)(2n + 1) / 6 = ${BengaliNumberFormatter.toBn(nLong)} × ${BengaliNumberFormatter.toBn(nLong + 1)} × ${BengaliNumberFormatter.toBn(2 * nLong + 1)} ÷ ৬",
+                    "= ${BengaliNumberFormatter.toBn(sumSq)}"
+                ) to BengaliNumberFormatter.toBn(sumSq)
+            }
+            "nt_3" -> {
+                val nLong = v1.toLong().coerceAtLeast(1L)
+                val base = nLong * (nLong + 1L) / 2L
+                val sumCube = base * base
+                listOf(
+                    "S = [n(n + 1) / 2]² = [${BengaliNumberFormatter.toBn(base)}]²",
+                    "= ${BengaliNumberFormatter.toBn(sumCube)}"
+                ) to BengaliNumberFormatter.toBn(sumCube)
+            }
+            "nt_4" -> {
+                val aL = v1.toLong().coerceAtLeast(1L)
+                val bL = v2.toLong().coerceAtLeast(1L)
+                val g = NumberSystemProvider.gcd(aL, bL)
+                val l = NumberSystemProvider.lcm(aL, bL)
+                listOf(
+                    "গ.সা.গু(${BengaliNumberFormatter.toBn(aL)}, ${BengaliNumberFormatter.toBn(bL)}) = ${BengaliNumberFormatter.toBn(g)}, ল.সা.গু = ${BengaliNumberFormatter.toBn(l)}",
+                    "গুণফল যাচাই: ${BengaliNumberFormatter.toBn(aL)} × ${BengaliNumberFormatter.toBn(bL)} = ${BengaliNumberFormatter.toBn(aL * bL)} = ${BengaliNumberFormatter.toBn(g)} × ${BengaliNumberFormatter.toBn(l)}"
+                ) to "গ.সা.গু = ${BengaliNumberFormatter.toBn(g)}, ল.সা.গু = ${BengaliNumberFormatter.toBn(l)}"
+            }
+            "nt_bdmo_1", "nt_bdmo_2" -> {
+                val analysis = SharedMathEngine.analyzeDivisorsAndTotient(v1.toLong().coerceAtLeast(2L))
+                listOf(
+                    "মৌলিক উৎপাদক: ${analysis.primePowerBn}",
+                    "ভাজক সংখ্যা d(N) = ${BengaliNumberFormatter.toBn(analysis.divisorCount)}, ভাজক সমষ্টি σ(N) = ${BengaliNumberFormatter.toBn(analysis.divisorSum)}, টোশেন্ট φ(N) = ${BengaliNumberFormatter.toBn(analysis.eulerTotient)}"
+                ) to "d(N) = ${BengaliNumberFormatter.toBn(analysis.divisorCount)}, σ(N) = ${BengaliNumberFormatter.toBn(analysis.divisorSum)}, φ(N) = ${BengaliNumberFormatter.toBn(analysis.eulerTotient)}"
+            }
+            "coord_1" -> {
+                val dist = sqrt((v1 * v1) + (v2 * v2))
+                listOf(
+                    "Δx = ${formatNumBn(v1)}, Δy = ${formatNumBn(v2)}",
+                    "দূরত্ব d = √(Δx² + Δy²) = √(${formatNumBn(v1 * v1)} + ${formatNumBn(v2 * v2)}) = ${formatNumBn(dist)}"
+                ) to "${formatNumBn(dist)} একক"
+            }
+            "seq_1" -> {
+                val term = v1 + (v2 - 1.0) * v3
+                listOf(
+                    "aₙ = a + (n − 1)d = ${formatNumBn(v1)} + (${formatNumBn(v2)} − ১) × ${formatNumBn(v3)}",
+                    "= ${formatNumBn(term)}"
+                ) to formatNumBn(term)
+            }
+            "seq_2" -> {
+                val sum = (v1 / 2.0) * (2.0 * v2 + (v1 - 1.0) * v3)
+                listOf(
+                    "Sₙ = (n/2)[2a + (n − 1)d] = (${formatNumBn(v1)}/২) × [২(${formatNumBn(v2)}) + (${formatNumBn(v1)} − ১)×${formatNumBn(v3)}]",
+                    "= ${formatNumBn(sum)}"
+                ) to formatNumBn(sum)
+            }
+            "prob_1" -> {
+                val denom = v2.coerceAtLeast(1.0)
+                val p = (v1 / denom).coerceIn(0.0, 1.0)
+                listOf(
+                    "P(A) = n(A) / n(S) = ${formatNumBn(v1)} ÷ ${formatNumBn(denom)} = ${formatNumBn(p)}",
+                    "শতকরা সম্ভাব্যতা = ${formatNumBn(p * 100.0)}%"
+                ) to "${formatNumBn(p)} (${formatNumBn(p * 100.0)}%)"
+            }
+            else -> null
+        }
+
+        if (exactById != null) {
+            return FormulaCalculationResult(
+                isSuccess = true,
+                formulaTitleBn = entry.titleBn,
+                expressionBn = entry.formulaExpression,
+                variableDefinitionsBn = defs,
+                substitutionStepsBn = exactById.first,
+                finalAnswerBn = exactById.second
+            )
+        }
+
         return when (entry.subject) {
             FormulaSubject.ALGEBRA -> {
                 val expr = entry.formulaExpression
@@ -245,6 +332,17 @@ object FormulaInteractiveEngine {
                         "sinθ = ${formatNumBn(sinVal)}, cosθ = ${formatNumBn(cosVal)}"
                     ),
                     finalAnswerBn = "অতিভুজ = ${formatNumBn(h)}, sinθ = ${formatNumBn(sinVal)}"
+                )
+            }
+            FormulaSubject.NUMBER_THEORY -> {
+                val analysis = SharedMathEngine.analyzeDivisorsAndTotient(v1.toLong().coerceAtLeast(2L))
+                FormulaCalculationResult(
+                    isSuccess = true,
+                    formulaTitleBn = entry.titleBn,
+                    expressionBn = entry.formulaExpression,
+                    variableDefinitionsBn = defs,
+                    substitutionStepsBn = analysis.stepsBn.map { "${it.first}: ${it.second}" },
+                    finalAnswerBn = "d(N) = ${BengaliNumberFormatter.toBn(analysis.divisorCount)}, σ(N) = ${BengaliNumberFormatter.toBn(analysis.divisorSum)}"
                 )
             }
             else -> {

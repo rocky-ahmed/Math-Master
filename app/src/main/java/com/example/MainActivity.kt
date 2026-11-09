@@ -20,13 +20,21 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
+import com.example.ui.screens.BookChapterOverviewScreen
+import com.example.ui.screens.BookDetailScreen
+import com.example.ui.screens.BookHubScreen
+import com.example.ui.screens.BookInteractiveLabScreen
+import com.example.ui.screens.BookLessonScreen
+import com.example.ui.screens.BookPdfReaderScreen
+import com.example.ui.screens.BookPracticeScreen
+import com.example.ui.screens.BookRevisionScreen
 import com.example.ui.screens.BookmarksScreen
 import com.example.ui.screens.CustomizeScreen
 import com.example.ui.screens.DashboardScreen
@@ -56,10 +64,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val viewModel: MathViewModel = viewModel()
-            val themeMode by viewModel.themeMode.collectAsState()
-            val customState by viewModel.customizationState.collectAsState()
-            val previewCustomState by viewModel.previewCustomizationState.collectAsState()
-            val screenStack by viewModel.screenStack.collectAsState()
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val customState by viewModel.customizationState.collectAsStateWithLifecycle()
+            val previewCustomState by viewModel.previewCustomizationState.collectAsStateWithLifecycle()
+            val screenStack by viewModel.screenStack.collectAsStateWithLifecycle()
             val currentScreen = screenStack.lastOrNull() ?: Screen.Home
 
             val activeConfig = if (currentScreen is Screen.Customize) {
@@ -80,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun MainAppContent(viewModel: MathViewModel) {
-    val screenStack by viewModel.screenStack.collectAsState()
+    val screenStack by viewModel.screenStack.collectAsStateWithLifecycle()
     val currentScreen = screenStack.lastOrNull() ?: Screen.Home
 
     BackHandler(enabled = screenStack.size > 1) {
@@ -95,11 +103,8 @@ fun MainAppContent(viewModel: MathViewModel) {
                 Screen.Home,
                 Screen.Tables,
                 Screen.Dashboard,
-                Screen.Quizzes,
-                Screen.Formulas,
-                Screen.FormulaLibrary,
-                Screen.PracticeLab,
-                Screen.Bookmarks
+                Screen.Bookmarks,
+                Screen.Quizzes
             )
 
             if (showBottomNav) {
@@ -114,7 +119,7 @@ fun MainAppContent(viewModel: MathViewModel) {
                     NavigationBarItem(
                         selected = currentScreen == Screen.Tables,
                         onClick = { viewModel.navigateToTab(Screen.Tables) },
-                        icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "নামতা") },
+                        icon = { Icon(Icons.Default.Functions, contentDescription = "নামতা") },
                         label = { Text("নামতা") },
                         modifier = Modifier.testTag("nav_item_tables")
                     )
@@ -168,6 +173,14 @@ fun MainAppContent(viewModel: MathViewModel) {
             is Screen.ProblemSolver -> ProblemSolverScreen(viewModel = viewModel, modifier = modifier)
             is Screen.VisualExplorer -> com.example.ui.screens.VisualExplorerScreen(viewModel = viewModel, modifier = modifier)
             is Screen.BcsPreparation -> com.example.ui.screens.BcsPreparationScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookHub -> BookHubScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookDetail -> BookDetailScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookChapterOverview -> BookChapterOverviewScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookLesson -> BookLessonScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookPractice -> BookPracticeScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookInteractiveLab -> BookInteractiveLabScreen(viewModel = viewModel, modifier = modifier)
+            is Screen.BookRevision -> BookRevisionScreen(viewModel = viewModel, modifier = modifier)
         }
     }
 }

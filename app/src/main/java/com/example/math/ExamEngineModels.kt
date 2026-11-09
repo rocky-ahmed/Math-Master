@@ -80,7 +80,16 @@ enum class ExamPresetType(
         subtitleBn = "পূর্বে ভুল করা প্রশ্নগুলোর বিশেষ রিভিশন পরীক্ষা",
         defaultQuestions = 10,
         defaultDurationMinutes = 8
-    )
+    );
+
+    companion object {
+        fun fromIdOrDefault(raw: String): ExamPresetType {
+            val trimmed = raw.trim()
+            return entries.firstOrNull {
+                it.id.equals(trimmed, ignoreCase = true) || it.name.equals(trimmed, ignoreCase = true)
+            } ?: QUICK_TEST
+        }
+    }
 }
 
 enum class QuestionPaletteState(val titleBn: String) {
@@ -207,7 +216,7 @@ object ExamScoringEngine {
 
         questions.forEachIndexed { index, q ->
             val chosen = selectedAnswers[index]
-            if (chosen == null || chosen < 0) {
+            if (isOptionUnanswered(chosen)) {
                 unanswered++
             } else if (chosen == q.correctIndex) {
                 correct++
@@ -241,7 +250,7 @@ object ExamScoringEngine {
             var tTime = 0
             indexedList.forEach { (idx, q) ->
                 val ans = selectedAnswers[idx]
-                if (ans == null || ans < 0) tUnanswered++
+                if (isOptionUnanswered(ans)) tUnanswered++
                 else if (ans == q.correctIndex) tCorrect++
                 else tWrong++
                 tTime += (questionTimeSeconds[idx] ?: (safeTimeSpent / max(1, totalQ)))
@@ -268,7 +277,7 @@ object ExamScoringEngine {
             var dUnanswered = 0
             indexedList.forEach { (idx, q) ->
                 val ans = selectedAnswers[idx]
-                if (ans == null || ans < 0) dUnanswered++
+                if (isOptionUnanswered(ans)) dUnanswered++
                 else if (ans == q.correctIndex) dCorrect++
                 else dWrong++
             }
@@ -285,7 +294,7 @@ object ExamScoringEngine {
         }
 
         val weakTopics = topicBreakdown
-            .filter { it.accuracyPercent < 65.0 || (it.correctCount * 100.0 / max(1, it.totalQuestions)) < 60.0 }
+            .filter { it.attemptedCount > 0 && (it.accuracyPercent < 65.0 || (it.correctCount * 100.0 / max(1, it.totalQuestions)) < 60.0) }
             .map { it.topicTitleBn }
 
         val strongTopics = topicBreakdown
@@ -342,6 +351,10 @@ object ExamScoringEngine {
         )
     }
 
+    fun isOptionUnanswered(choice: Int?): Boolean = choice == null || choice == -1
+
+    fun isOptionAnswered(choice: Int?): Boolean = choice != null && choice != -1
+
     fun computePaletteState(
         questionIndex: Int,
         visitedIndices: Set<Int>,
@@ -349,7 +362,7 @@ object ExamScoringEngine {
         markedForReview: Set<Int>
     ): QuestionPaletteState {
         val isVisited = visitedIndices.contains(questionIndex)
-        val hasAnswer = (selectedAnswers[questionIndex] ?: -1) >= 0
+        val hasAnswer = isOptionAnswered(selectedAnswers[questionIndex])
         val isMarked = markedForReview.contains(questionIndex)
 
         return when {
@@ -382,11 +395,88 @@ object ExamQuestionBank {
         val targetCount = config.questionCount.coerceIn(5, 60)
 
         if (config.preset == ExamPresetType.BCS_PRELIMINARY_MOCK) {
-            return BcsPreparationRepository.generateBcsExamQuestions(
-                count = targetCount,
+            val rawBcs = BcsPreparationRepository.generateBcsExamQuestions(
+                count = if (config.questionType == QuizQuestionType.NUMERICAL) targetCount * 2 else targetCount,
                 difficulty = config.difficulty,
                 includePreviousBcs = true
             )
+            if (config.questionType == QuizQuestionType.MCQ) {
+                return rawBcs.take(targetCount)
+            }
+            val transformed = rawBcs.mapIndexedNotNull { idx, q ->
+                val rawAns = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
+                val cleanNum = QuizGenerator.extractCleanNumericalAnswer(rawAns)
+                val targetType = when (config.questionType) {
+                    QuizQuestionType.MIXED -> when (idx % 3) {
+                        0 -> QuizQuestionType.MCQ
+                        1 -> QuizQuestionType.TRUE_FALSE
+                        else -> if (cleanNum != null) QuizQuestionType.NUMERICAL else QuizQuestionType.MCQ
+                    }
+                    else -> config.questionType
+                }
+                when (targetType) {
+                    QuizQuestionType.TRUE_FALSE -> {
+                        val isTrue = (idx % 2 == 0)
+                        val shownOption = if (isTrue) {
+                            rawAns
+                        } else {
+                            q.optionsBn.filterIndexed { i, _ -> i != q.correctIndex }.firstOrNull() ?: rawAns
+                        }
+                        val tfOpts = listOf("সত্য (True)", "মিথ্যা (False)")
+                        val tfCorrect = if (isTrue) 0 else 1
+                        q.copy(
+                            questionType = QuizQuestionType.TRUE_FALSE,
+                            optionsBn = tfOpts,
+                            correctIndex = tfCorrect,
+                            correctAnswerText = tfOpts[tfCorrect],
+                            trueFalseStatementBn = "${q.questionBn} — উত্তর: $shownOption",
+                            isStatementTrue = isTrue
+                        )
+                    }
+                    QuizQuestionType.NUMERICAL -> {
+                        if (cleanNum == null) {
+                            null
+                        } else {
+                            val stem = if (
+                                (q.questionBn.contains("নিচের কোন") || q.questionBn.contains("কোন সংখ্যাটি")) &&
+                                !q.questionBn.contains("বিকল্পসমূহ:") &&
+                                q.optionsBn.isNotEmpty()
+                            ) {
+                                "${q.questionBn} (বিকল্পসমূহ: ${q.optionsBn.joinToString(", ")})"
+                            } else {
+                                q.questionBn
+                            }
+                            q.copy(
+                                questionBn = stem,
+                                questionType = QuizQuestionType.NUMERICAL,
+                                correctAnswerText = cleanNum
+                            )
+                        }
+                    }
+                    else -> q.copy(questionType = QuizQuestionType.MCQ, correctAnswerText = rawAns)
+                }
+            }.toMutableList()
+            if (transformed.size < targetCount) {
+                val extra = QuizGenerator.generateQuiz(
+                    topic = QuizTopic.ARITHMETIC_PERCENTAGE,
+                    questionCount = targetCount - transformed.size + 4,
+                    difficulty = config.difficulty,
+                    questionType = config.questionType
+                ).let { list ->
+                    if (config.questionType == QuizQuestionType.NUMERICAL) {
+                        list.filter { it.questionType == QuizQuestionType.NUMERICAL }
+                    } else {
+                        list
+                    }
+                }
+                for (eq in extra) {
+                    if (transformed.size >= targetCount) break
+                    if (transformed.none { it.questionBn == eq.questionBn }) {
+                        transformed.add(eq)
+                    }
+                }
+            }
+            return transformed.take(targetCount)
         }
 
         val topics = if (config.selectedTopics.isEmpty() || config.selectedTopics.contains(QuizTopic.MIXED_CHALLENGE)) {
@@ -411,18 +501,37 @@ object ExamQuestionBank {
         val deduplicated = combined
             .distinctBy { it.questionBn }
             .map { ensureUniqueOptions(it) }
+            .let { list ->
+                if (config.questionType == QuizQuestionType.NUMERICAL) {
+                    list.filter { it.questionType == QuizQuestionType.NUMERICAL }
+                } else {
+                    list
+                }
+            }
 
         val finalPool = if (config.randomizeQuestions) deduplicated.shuffled() else deduplicated
         val selected = finalPool.take(targetCount).toMutableList()
 
         // Top up if deduplication left fewer than targetCount
         if (selected.size < targetCount) {
+            val topUpTopic = if (config.questionType == QuizQuestionType.NUMERICAL) {
+                QuizTopic.MULTIPLICATION
+            } else {
+                QuizTopic.MIXED_CHALLENGE
+            }
             val extra = QuizGenerator.generateQuiz(
-                topic = QuizTopic.MIXED_CHALLENGE,
-                questionCount = targetCount - selected.size + 4,
+                topic = topUpTopic,
+                questionCount = targetCount - selected.size + 6,
                 difficulty = config.difficulty,
                 questionType = config.questionType
             ).map { ensureUniqueOptions(it) }
+                .let { list ->
+                    if (config.questionType == QuizQuestionType.NUMERICAL) {
+                        list.filter { it.questionType == QuizQuestionType.NUMERICAL }
+                    } else {
+                        list
+                    }
+                }
             for (q in extra) {
                 if (selected.size >= targetCount) break
                 if (selected.none { it.questionBn == q.questionBn }) {
@@ -509,16 +618,66 @@ object ExamQuestionBank {
             .joinToString(",") { "${it.key}:${it.value}" }
     }
 
+    fun serializeAnswersWithTyped(
+        answers: Map<Int, Int>,
+        typedAnswers: Map<Int, String>
+    ): String {
+        val base = serializeIntMap(answers)
+        if (typedAnswers.isEmpty()) return base
+        val encodedTyped = typedAnswers.entries
+            .filter { it.value.isNotBlank() }
+            .sortedBy { it.key }
+            .joinToString(LIST_SEP) { (k, v) ->
+                val clean = v.replace(RECORD_SEP, " ").replace(LIST_SEP, " ").replace(FIELD_SEP, " ")
+                "$k$FIELD_SEP$clean"
+            }
+        return if (encodedTyped.isEmpty()) base else "$base$RECORD_SEP$encodedTyped"
+    }
+
     fun deserializeIntMap(serialized: String): Map<Int, Int> {
-        if (serialized.isBlank()) return emptyMap()
+        val intSection = serialized.substringBefore(RECORD_SEP)
+        if (intSection.isBlank()) return emptyMap()
         val result = linkedMapOf<Int, Int>()
-        serialized.split(",").forEach { pair ->
+        intSection.split(",").forEach { pair ->
             val kv = pair.split(":")
             if (kv.size == 2) {
-                val k = kv[0].toIntOrNull()
-                val v = kv[1].toIntOrNull()
+                val k = kv[0].trim().toIntOrNull()
+                val v = kv[1].trim().toIntOrNull()
                 if (k != null && v != null) {
                     result[k] = v
+                }
+            }
+        }
+        return result
+    }
+
+    fun deserializeTypedMap(
+        serialized: String,
+        questions: List<QuizQuestion> = emptyList(),
+        intAnswers: Map<Int, Int> = emptyMap()
+    ): Map<Int, String> {
+        val result = linkedMapOf<Int, String>()
+        if (serialized.contains(RECORD_SEP)) {
+            val typedSection = serialized.substringAfter(RECORD_SEP)
+            if (typedSection.isNotBlank()) {
+                typedSection.split(LIST_SEP).forEach { entry ->
+                    val kv = entry.split(FIELD_SEP, limit = 2)
+                    if (kv.size == 2) {
+                        val k = kv[0].trim().toIntOrNull()
+                        val v = kv[1].trim()
+                        if (k != null && v.isNotEmpty()) {
+                            result[k] = v
+                        }
+                    }
+                }
+            }
+        }
+        // Fallback reconstruction for numerical questions where choice index 0..3 was saved without explicit typed section
+        intAnswers.forEach { (qIdx, choiceIdx) ->
+            if (!result.containsKey(qIdx)) {
+                val q = questions.getOrNull(qIdx)
+                if (q?.questionType == QuizQuestionType.NUMERICAL && choiceIdx in q.optionsBn.indices) {
+                    result[qIdx] = q.optionsBn[choiceIdx]
                 }
             }
         }

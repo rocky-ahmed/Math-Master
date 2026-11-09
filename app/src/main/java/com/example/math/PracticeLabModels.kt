@@ -144,6 +144,31 @@ enum class PracticeCategory(
         NUMBER_OPERATIONS -> Icons.Default.Calculate
     }
 
+    val curriculumTracks: Set<CurriculumTrack>
+        get() = when (this) {
+            ARITHMETIC, FRACTIONS, DECIMALS -> setOf(CurriculumTrack.ALL, CurriculumTrack.NCTB, CurriculumTrack.BCS)
+            PERCENTAGES, RATIOS -> setOf(CurriculumTrack.ALL, CurriculumTrack.NCTB, CurriculumTrack.BCS)
+            BASIC_ALGEBRA, GEOMETRY -> setOf(CurriculumTrack.ALL, CurriculumTrack.NCTB, CurriculumTrack.BDMO, CurriculumTrack.BCS)
+            NUMBER_THEORY, DIVISIBILITY -> setOf(CurriculumTrack.ALL, CurriculumTrack.NCTB, CurriculumTrack.BDMO, CurriculumTrack.BCS)
+            SQUARES_ROOTS, CUBES_ROOTS, NUMBER_OPERATIONS -> setOf(CurriculumTrack.ALL, CurriculumTrack.NCTB, CurriculumTrack.BDMO, CurriculumTrack.BCS)
+        }
+
+    val diagnosticPatternBn: String
+        get() = when (this) {
+            ARITHMETIC -> "সাধারণ ভুল: একক ও দশক স্থানের হাতে রাখা (carry) যোগ করতে ভুলে যাওয়া বা ঐকিক নিয়মে গুণ-ভাগের ক্রম উল্টে ফেলা।"
+            FRACTIONS -> "সাধারণ ভুল: ভগ্নাংশ যোগের সময় লবের পাশাপাশি হরগুলোও যোগ করে ফেলা অথবা লঘিষ্ঠ আকারে কাটাকাটি না করা।"
+            DECIMALS -> "সাধারণ ভুল: দশমিক বিন্দুর অবস্থান সঠিকভাবে সারিবদ্ধ না করা বা গুণফলে দশমিকের ঘর সংখ্যা ভুল গণনা করা।"
+            PERCENTAGES -> "সাধারণ ভুল: শতকরা হারকে ১০০ দিয়ে ভাগ না করা অথবা হ্রাস/বৃদ্ধির ক্ষেত্রে ভিত্তিমূল্য পরিবর্তন করে ফেলা।"
+            RATIOS -> "সাধারণ ভুল: অনুপাতের পূর্বরাশি ও উত্তররাশির ক্রম উল্টে ফেলা বা সমানুপাতে বজ্রগুণনে ত্রুটি করা।"
+            BASIC_ALGEBRA -> "সাধারণ ভুল: সমীকরণের পক্ষান্তর করার সময় চিহ্ন (+ থেকে − বা বিপরীত) পরিবর্তন না করা।"
+            GEOMETRY -> "সাধারণ ভুল: ক্ষেত্রফল ও পরিসীমার সূত্র গুলিয়ে ফেলা বা ত্রিভুজের ক্ষেত্রফলে ১/২ গুণ করতে ভুলে যাওয়া।"
+            NUMBER_THEORY -> "সাধারণ ভুল: গ.সা.গু ও ল.সা.গু-এর সংজ্ঞা গুলিয়ে ফেলা বা মৌলিক উৎপাদকে বিশ্লেষণ অসম্পূর্ণ রাখা।"
+            DIVISIBILITY -> "সাধারণ ভুল: অঙ্কগুলোর যোগফলের বিভাজ্যতা (৩, ৯) এবং শেষ অঙ্কের বিভাজ্যতা (৪, ৮) একসাথে গুলিয়ে ফেলা।"
+            SQUARES_ROOTS -> "সাধারণ ভুল: x² মানে x × ২ ভেবে ফেলা (প্রকৃতপক্ষে x × x) অথবা সূচকের গুণে ঘাত যোগ না করে গুণ করা।"
+            CUBES_ROOTS -> "সাধারণ ভুল: ঘনফল নির্ণয়ে তিনবার গুণের বদলে দুইবার গুণ করা বা ঘনমূলের একক অঙ্ক চিনতে ভুল করা।"
+            NUMBER_OPERATIONS -> "সাধারণ ভুল: BODMAS নিয়মে গুণের আগে যোগ বা বিয়োগ করে ফেলা।"
+        }
+
     companion object {
         val ADDITION_SUBTRACTION: PracticeCategory get() = ARITHMETIC
     }
@@ -176,7 +201,9 @@ data class PracticeQuestion(
     val hintBn: String = tipBn,
     val inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
     val trueFalseStatementBn: String? = null,
-    val isTrueFalseCorrect: Boolean? = null
+    val isTrueFalseCorrect: Boolean? = null,
+    val curriculumTrack: CurriculumTrack = CurriculumTrack.NCTB,
+    val diagnosticFeedbackBn: String = category.diagnosticPatternBn
 ) {
     val questionTextBn: String get() = questionBn
     val correctOptionIndex: Int get() = correctIndex
@@ -190,6 +217,8 @@ data class PracticeSessionState(
     val activeAdaptiveDifficulty: PracticeDifficulty = PracticeDifficulty.EASY,
     val inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
     val isUnlimitedMode: Boolean = false,
+    val isInterleavedChallenge: Boolean = false,
+    val selectedTrack: CurriculumTrack = CurriculumTrack.ALL,
     val questions: List<PracticeQuestion> = emptyList(),
     val currentIndex: Int = 0,
     val selectedOptionIndex: Int? = null,
@@ -231,6 +260,37 @@ data class PracticeSessionState(
 }
 
 object PracticeLabGenerator {
+
+    /**
+     * Generates a Rohrer & Taylor (2007) Interleaved Practice Session mixing distinct categories
+     * across the selected CurriculumTrack so learners practice strategy discrimination.
+     */
+    fun generateInterleavedChallenge(
+        count: Int = 10,
+        track: CurriculumTrack = CurriculumTrack.ALL,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ
+    ): List<PracticeQuestion> {
+        val eligibleCategories = PracticeCategory.values().filter {
+            track == CurriculumTrack.ALL || it.curriculumTracks.contains(track)
+        }.ifEmpty { PracticeCategory.values().toList() }
+
+        val safeCount = count.coerceIn(1, 50)
+        return (0 until safeCount).map { index ->
+            val cat = eligibleCategories[index % eligibleCategories.size]
+            val diff = when {
+                index < safeCount / 3 -> PracticeDifficulty.EASY
+                index < (safeCount * 2) / 3 -> PracticeDifficulty.MEDIUM
+                else -> PracticeDifficulty.HARD
+            }
+            val rawQ = generateSingleQuestion(cat, diff, index).copy(
+                id = "interleaved_${track.id}_${cat.id}_$index",
+                difficulty = PracticeDifficulty.ADAPTIVE,
+                curriculumTrack = if (track == CurriculumTrack.ALL) CurriculumTrack.NCTB else track,
+                diagnosticFeedbackBn = cat.diagnosticPatternBn
+            )
+            adaptQuestionToFormat(rawQ, inputFormat, index)
+        }
+    }
 
     fun generateSessionQuestions(
         category: PracticeCategory,

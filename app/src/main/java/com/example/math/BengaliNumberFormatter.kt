@@ -44,6 +44,14 @@ object BengaliNumberFormatter {
     }
 
     fun toEnglishDigits(numberStr: String): String = toEn(numberStr)
+
+    fun toBengaliDigits(number: Int): String = toBn(number)
+
+    fun toBengaliDigits(number: Long): String = toBn(number)
+
+    fun toBengaliDigits(number: Double): String = toBn(number.toString())
+
+    fun toBengaliDigits(numberStr: String): String = toBn(numberStr)
 }
 
 fun Int.toBengaliDigits(): String = BengaliNumberFormatter.toBn(this)

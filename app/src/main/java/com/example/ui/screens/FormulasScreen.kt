@@ -35,11 +35,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,7 +63,7 @@ fun FormulasScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     var selectedCategoryIndex by remember { mutableIntStateOf(0) } // 0 = Square, 1 = Cube
 
     val formulas = if (selectedCategoryIndex == 0) {
@@ -380,10 +380,10 @@ fun FormulaDetailScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val formulaId by viewModel.selectedFormulaId.collectAsState()
+    val formulaId by viewModel.selectedFormulaId.collectAsStateWithLifecycle()
     val formula = AlgebraFormulaProvider.getById(formulaId) ?: AlgebraFormulaProvider.squareFormulas.first()
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     val isBookmarked = bookmarks.any { it.id == formula.id }
 
     Column(modifier = modifier.fillMaxSize()) {

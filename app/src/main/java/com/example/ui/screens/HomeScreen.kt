@@ -27,10 +27,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.LooksOne
@@ -39,9 +43,13 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ViewInAr
+import com.example.ui.customization.MultiplicationTableVector
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -54,7 +62,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,11 +77,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.math.BengaliNumberFormatter
+import com.example.math.BcsCurriculumAndGuideRepository
+import com.example.math.BcsPreparationStage
+import com.example.math.toBengaliDigits
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathSectionHeader
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.components.StudySessionTimerSection
 import com.example.ui.customization.ComfortableModuleCard
 import com.example.ui.customization.CompactModuleCard
 import com.example.ui.customization.CustomLayoutType
@@ -89,11 +101,12 @@ fun HomeScreen(
     viewModel: MathViewModel,
     modifier: Modifier = Modifier
 ) {
-    val themeMode by viewModel.themeMode.collectAsState()
-    val bookmarks by viewModel.bookmarks.collectAsState()
-    val progressList by viewModel.progressList.collectAsState()
-    val quizScores by viewModel.quizScores.collectAsState()
-    val customState by viewModel.customizationState.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val progressList by viewModel.progressList.collectAsStateWithLifecycle()
+    val quizScores by viewModel.quizScores.collectAsStateWithLifecycle()
+    val customState by viewModel.customizationState.collectAsStateWithLifecycle()
+    val studyTimerState by viewModel.studySessionTimer.collectAsStateWithLifecycle()
 
     var showThemeMenu by remember { mutableStateOf(false) }
 
@@ -101,127 +114,9 @@ fun HomeScreen(
     val learnedPercentage = (learnedTablesCount * 100) / 40
 
     val homeModules = remember {
-        listOf(
-            HomeModuleItem(
-                sectionKey = SectionKey.TABLES,
-                titleBn = "গুণ ও নামতা\n(১ থেকে ৪০)",
-                subtitleBn = "১-৪০ পর্যন্ত নামতার সহজ চার্ট ও অনুশীলন",
-                badgeBn = "৪০ টি নামতা",
-                defaultIcon = Icons.AutoMirrored.Filled.MenuBook,
-                defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
-                testTag = "module_tables_card",
-                onClick = { viewModel.navigateTo(Screen.Tables) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.PRIMES,
-                titleBn = "মৌলিক সংখ্যা\n(১ থেকে ২০০)",
-                subtitleBn = "৪৬টি মৌলিক সংখ্যার তালিকা ও বিশদ বিশ্লেষণ",
-                badgeBn = "৪৬ টি মৌলিক",
-                defaultIcon = Icons.Default.LooksOne,
-                defaultGradient = listOf(Color(0xFF0D9488), Color(0xFF0F766E)),
-                testTag = "module_primes_card",
-                onClick = { viewModel.navigateTo(Screen.Primes) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.SQUARES,
-                titleBn = "বর্গ ও ঘন\n(১ থেকে ২০)",
-                subtitleBn = "বর্গ, বর্গমূল, ঘন ও ঘনমূলের মান ও চার্ট",
-                badgeBn = "বর্গমূল ও ঘনমূল",
-                defaultIcon = Icons.Default.Straighten,
-                defaultGradient = listOf(Color(0xFFD97706), Color(0xFFB45309)),
-                testTag = "module_squares_card",
-                onClick = { viewModel.navigateTo(Screen.SquaresCubes) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.FORMULAS,
-                titleBn = "বীজগণিতীয়\nসূত্রাবলী",
-                subtitleBn = "বর্গ ও ঘনের সূত্র, প্রতিপাদন ও অনুসিদ্ধান্ত",
-                badgeBn = "ব্যাখ্যা ও সমাধান",
-                defaultIcon = Icons.Default.Functions,
-                defaultGradient = listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)),
-                testTag = "module_formulas_card",
-                onClick = { viewModel.navigateTo(Screen.Formulas) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.FORMULA_LIBRARY,
-                titleBn = "ফর্মুলা লাইব্রেরি\n(পূর্ণাঙ্গ সংগ্রহ)",
-                subtitleBn = "বীজগণিত, জ্যামিতি ও ক্যালকুলাসের সূত্র",
-                badgeBn = "পূর্ণাঙ্গ সংগ্রহ",
-                defaultIcon = Icons.Default.School,
-                defaultGradient = listOf(Color(0xFF4F46E5), Color(0xFF4338CA)),
-                testTag = "module_formula_library_card",
-                onClick = { viewModel.navigateTo(Screen.FormulaLibrary) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.PRACTICE_LAB,
-                titleBn = "গণিত প্র্যাকটিস\nল্যাব",
-                subtitleBn = "ধাপে ধাপে অনুশীলন ও স্বয়ংক্রিয় টিউটর",
-                badgeBn = "ইন্টারেক্টিভ ল্যাব",
-                defaultIcon = Icons.Default.Psychology,
-                defaultGradient = listOf(Color(0xFF0D9488), Color(0xFF0F766E)),
-                testTag = "module_practice_lab_card",
-                onClick = { viewModel.navigateTo(Screen.PracticeLab) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.MENTAL_MATH,
-                titleBn = "মেন্টাল ম্যাথ\nচ্যালেঞ্জ",
-                subtitleBn = "দ্রুত হিসাব করার তীব্র মানসিক প্রতিযোগিতা",
-                badgeBn = "টাইমার মোড",
-                defaultIcon = Icons.Default.Speed,
-                defaultGradient = listOf(Color(0xFFEA580C), Color(0xFFC2410C)),
-                testTag = "module_mental_math_card",
-                onClick = { viewModel.navigateTo(Screen.MentalMath) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.NUMBER_SYSTEM,
-                titleBn = "বাস্তব সংখ্যা ও\nবিভাজ্যতা",
-                subtitleBn = "সংখ্যা পদ্ধতি ও বিভাজ্যতার সহজ নিয়ম",
-                badgeBn = "৪টি পদ্ধতি",
-                defaultIcon = Icons.Default.Numbers,
-                defaultGradient = listOf(Color(0xFF0284C7), Color(0xFF0369A1)),
-                testTag = "module_number_system_card",
-                onClick = { viewModel.navigateTo(Screen.NumberSystem) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.PROBLEM_SOLVER,
-                titleBn = "সমস্যা সমাধানকারী\n(Problem Solver)",
-                subtitleBn = "পাটিগণিত ও বীজগণিতের ব্যাখ্যাসহ সমাধান",
-                badgeBn = "১৬টি বিষয়",
-                defaultIcon = Icons.Default.Calculate,
-                defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
-                testTag = "module_problem_solver_card",
-                onClick = { viewModel.navigateTo(Screen.ProblemSolver) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.VISUAL_EXPLORER,
-                titleBn = "ভিজ্যুয়াল ম্যাথ\nএক্সপ্লোরার",
-                subtitleBn = "জ্যামিতি, দাঁড়িপাল্লা ও সূত্র ভিজ্যুয়ালাইজার",
-                badgeBn = "১০টি বিভাগ",
-                defaultIcon = Icons.Default.Straighten,
-                defaultGradient = listOf(Color(0xFF059669), Color(0xFF047857)),
-                testTag = "module_visual_explorer_card",
-                onClick = { viewModel.navigateTo(Screen.VisualExplorer) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.QUIZZES,
-                titleBn = "ইন্টারেক্টিভ কুইজ\nপরীক্ষা",
-                subtitleBn = "নামতা, মৌলিক ও সূত্রের এমসিকিউ পরীক্ষা",
-                badgeBn = "স্কোরবোর্ড যুক্ত",
-                defaultIcon = Icons.Default.Quiz,
-                defaultGradient = listOf(Color(0xFFE11D48), Color(0xFFBE123C)),
-                testTag = "module_quizzes_card",
-                onClick = { viewModel.navigateTo(Screen.Quizzes) }
-            ),
-            HomeModuleItem(
-                sectionKey = SectionKey.DASHBOARD,
-                titleBn = "অগ্রগতি ও পরিসংখ্যান\nড্যাশবোর্ড",
-                subtitleBn = "দৈনিক স্ট্রিক ও চার্টভিত্তিক অ্যানালিটিক্স",
-                badgeBn = "চার্ট ও বিশ্লেষণ",
-                defaultIcon = Icons.Default.BarChart,
-                defaultGradient = listOf(Color(0xFF0284C7), Color(0xFF0369A1)),
-                testTag = "module_dashboard_card",
-                onClick = { viewModel.navigateTo(Screen.Dashboard) }
-            )
+        HomeScreenDefaults.createHomeModules(
+            onOpenBookHub = { viewModel.openBookHub() },
+            onNavigate = { viewModel.navigateTo(it) }
         )
     }
 
@@ -343,6 +238,19 @@ fun HomeScreen(
                 )
             }
 
+            // Persistent 'Study Session' Timer Component (Toggleable on Home Screen)
+            item(span = { GridItemSpan(maxLineSpan) }, key = "home_study_session_timer") {
+                StudySessionTimerSection(
+                    timerState = studyTimerState,
+                    onToggleVisibility = { viewModel.toggleStudyTimerVisibility() },
+                    onToggleRunning = { viewModel.toggleStudySessionRunning() },
+                    onTick = { deltaSec -> viewModel.tickStudySessionTimer(deltaSec) },
+                    onFinishSession = { viewModel.finishAndSaveStudySession() },
+                    onResetSession = { viewModel.resetCurrentStudySession() },
+                    onSelectGoalMinutes = { mins -> viewModel.setStudyDailyGoalMinutes(mins) }
+                )
+            }
+
             // Quick Modules Section Heading
             item(span = { GridItemSpan(maxLineSpan) }, key = "home_section_header") {
                 MathSectionHeader(
@@ -351,7 +259,7 @@ fun HomeScreen(
                 )
             }
 
-            // 12 Mathematics Modules
+            // 14 Mathematics Modules
             items(
                 items = homeModules,
                 key = { it.sectionKey.id },
@@ -396,49 +304,6 @@ fun HomeScreen(
                 }
             }
 
-            // Dedicated BCS Mathematics Preparation Mode Featured Card
-            item(span = { GridItemSpan(maxLineSpan) }, key = "home_bcs_prep_card") {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.navigateTo(Screen.BcsPreparation) }
-                        .testTag("home_bcs_prep_card"),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "বিসিএস গাণিতিক যুক্তি প্রস্তুতি (BCS Prep)",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "৫০তম বিসিএস পিএসসি সিলেবাস (২০ নম্বর), যাচাইকৃত বিগত বিসিএস প্রশ্ন, শর্টকাট কৌশল ও মক টেস্ট",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Icon(
-                            imageVector = Icons.Default.School,
-                            contentDescription = "বিসিএস প্রস্তুতি",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-                }
-            }
 
             // Recent Quiz Results
             if (quizScores.isNotEmpty()) {
@@ -672,3 +537,156 @@ fun HomeHeroBanner(
         }
     }
 }
+
+/**
+ * Canonical default Home Screen module collection.
+ * Contains exactly 14 modules in verified order, with BOOK placed at the final position (item 14).
+ */
+object HomeScreenDefaults {
+    fun createHomeModules(
+        onOpenBookHub: () -> Unit,
+        onNavigate: (Screen) -> Unit
+    ): List<HomeModuleItem> = listOf(
+        HomeModuleItem(
+            sectionKey = SectionKey.TABLES,
+            titleBn = "গুণ ও নামতা\n(১ থেকে ৪০)",
+            subtitleBn = "১-৪০ পর্যন্ত নামতার সহজ চার্ট ও অনুশীলন",
+            badgeBn = "৪০ টি নামতা",
+            defaultIcon = SectionKey.TABLES.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
+            testTag = "module_tables_card",
+            onClick = { onNavigate(Screen.Tables) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.PRIMES,
+            titleBn = "মৌলিক সংখ্যা\n(১ থেকে ২০০)",
+            subtitleBn = "৪৬টি মৌলিক সংখ্যার তালিকা ও বিশদ বিশ্লেষণ",
+            badgeBn = "৪৬ টি মৌলিক",
+            defaultIcon = SectionKey.PRIMES.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF0D9488), Color(0xFF0F766E)),
+            testTag = "module_primes_card",
+            onClick = { onNavigate(Screen.Primes) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.SQUARES,
+            titleBn = "বর্গ ও ঘন\n(১ থেকে ২০)",
+            subtitleBn = "বর্গ, বর্গমূল, ঘন ও ঘনমূলের মান ও চার্ট",
+            badgeBn = "বর্গমূল ও ঘনমূল",
+            defaultIcon = SectionKey.SQUARES.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFFD97706), Color(0xFFB45309)),
+            testTag = "module_squares_card",
+            onClick = { onNavigate(Screen.SquaresCubes) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.FORMULAS,
+            titleBn = "বীজগণিতীয়\nসূত্রাবলী",
+            subtitleBn = "বর্গ ও ঘনের সূত্র, প্রতিপাদন ও অনুসিদ্ধান্ত",
+            badgeBn = "ব্যাখ্যা ও সমাধান",
+            defaultIcon = SectionKey.FORMULAS.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)),
+            testTag = "module_formulas_card",
+            onClick = { onNavigate(Screen.Formulas) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.FORMULA_LIBRARY,
+            titleBn = "ফর্মুলা লাইব্রেরি\n(পূর্ণাঙ্গ সংগ্রহ)",
+            subtitleBn = "বীজগণিত, জ্যামিতি ও ক্যালকুলাসের সূত্র",
+            badgeBn = "পূর্ণাঙ্গ সংগ্রহ",
+            defaultIcon = SectionKey.FORMULA_LIBRARY.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF4F46E5), Color(0xFF4338CA)),
+            testTag = "module_formula_library_card",
+            onClick = { onNavigate(Screen.FormulaLibrary) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.PRACTICE_LAB,
+            titleBn = "গণিত প্র্যাকটিস\nল্যাব",
+            subtitleBn = "ধাপে ধাপে অনুশীলন ও স্বয়ংক্রিয় টিউটর",
+            badgeBn = "ইন্টারেক্টিভ ল্যাব",
+            defaultIcon = SectionKey.PRACTICE_LAB.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF0D9488), Color(0xFF0F766E)),
+            testTag = "module_practice_lab_card",
+            onClick = { onNavigate(Screen.PracticeLab) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.MENTAL_MATH,
+            titleBn = "মেন্টাল ম্যাথ\nচ্যালেঞ্জ",
+            subtitleBn = "দ্রুত হিসাব করার তীব্র মানসিক প্রতিযোগিতা",
+            badgeBn = "টাইমার মোড",
+            defaultIcon = SectionKey.MENTAL_MATH.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFFEA580C), Color(0xFFC2410C)),
+            testTag = "module_mental_math_card",
+            onClick = { onNavigate(Screen.MentalMath) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.NUMBER_SYSTEM,
+            titleBn = "বাস্তব সংখ্যা ও\nবিভাজ্যতা",
+            subtitleBn = "সংখ্যা পদ্ধতি ও বিভাজ্যতার সহজ নিয়ম",
+            badgeBn = "৪টি পদ্ধতি",
+            defaultIcon = SectionKey.NUMBER_SYSTEM.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF0284C7), Color(0xFF0369A1)),
+            testTag = "module_number_system_card",
+            onClick = { onNavigate(Screen.NumberSystem) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.PROBLEM_SOLVER,
+            titleBn = "সমস্যা সমাধানকারী\n(Problem Solver)",
+            subtitleBn = "পাটিগণিত ও বীজগণিতের ব্যাখ্যাসহ সমাধান",
+            badgeBn = "১৬টি বিষয়",
+            defaultIcon = SectionKey.PROBLEM_SOLVER.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
+            testTag = "module_problem_solver_card",
+            onClick = { onNavigate(Screen.ProblemSolver) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.VISUAL_EXPLORER,
+            titleBn = "ভিজ্যুয়াল ম্যাথ\nএক্সপ্লোরার",
+            subtitleBn = "জ্যামিতি, দাঁড়িপাল্লা ও সূত্র ভিজ্যুয়ালাইজার",
+            badgeBn = "১০টি বিভাগ",
+            defaultIcon = SectionKey.VISUAL_EXPLORER.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF059669), Color(0xFF047857)),
+            testTag = "module_visual_explorer_card",
+            onClick = { onNavigate(Screen.VisualExplorer) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.QUIZZES,
+            titleBn = "ইন্টারেক্টিভ কুইজ\nপরীক্ষা",
+            subtitleBn = "নামতা, মৌলিক ও সূত্রের এমসিকিউ পরীক্ষা",
+            badgeBn = "স্কোরবোর্ড যুক্ত",
+            defaultIcon = SectionKey.QUIZZES.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFFE11D48), Color(0xFFBE123C)),
+            testTag = "module_quizzes_card",
+            onClick = { onNavigate(Screen.Quizzes) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.DASHBOARD,
+            titleBn = "অগ্রগতি ও পরিসংখ্যান\nড্যাশবোর্ড",
+            subtitleBn = "দৈনিক স্ট্রিক ও চার্টভিত্তিক অ্যানালিটিক্স",
+            badgeBn = "চার্ট ও বিশ্লেষণ",
+            defaultIcon = SectionKey.DASHBOARD.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF0284C7), Color(0xFF0369A1)),
+            testTag = "module_dashboard_card",
+            onClick = { onNavigate(Screen.Dashboard) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.BCS_MATH,
+            titleBn = "বিসিএস গাণিতিক\nযুক্তি",
+            subtitleBn = "গাণিতিক যুক্তি ও মানসিক দক্ষতা প্রস্তুতি",
+            badgeBn = "৫০তম বিসিএস • প্রস্তুতি",
+            defaultIcon = SectionKey.BCS_MATH.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF059669), Color(0xFF047857)),
+            testTag = "module_bcs_math_card",
+            onClick = { onNavigate(Screen.BcsPreparation) }
+        ),
+        HomeModuleItem(
+            sectionKey = SectionKey.BOOK,
+            titleBn = "পাঠ্যবই ও গাইড\n(৬ষ্ঠ - ৯ম-১০ম)",
+            subtitleBn = "৪টি বোর্ড বই, ৪৭টি অধ্যায়, পিডিএফ ও অনুশীলন",
+            badgeBn = "৪টি পাঠ্যবই • অফলাইন",
+            defaultIcon = SectionKey.BOOK.defaultIcon.toImageVector(),
+            defaultGradient = listOf(Color(0xFF0284C7), Color(0xFF1D4ED8)),
+            testTag = "module_book_card",
+            onClick = onOpenBookHub
+        )
+    )
+}
+

@@ -1799,4 +1799,146 @@ object BcsPreparationRepository {
             )
         }
     }
+
+    /**
+     * Generates a complete question set for any of the 14 [BcsPracticeMode] modes or 6 [BcsExamProfile] profiles,
+     * seamlessly combining Mathematical Reasoning and Mental Ability questions where appropriate.
+     */
+    fun generateBcsModeExamQuestions(
+        mode: BcsPracticeMode,
+        examProfile: BcsExamProfile = BcsExamProfile.BCS_50TH_PRELIM,
+        unit: BcsSyllabusUnit? = null,
+        difficulty: PracticeDifficulty = PracticeDifficulty.MEDIUM,
+        unresolvedMistakeIds: Set<String> = emptySet(),
+        weakUnits: Set<BcsSyllabusUnit> = emptySet()
+    ): List<QuizQuestion> {
+        fun convertMentalToQuiz(q: BcsMentalAbilityQuestion, idx: Int): QuizQuestion {
+            return QuizQuestion(
+                id = "bcs_ma_exam_${idx + 1}_${q.id}",
+                questionBn = "[${q.examReferenceBn} • ${q.category.titleBn}] ${q.questionBn}",
+                optionsBn = q.optionsBn,
+                correctIndex = q.correctIndex,
+                explanationBn = "${q.explanationBn}\n\n⚡ শর্টকাট কৌশল: ${q.shortcutTipBn}\n🏷️ উৎস স্তর: ${q.provenanceTier.badgeBn}",
+                topicTitleBn = "মানসিক দক্ষতা: ${q.category.titleBn}",
+                questionType = QuizQuestionType.MCQ,
+                correctAnswerText = q.correctAnswerBn,
+                difficulty = q.difficulty
+            )
+        }
+
+        return when (mode) {
+            BcsPracticeMode.SUBJECT_WISE_MOCK_MENTAL,
+            BcsPracticeMode.BCS_WRITTEN_009_PRACTICE -> {
+                val targetCount = mode.defaultQuestionCount
+                val maPool = BcsCurriculumAndGuideRepository.mentalAbilityQuestions.shuffled()
+                val expanded = mutableListOf<BcsMentalAbilityQuestion>()
+                var i = 0
+                while (expanded.size < targetCount && maPool.isNotEmpty()) {
+                    val base = maPool[i % maPool.size]
+                    expanded.add(if (i < maPool.size) base else base.copy(id = "${base.id}_rep_$i"))
+                    i++
+                }
+                expanded.mapIndexed { idx, q -> convertMentalToQuiz(q, idx) }
+            }
+
+            BcsPracticeMode.BCS_50TH_PRELIM_35_MOCK -> {
+                val mathPart = generateBcsExamQuestions(
+                    count = 20,
+                    difficulty = difficulty,
+                    includePreviousBcs = true,
+                    syllabusVersion = BcsSyllabusVersion.BCS_50TH_CURRENT
+                )
+                val maPool = BcsCurriculumAndGuideRepository.mentalAbilityQuestions.shuffled()
+                val maPart = (0 until 15).map { idx ->
+                    val base = maPool[idx % maPool.size]
+                    convertMentalToQuiz(base, idx)
+                }
+                mathPart + maPart
+            }
+
+            BcsPracticeMode.BCS_51ST_SPECIAL_20_MOCK -> {
+                val mathPart = generateBcsExamQuestions(
+                    count = 10,
+                    difficulty = difficulty,
+                    includePreviousBcs = true
+                )
+                val maPool = BcsCurriculumAndGuideRepository.mentalAbilityQuestions.shuffled()
+                val maPart = (0 until 10).map { idx ->
+                    val base = maPool[idx % maPool.size]
+                    convertMentalToQuiz(base, idx)
+                }
+                mathPart + maPart
+            }
+
+            BcsPracticeMode.COMBINED_MOCK -> {
+                val mathCount = if (examProfile.mathMarks > 0 && examProfile.mentalAbilityMarks == 0) 20 else 18
+                val mentalCount = if (examProfile.mentalAbilityMarks > 0 && examProfile.mathMarks == 0) 20 else 12
+                val mathPart = generateBcsExamQuestions(count = mathCount, difficulty = difficulty)
+                val maPool = BcsCurriculumAndGuideRepository.mentalAbilityQuestions.shuffled()
+                val maPart = (0 until mentalCount).map { idx ->
+                    val base = maPool[idx % maPool.size]
+                    convertMentalToQuiz(base, idx)
+                }
+                mathPart + maPart
+            }
+
+            BcsPracticeMode.PREVIOUS_QUESTION_PRACTICE -> {
+                val prevPool = verifiedPreviousBcsQuestions.filter { unit == null || it.unit == unit }
+                    .ifEmpty { verifiedPreviousBcsQuestions }
+                    .shuffled()
+                    .take(mode.defaultQuestionCount)
+                prevPool.mapIndexed { idx, q ->
+                    QuizQuestion(
+                        id = "bcs_prev_${idx + 1}_${q.id}",
+                        questionBn = "[${q.examReferenceBn}] ${q.questionBn}",
+                        optionsBn = q.optionsBn,
+                        correctIndex = q.correctIndex,
+                        explanationBn = q.standardStepByStepBn.joinToString("\n") + "\n⚡ শর্টকাট: ${q.shortcutTechniqueBn}",
+                        topicTitleBn = "${q.unit.unitNumberBn}: ${q.unit.titleBn}",
+                        questionType = QuizQuestionType.MCQ,
+                        correctAnswerText = q.correctAnswerBn,
+                        difficulty = q.difficulty
+                    )
+                }
+            }
+
+            BcsPracticeMode.MISTAKE_PRACTICE -> {
+                val matched = allBcsQuestions.filter { q ->
+                    unresolvedMistakeIds.any { mId -> mId.endsWith(q.id) || mId == q.id }
+                }.ifEmpty { allBcsQuestions.shuffled().take(mode.defaultQuestionCount) }
+                matched.take(mode.defaultQuestionCount).mapIndexed { idx, q ->
+                    QuizQuestion(
+                        id = "bcs_mistake_retry_${idx + 1}_${q.id}",
+                        questionBn = "[ভুল সংশোধন • ${q.examReferenceBn}] ${q.questionBn}",
+                        optionsBn = q.optionsBn,
+                        correctIndex = q.correctIndex,
+                        explanationBn = q.standardStepByStepBn.joinToString("\n") + "\n⚠️ সতর্কতা: ${q.commonMistakeWarningBn}",
+                        topicTitleBn = "${q.unit.unitNumberBn}: ${q.unit.titleBn}",
+                        questionType = QuizQuestionType.MCQ,
+                        correctAnswerText = q.correctAnswerBn,
+                        difficulty = q.difficulty
+                    )
+                }
+            }
+
+            BcsPracticeMode.WEAK_TOPIC_PRACTICE -> {
+                val targetUnit = weakUnits.firstOrNull() ?: unit
+                generateBcsExamQuestions(
+                    count = mode.defaultQuestionCount,
+                    difficulty = difficulty,
+                    unit = targetUnit,
+                    includePreviousBcs = true
+                )
+            }
+
+            else -> {
+                generateBcsExamQuestions(
+                    count = mode.defaultQuestionCount,
+                    difficulty = difficulty,
+                    unit = unit,
+                    includePreviousBcs = true
+                )
+            }
+        }
+    }
 }

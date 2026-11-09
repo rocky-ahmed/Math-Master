@@ -65,12 +65,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -86,11 +87,15 @@ import androidx.compose.ui.unit.sp
 import com.example.math.FormulaInteractiveEngine
 import com.example.data.model.BookmarkEntity
 import com.example.math.BengaliNumberFormatter
+import com.example.math.CurriculumTrack
 import com.example.math.FormulaDifficulty
 import com.example.math.FormulaLibraryProvider
 import com.example.math.FormulaSubject
 import com.example.math.LibraryFormula
+import com.example.math.PracticeCategory
+import com.example.math.PracticeDifficulty
 import com.example.ui.MathViewModel
+import com.example.ui.Screen
 import com.example.ui.components.MathTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -102,13 +107,15 @@ fun FormulaLibraryScreen(
     BackHandler { viewModel.navigateBack() }
 
     val context = LocalContext.current
-    val bookmarks by viewModel.bookmarks.collectAsState()
-    val recentFormulas by viewModel.recentFormulas.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val recentFormulas by viewModel.recentFormulas.collectAsStateWithLifecycle()
+    val selectedLibraryFormulaId by viewModel.selectedLibraryFormulaId.collectAsStateWithLifecycle()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedSubject by remember { mutableStateOf<FormulaSubject?>(null) } // null = All
     var selectedSubCategory by remember { mutableStateOf<String?>(null) }
     var selectedDifficulty by remember { mutableStateOf<FormulaDifficulty?>(null) }
+    var selectedTrack by remember { mutableStateOf(CurriculumTrack.ALL) }
     var showOnlyBookmarked by remember { mutableStateOf(false) }
     var showOnlyRecent by remember { mutableStateOf(false) }
     var showCheatSheetDialog by remember { mutableStateOf(false) }
@@ -117,6 +124,25 @@ fun FormulaLibraryScreen(
 
     // Expanded formula cards set
     var expandedFormulaIds by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(selectedLibraryFormulaId) {
+        val targetId = selectedLibraryFormulaId
+        if (!targetId.isNullOrBlank()) {
+            val targetFormula = FormulaLibraryProvider.getFormulaById(targetId)
+            if (targetFormula != null) {
+                selectedSubject = null
+                selectedSubCategory = null
+                selectedDifficulty = null
+                selectedTrack = CurriculumTrack.ALL
+                showOnlyBookmarked = false
+                showOnlyRecent = false
+                searchQuery = targetFormula.titleBn
+                expandedFormulaIds = expandedFormulaIds + targetId
+                viewModel.recordFormulaView(targetFormula)
+            }
+            viewModel.clearSelectedLibraryFormulaId()
+        }
+    }
 
     val availableSubCategories = remember(selectedSubject) {
         FormulaLibraryProvider.getSubCategories(selectedSubject)
@@ -127,6 +153,7 @@ fun FormulaLibraryScreen(
         selectedSubject,
         selectedSubCategory,
         selectedDifficulty,
+        selectedTrack,
         showOnlyBookmarked,
         showOnlyRecent,
         bookmarks,
@@ -140,7 +167,8 @@ fun FormulaLibraryScreen(
             subCategory = selectedSubCategory,
             difficulty = selectedDifficulty,
             onlyBookmarkedIds = if (showOnlyBookmarked) bookmarkedIds else null,
-            onlyRecentIds = if (showOnlyRecent) recentIds else null
+            onlyRecentIds = if (showOnlyRecent) recentIds else null,
+            curriculumTrack = selectedTrack
         )
     }
 
@@ -282,11 +310,35 @@ fun FormulaLibraryScreen(
             }
         }
 
-        // Full 12-Category Horizontal Filter Row
+        // Curriculum Track Filter Chips (NCTB, BdMO Olympiad, BCS)
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 6.dp)
+                .testTag("formula_track_chip_row"),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items(CurriculumTrack.values()) { track ->
+                FilterChip(
+                    selected = selectedTrack == track,
+                    onClick = { selectedTrack = track },
+                    label = { Text(track.titleBn, fontWeight = if (selectedTrack == track) FontWeight.Bold else FontWeight.Medium) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                    ),
+                    modifier = Modifier.testTag("track_chip_${track.id}")
+                )
+            }
+        }
+
+        // Full 12-Category Horizontal Filter Row
+        LazyRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
                 .testTag("all_subjects_chip_row"),
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -539,6 +591,20 @@ fun FormulaLibraryScreen(
                             val clip = ClipData.newPlainText(formula.titleBn, exprToCopy)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "সূত্র ক্লিপবোর্ডে কপি হয়েছে!", Toast.LENGTH_SHORT).show()
+                        },
+                        onPracticeInLab = {
+                            val mappedCat = when (formula.subject) {
+                                FormulaSubject.ALGEBRA, FormulaSubject.SEQUENCES_SERIES, FormulaSubject.CALCULUS -> PracticeCategory.BASIC_ALGEBRA
+                                FormulaSubject.GEOMETRY, FormulaSubject.MENSURATION, FormulaSubject.TRIGONOMETRY, FormulaSubject.COORDINATE_GEOMETRY -> PracticeCategory.GEOMETRY
+                                FormulaSubject.NUMBER_THEORY -> PracticeCategory.NUMBER_THEORY
+                                FormulaSubject.COMMERCIAL_MATH -> PracticeCategory.PERCENTAGES
+                                else -> PracticeCategory.ARITHMETIC
+                            }
+                            viewModel.recordFormulaMasteryInteraction(formula.id, formula.subject.id, isPracticed = true)
+                            viewModel.startPracticeSession(mappedCat, PracticeDifficulty.MEDIUM)
+                        },
+                        onOpenProblemSolver = {
+                            viewModel.navigateTo(Screen.ProblemSolver)
                         }
                     )
                 }
@@ -572,6 +638,8 @@ private fun FormulaCard(
     onSelectRelatedFormula: (LibraryFormula) -> Unit,
     onToggleBookmark: () -> Unit,
     onCopyFormula: () -> Unit,
+    onPracticeInLab: () -> Unit = {},
+    onOpenProblemSolver: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val displayedExpression = when (notationMode) {
@@ -996,15 +1064,24 @@ private fun FormulaCard(
 
                     // P1 UPGRADE: Interactive Variable Calculator & Formula Mini-Quiz
                     Spacer(modifier = Modifier.height(12.dp))
-                    FormulaInteractiveToolsSection(formula = formula)
+                    FormulaInteractiveToolsSection(
+                        formula = formula,
+                        onPracticeInLab = onPracticeInLab,
+                        onOpenProblemSolver = onOpenProblemSolver
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FormulaInteractiveToolsSection(formula: LibraryFormula) {
+private fun FormulaInteractiveToolsSection(
+    formula: LibraryFormula,
+    onPracticeInLab: () -> Unit = {},
+    onOpenProblemSolver: () -> Unit = {}
+) {
     val specs = remember(formula.id) { FormulaInteractiveEngine.getVariableSpecsForFormula(formula) }
     val miniQuizzes = remember(formula.id) { FormulaInteractiveEngine.generateMiniQuizForFormula(formula) }
 
@@ -1022,9 +1099,10 @@ private fun FormulaInteractiveToolsSection(formula: LibraryFormula) {
     var selectedQuizOpt by remember(formula.id, quizIndex) { mutableStateOf<Int?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             FilterChip(
                 selected = showCalculator,
@@ -1037,6 +1115,18 @@ private fun FormulaInteractiveToolsSection(formula: LibraryFormula) {
                 onClick = { showMiniQuiz = !showMiniQuiz },
                 label = { Text("মিনি-কুইজ অনুশীলন", fontWeight = FontWeight.Bold) },
                 modifier = Modifier.testTag("btn_formula_quiz_${formula.id}")
+            )
+            FilterChip(
+                selected = false,
+                onClick = onPracticeInLab,
+                label = { Text("প্র্যাকটিস ল্যাবে অনুশীলন") },
+                modifier = Modifier.testTag("btn_formula_to_practice_${formula.id}")
+            )
+            FilterChip(
+                selected = false,
+                onClick = onOpenProblemSolver,
+                label = { Text("সমস্যা সমাধানকারী") },
+                modifier = Modifier.testTag("btn_formula_to_solver_${formula.id}")
             )
         }
 

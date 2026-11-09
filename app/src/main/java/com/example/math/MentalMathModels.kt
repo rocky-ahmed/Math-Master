@@ -119,6 +119,20 @@ enum class MentalMathCategory(
         NUMBER_PATTERNS -> Icons.Default.AutoAwesome
         MIXED_ARITHMETIC -> Icons.Default.Calculate
     }
+
+    val strategyCoachBn: String
+        get() = when (this) {
+            ADDITION -> "কৌশল (Left-to-Right Addition): ডান থেকে নয়, বাম থেকে প্রথমে দশক/শতকের ঘর যোগ করুন এবং শেষে এককের ঘর যোগ করুন (যেমন ৪৭+৩৮ = ৪০+৩০+১৫ = ৮৫)।"
+            SUBTRACTION -> "কৌশল (Compensation Method): বিয়োজ্য সংখ্যাটিকে নিকটতম ১০ বা ১০০-এর গুণিতকে নিয়ে বিয়োগ করুন এবং অতিরিক্ত অংশ সমন্বয় করুন (যেমন ৮৩−২৯ = ৮৩−৩০+১ = ৫৪)।"
+            MULTIPLICATION -> "কৌশল (Halving & Doubling / Distributive Split): একটি সংখ্যাকে অর্ধেক ও অপরটিকে দ্বিগুণ করুন (১৬×১৫ = ৮×৩০ = ২৪০) অথবা a×(b+c) সূত্র প্রয়োগ করুন।"
+            DIVISION -> "কৌশল (Factor Decomposition): ভাজককে ছোট উৎপাদকে ভেঙে পরপর ভাগ করুন (যেমন ১৪৪÷১২ = ১৪৪÷৪÷৩ = ৩৬÷৩ = ১২)।"
+            SQUARES -> "কৌশল (Base Anchor Squaring): n² = (n−d)(n+d) + d² অথবা শেষে ৫ থাকলে n5² = n(n+1)25 সূত্রটি মনের ভেতর ব্যবহার করুন।"
+            CUBES -> "কৌশল (Unit Digit & Parity): ঘনমূলের একক অঙ্ক নির্ণয়ে ২↔৮ এবং ৩↔৭ পরিবর্তন মনে রাখুন; অন্য সব অঙ্ক (০,১,৪,৫,৬,৯) অপরিবর্তিত থাকে।"
+            PERCENTAGES -> "কৌশল (10%-5%-1% Anchor): যেকোনো সংখ্যার ১০% (১ ঘর বামে দশমিক) ও ৫% (১০%-এর অর্ধেক) বের করে দ্রুত ১৫%, ২০% বা ৩৫% নির্ণয় করুন।"
+            FRACTIONS -> "কৌশল (Divide First, Multiply Second): (a/b)×N বের করতে আগে N-কে হর b দিয়ে ভাগ করে ছোট সংখ্যা তৈরি করুন, তারপর লব a দিয়ে গুণ করুন।"
+            NUMBER_PATTERNS -> "কৌশল (First & Second Difference): পদগুলোর প্রথম অন্তর (Δ₁) ও দ্বিতীয় অন্তর (Δ₂) কিংবা পূর্ণবর্গ/পূর্ণঘন ক্রম পরীক্ষা করুন।"
+            MIXED_ARITHMETIC -> "কৌশল (BODMAS Chunking): বন্ধনী এবং গুণ/ভাগের অংশকে আগে একটি একক সংখ্যায় রূপান্তর করে তারপর যোগ-বিয়োগ করুন।"
+        }
 }
 
 /**
@@ -196,7 +210,8 @@ data class MentalMathQuestion(
     val correctIndex: Int,
     val explanationBn: String,
     val trueFalseStatementBn: String = "",
-    val isStatementTrue: Boolean = true
+    val isStatementTrue: Boolean = true,
+    val mentalStrategyTipBn: String = category.strategyCoachBn
 )
 
 /**

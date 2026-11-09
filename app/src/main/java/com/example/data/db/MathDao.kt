@@ -5,15 +5,26 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import com.example.data.model.BcsMistakeEntity
+import com.example.data.model.BcsStudyPlanGoalEntity
+import com.example.data.model.BcsTopicProgressEntity
+import com.example.data.model.BcsUserProfileEntity
+import com.example.data.model.BookLessonProgressEntity
+import com.example.data.model.BookMistakeEntity
+import com.example.data.model.BookNoteEntity
+import com.example.data.model.BookReadingStateEntity
+import com.example.data.model.BookSpacedRevisionEntity
 import com.example.data.model.BookmarkEntity
 import com.example.data.model.DailyStudyActivityEntity
 import com.example.data.model.ExamAttemptEntity
 import com.example.data.model.PracticeHistoryEntity
 import com.example.data.model.ProgressEntity
 import com.example.data.model.QuizScoreEntity
+import com.example.data.model.FormulaMasteryEntity
 import com.example.data.model.RecentFormulaEntity
 import com.example.data.model.SolverHistoryEntity
 import com.example.data.model.TopicAnalyticsEntity
+import com.example.data.model.UnifiedMistakeEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -126,4 +137,136 @@ interface MathDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDailyStudyActivity(activity: DailyStudyActivityEntity)
+
+    // Book Lesson Progress (Room v5)
+    @Query("SELECT * FROM book_lesson_progress ORDER BY lastVisitedAt DESC")
+    fun getAllBookLessonProgress(): Flow<List<BookLessonProgressEntity>>
+
+    @Query("SELECT * FROM book_lesson_progress WHERE lessonKey = :lessonKey LIMIT 1")
+    suspend fun getBookLessonProgressByKey(lessonKey: String): BookLessonProgressEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookLessonProgress(progress: BookLessonProgressEntity)
+
+    // Book Reading State (Room v5)
+    @Query("SELECT * FROM book_reading_state ORDER BY updatedAt DESC")
+    fun getAllBookReadingStates(): Flow<List<BookReadingStateEntity>>
+
+    @Query("SELECT * FROM book_reading_state WHERE bookId = :bookId LIMIT 1")
+    suspend fun getBookReadingStateByBookId(bookId: String): BookReadingStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookReadingState(state: BookReadingStateEntity)
+
+    // Book Notes (Room v5)
+    @Query("SELECT * FROM book_notes ORDER BY updatedAt DESC")
+    fun getAllBookNotes(): Flow<List<BookNoteEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookNote(note: BookNoteEntity)
+
+    @Query("DELETE FROM book_notes WHERE id = :id")
+    suspend fun deleteBookNoteById(id: Int)
+
+    // Book Mistakes (Room v5)
+    @Query("SELECT * FROM book_mistakes ORDER BY lastMistakeAt DESC")
+    fun getAllBookMistakes(): Flow<List<BookMistakeEntity>>
+
+    @Query("SELECT * FROM book_mistakes WHERE questionId = :questionId LIMIT 1")
+    suspend fun getBookMistakeById(questionId: String): BookMistakeEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookMistake(mistake: BookMistakeEntity)
+
+    @Query("DELETE FROM book_mistakes WHERE questionId = :questionId")
+    suspend fun deleteBookMistakeById(questionId: String)
+
+    // Book Spaced Revision (Room v5)
+    @Query("SELECT * FROM book_spaced_revision ORDER BY nextReviewEpochMs ASC")
+    fun getAllBookSpacedRevision(): Flow<List<BookSpacedRevisionEntity>>
+
+    @Query("SELECT * FROM book_spaced_revision WHERE itemId = :itemId LIMIT 1")
+    suspend fun getBookSpacedRevisionById(itemId: String): BookSpacedRevisionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBookSpacedRevision(item: BookSpacedRevisionEntity)
+
+    @Query("DELETE FROM book_spaced_revision WHERE itemId = :itemId")
+    suspend fun deleteBookSpacedRevisionById(itemId: String)
+
+    // BCS User Profile (Room v6)
+    @Query("SELECT * FROM bcs_user_profile WHERE profileId = :profileId LIMIT 1")
+    fun getBcsUserProfileFlow(profileId: String = "active_profile"): Flow<BcsUserProfileEntity?>
+
+    @Query("SELECT * FROM bcs_user_profile WHERE profileId = :profileId LIMIT 1")
+    suspend fun getBcsUserProfile(profileId: String = "active_profile"): BcsUserProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsUserProfile(profile: BcsUserProfileEntity)
+
+    @Query("SELECT * FROM bcs_user_profile ORDER BY updatedAt DESC")
+    fun getAllBcsUserProfilesFlow(): Flow<List<BcsUserProfileEntity>>
+
+    // BCS Topic Progress (Room v6 / v8)
+    @Query("SELECT * FROM bcs_topic_progress ORDER BY lastStudiedAt DESC")
+    fun getAllBcsTopicProgress(): Flow<List<BcsTopicProgressEntity>>
+
+    @Query("SELECT * FROM bcs_topic_progress WHERE examProfileId = :examProfileId ORDER BY lastStudiedAt DESC")
+    fun getBcsTopicProgressByProfile(examProfileId: String): Flow<List<BcsTopicProgressEntity>>
+
+    @Query("SELECT * FROM bcs_topic_progress WHERE topicId = :topicId LIMIT 1")
+    suspend fun getBcsTopicProgressById(topicId: String): BcsTopicProgressEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsTopicProgress(progress: BcsTopicProgressEntity)
+
+    // BCS Mistake Notebook (Room v6 / v8)
+    @Query("SELECT * FROM bcs_mistake_notebook ORDER BY lastMistakeAt DESC")
+    fun getAllBcsMistakes(): Flow<List<BcsMistakeEntity>>
+
+    @Query("SELECT * FROM bcs_mistake_notebook WHERE examProfileId = :examProfileId ORDER BY lastMistakeAt DESC")
+    fun getBcsMistakesByProfile(examProfileId: String): Flow<List<BcsMistakeEntity>>
+
+    @Query("SELECT * FROM bcs_mistake_notebook WHERE questionId = :questionId LIMIT 1")
+    suspend fun getBcsMistakeById(questionId: String): BcsMistakeEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsMistake(mistake: BcsMistakeEntity)
+
+    @Query("DELETE FROM bcs_mistake_notebook WHERE questionId = :questionId")
+    suspend fun deleteBcsMistakeById(questionId: String)
+
+    // BCS Study Plan Goals (Room v8)
+    @Query("SELECT * FROM bcs_study_goals ORDER BY dateKey DESC, updatedAt DESC LIMIT 180")
+    fun getAllBcsStudyGoals(): Flow<List<BcsStudyPlanGoalEntity>>
+
+    @Query("SELECT * FROM bcs_study_goals WHERE goalKey = :goalKey LIMIT 1")
+    suspend fun getBcsStudyGoalByKey(goalKey: String): BcsStudyPlanGoalEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsStudyGoal(goal: BcsStudyPlanGoalEntity)
+
+    // Unified Mistake Notebook (Room v7)
+    @Query("SELECT * FROM unified_mistake_notebook ORDER BY lastFailedAtMillis DESC")
+    fun getAllUnifiedMistakes(): Flow<List<UnifiedMistakeEntity>>
+
+    @Query("SELECT * FROM unified_mistake_notebook WHERE mistakeKey = :key LIMIT 1")
+    suspend fun getUnifiedMistakeByKey(key: String): UnifiedMistakeEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUnifiedMistake(mistake: UnifiedMistakeEntity)
+
+    @Query("DELETE FROM unified_mistake_notebook WHERE mistakeKey = :key")
+    suspend fun deleteUnifiedMistakeByKey(key: String)
+
+    // Formula Mastery State (Room v7)
+    @Query("SELECT * FROM formula_mastery_state ORDER BY lastPracticedAtMillis DESC")
+    fun getAllFormulaMastery(): Flow<List<FormulaMasteryEntity>>
+
+    @Query("SELECT * FROM formula_mastery_state WHERE formulaId = :formulaId LIMIT 1")
+    suspend fun getFormulaMasteryById(formulaId: String): FormulaMasteryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFormulaMastery(state: FormulaMasteryEntity)
 }
+

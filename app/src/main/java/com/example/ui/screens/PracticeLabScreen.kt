@@ -38,12 +38,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,8 +65,8 @@ fun PracticeLabScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val quizScores by viewModel.quizScores.collectAsState()
-    val topicAnalytics by viewModel.topicAnalytics.collectAsState()
+    val quizScores by viewModel.quizScores.collectAsStateWithLifecycle()
+    val topicAnalytics by viewModel.topicAnalytics.collectAsStateWithLifecycle()
     val practiceHistory = remember(quizScores) {
         quizScores.filter { it.topicId.startsWith("PRACTICE_") }
     }
@@ -76,6 +76,13 @@ fun PracticeLabScreen(
     var questionCount by remember { mutableIntStateOf(10) }
     var isUnlimitedMode by remember { mutableStateOf(false) }
     var selectedInputFormat by remember { mutableStateOf(QuestionInputFormat.MCQ) }
+    var selectedTrack by remember { mutableStateOf(com.example.math.CurriculumTrack.ALL) }
+
+    val filteredCategories = remember(selectedTrack) {
+        PracticeCategory.values().filter {
+            selectedTrack == com.example.math.CurriculumTrack.ALL || it.curriculumTracks.contains(selectedTrack)
+        }
+    }
 
     Column(
         modifier = modifier
@@ -93,6 +100,31 @@ fun PracticeLabScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Curriculum Track Filter Chips (NCTB, BdMO, BCS)
+            item {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("practice_track_chip_row"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(com.example.math.CurriculumTrack.entries) { track ->
+                        FilterChip(
+                            selected = selectedTrack == track,
+                            onClick = { selectedTrack = track },
+                            label = {
+                                Text(
+                                    text = "${track.badgeBn} (${track.titleBn})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (selectedTrack == track) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            modifier = Modifier.testTag("practice_track_chip_${track.id}")
+                        )
+                    }
+                }
+            }
+
             // Hero Configuration Banner
             item {
                 ElevatedCard(
@@ -309,15 +341,63 @@ fun PracticeLabScreen(
                 }
             }
 
-            // Categories Section (All 12 Practice Topics)
+            // Daily Interleaved Challenge Card (Rohrer & Taylor Interleaving Science)
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("card_interleaved_challenge"),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "দৈনিক ইন্টারলিভড চ্যালেঞ্জ (মিশ্র অনুশীলন)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "একাধিক গণিত অধ্যায়ের প্রশ্ন একত্রে অনুশীলন করলে কোন অঙ্কে কোন সূত্র প্রয়োগ করতে হবে তা দ্রুত চেনার দক্ষতা (Strategy Discrimination) বৃদ্ধি পায়।",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                viewModel.startInterleavedPracticeChallenge(
+                                    track = selectedTrack,
+                                    inputFormat = selectedInputFormat,
+                                    count = questionCount
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("btn_start_interleaved_challenge"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "ইন্টারলিভড চ্যালেঞ্জ শুরু করুন (${selectedTrack.badgeBn})",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Categories Section (Filtered by Track)
             item {
                 MathSectionHeader(
-                    title = "অনুশীলনের বিষয়সমূহ (১২টি)",
+                    title = "অনুশীলনের বিষয়সমূহ (${BengaliNumberFormatter.toBn(filteredCategories.size)}টি)",
                     subtitle = "নিচ থেকে যেকোনো বিষয়ে ট্যাপ করে অনুশীলন করুন"
                 )
             }
 
-            items(PracticeCategory.values()) { category ->
+            items(filteredCategories) { category ->
                 val isSelected = selectedCategory == category
                 val topicStat = topicAnalytics.firstOrNull {
                     it.topicKey == "PRACTICE_LAB_${category.id}"

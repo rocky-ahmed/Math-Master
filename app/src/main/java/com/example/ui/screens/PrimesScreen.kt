@@ -52,12 +52,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -86,7 +86,7 @@ fun PrimesScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var selectedPrimeInfo by remember { mutableStateOf<PrimeNumberInfo?>(null) }
@@ -591,7 +591,7 @@ fun PrimesScreen(
                                 onValueChange = { input ->
                                     val digits = input.filter { it.isDigit() }.take(4)
                                     searchInput = digits
-                                    val num = digits.toIntOrNull()
+                                    val num = BengaliNumberFormatter.toEnglishDigits(digits).toIntOrNull()
                                     searchedNumberInfo = if (num != null && num > 0) {
                                         PrimeNumberProvider.getPrimeInfo(num)
                                     } else null

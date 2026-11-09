@@ -156,7 +156,10 @@ data class NumberSystemQuestion(
     val optionsBn: List<String>,
     val correctIndex: Int,
     val explanationBn: String,
-    val bcsReferenceBn: String? = null
+    val bcsReferenceBn: String? = null,
+    val curriculumTracks: Set<CurriculumTrack> = setOf(CurriculumTrack.NCTB, CurriculumTrack.BCS),
+    val inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
+    val correctAnswerBn: String = optionsBn.getOrElse(correctIndex) { "" }.removeSuffix("টি").trim()
 )
 
 data class CoprimeAndDivisionResult(
@@ -193,7 +196,10 @@ data class NumberSystemPracticeState(
     val isSubmitted: Boolean = false,
     val score: Int = 0,
     val isCompleted: Boolean = false,
-    val userAnswers: Map<Int, Int> = emptyMap() // question index -> chosen option
+    val userAnswers: Map<Int, Int> = emptyMap(), // question index -> chosen option
+    val currentStreak: Int = 0,
+    val highestStreak: Int = 0,
+    val sessionStartEpochMs: Long = System.currentTimeMillis()
 )
 
 object NumberSystemProvider {
@@ -297,6 +303,51 @@ object NumberSystemProvider {
             testExampleNumber = 5184L,
             exampleExplanationBn = "৫১৮৪ এর অঙ্কগুলোর যোগফল = ৫ + ১ + ৮ + ৪ = ১৮ (৩ দ্বারা বিভাজ্য) এবং শেষ দুটি অঙ্ক ৮৪ (৮৪ ÷ ৪ = ২১, অর্থাৎ ৪ দ্বারা বিভাজ্য)। সুতরাং ৫১৮৪ সংখ্যাটি ১২ দ্বারা নিঃশেষে বিভাজ্য।",
             bcsShortcutBn = "বিসিএস শর্টকাট: আগে শেষ দুই অঙ্ক ৪ দিয়ে যায় কিনা দেখুন; গেলে অঙ্কগুলোর যোগফল ৩ দিয়ে যায় কিনা যাচাই করুন।"
+        ),
+        DivisibilityRule(
+            divisor = 13,
+            ruleNameBn = "১৩ দ্বারা বিভাজ্যতার নিয়ম (BdMO ও বিসিএস)",
+            summaryBn = "একক স্থানীয় অঙ্কের ৪ গুণ বাকি অংশের সাথে যোগ করলে যোগফল ১৩ দ্বারা বিভাজ্য হলে।",
+            detailedRuleBn = "বীজগাণিতিক প্রমাণ: 10a + b ≡ 0 (mod 13) ⇔ 4(10a + b) = 40a + 4b = 39a + (a + 4b) ≡ a + 4b (mod 13)। তাই শেষ অঙ্কের ৪ গুণ অবশিষ্ট সংখ্যার সাথে যোগ করলে যদি ১৩ এর গুণিতক পাওয়া যায়, তবে মূল সংখ্যাটি ১৩ দ্বারা নিঃশেষে বিভাজ্য।",
+            testExampleNumber = 2197L,
+            exampleExplanationBn = "২১৯৭ এর শেষ অঙ্ক ৭; ২১৯ + (৪ × ৭) = ২১৯ + ২৮ = ২৪৭। আবার ২৪ + (৪ × ৭) = ২৪ + ২৮ = ৫২ = ১৩ × ৪। সুতরাং ২১৯৭ সংখ্যাটি ১৩ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "অলিম্পিয়াড শর্টকাট: (বাকি অংশ + ৪ × শেষ অঙ্ক) ১৩ দ্বারা বিভাজ্য কিনা পরীক্ষা করুন।"
+        ),
+        DivisibilityRule(
+            divisor = 15,
+            ruleNameBn = "১৫ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "সংখ্যাটি একই সাথে ৩ এবং ৫ উভয় সহমৌলিক উৎপাদক দ্বারা বিভাজ্য হলে তা ১৫ দ্বারা বিভাজ্য।",
+            detailedRuleBn = "১৫ = ৩ × ৫ এবং gcd(৩, ৫) = ১। তাই একক অঙ্ক ০ বা ৫ হতে হবে এবং সকল অঙ্কের সমষ্টি ৩ দ্বারা বিভাজ্য হতে হবে।",
+            testExampleNumber = 4725L,
+            exampleExplanationBn = "৪৭২৫ এর শেষ অঙ্ক ৫ (৫ দ্বারা বিভাজ্য) এবং অঙ্কগুলোর যোগফল ৪ + ৭ + ২ + ৫ = ১৮ (৩ দ্বারা বিভাজ্য)। তাই এটি ১৫ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: শেষ অঙ্ক ০ বা ৫ না হলে তাৎক্ষণিক বাদ দিন; হলে অঙ্কগুলোর সমষ্টি ৩ দিয়ে যায় কিনা দেখুন।"
+        ),
+        DivisibilityRule(
+            divisor = 16,
+            ruleNameBn = "১৬ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "সংখ্যার শেষ চারটি অঙ্ক দ্বারা গঠিত সংখ্যা ১৬ দ্বারা বিভাজ্য হলে।",
+            detailedRuleBn = "যেহেতু ১০⁴ = ১০০০০ = ১৬ × ৬২৫, তাই যেকোনো বড় সংখ্যার শুধুমাত্র শেষ ৪টি অঙ্ক ১৬ দ্বারা বিভাজ্য হলেই সম্পূর্ণ সংখ্যাটি ১৬ দ্বারা নিঃশেষে বিভাজ্য হয়।",
+            testExampleNumber = 90320L,
+            exampleExplanationBn = "৯০৩২০ এর শেষ ৪টি অঙ্ক ০৩২০ = ৩২০। ৩২০ ÷ ১৬ = ২০ (নিঃশেষে বিভাজ্য)। তাই ৯০৩২০ সংখ্যাটি ১৬ দ্বারা বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: শেষ ৪ অঙ্ককে দুইবার ৪ দিয়ে বা সরাসরি ১৬ দিয়ে ভাগ করে যাচাই করুন।"
+        ),
+        DivisibilityRule(
+            divisor = 18,
+            ruleNameBn = "১৮ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "সংখ্যাটি জোড় (২ দ্বারা বিভাজ্য) এবং অঙ্কগুলোর যোগফল ৯ দ্বারা বিভাজ্য হলে তা ১৮ দ্বারা বিভাজ্য।",
+            detailedRuleBn = "১৮ = ২ × ৯ এবং gcd(২, ৯) = ১। তাই সংখ্যাটিকে জোড় হতে হবে এবং অঙ্কগুলোর সমষ্টি ৯ দ্বারা নিঃশেষে বিভাজ্য হতে হবে।",
+            testExampleNumber = 7344L,
+            exampleExplanationBn = "৭৩৪৪ জোড় সংখ্যা এবং ৭ + ৩ + ৪ + ৪ = ১৮ (৯ দ্বারা বিভাজ্য)। তাই ৭৩৪৪ সংখ্যাটি ১৮ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: জোড় সংখ্যা + অঙ্কগুলোর যোগফল ৯ এর গুণিতক = ১৮ দ্বারা বিভাজ্য।"
+        ),
+        DivisibilityRule(
+            divisor = 25,
+            ruleNameBn = "২৫ দ্বারা বিভাজ্যতার নিয়ম",
+            summaryBn = "সংখ্যার শেষ দুটি অঙ্ক ০০, ২৫, ৫০ অথবা ৭৫ হলে সংখ্যাটি ২৫ দ্বারা নিঃশেষে বিভাজ্য।",
+            detailedRuleBn = "যেহেতু ১০০ = ২৫ × ৪, তাই শতক বা তার উপরের স্থানীয় মান সর্বদা ২৫ দ্বারা বিভাজ্য। কেবল একক ও দশক স্থানীয় অঙ্ক নিয়ে গঠিত সংখ্যা ২৫ দ্বারা বিভাজ্য (০০, ২৫, ৫০, ৭৫) হতে হবে।",
+            testExampleNumber = 64875L,
+            exampleExplanationBn = "৬৪৮৭৫ এর শেষ দুটি অঙ্ক ৭৫, যা ২৫ দ্বারা বিভাজ্য (৭৫ ÷ ২৫ = ৩)। তাই ৬৪৮৭৫ সংখ্যাটি ২৫ দ্বারা নিঃশেষে বিভাজ্য।",
+            bcsShortcutBn = "বিসিএস শর্টকাট: শেষ দুই অঙ্ক ০০, ২৫, ৫০ বা ৭৫ দেখলেই ১ সেকেন্ডে উত্তর নিশ্চিত করুন।"
         )
     )
 
@@ -429,6 +480,54 @@ object NumberSystemProvider {
                 } else {
                     val reason = if (!div3) "অঙ্কগুলোর সমষ্টি ৩ দ্বারা বিভাজ্য নয়" else "শেষ দুই অঙ্ক ৪ দ্বারা বিভাজ্য নয়"
                     "$bnNum সংখ্যাটি ১২ দ্বারা বিভাজ্য নয় কারণ: $reason।"
+                }
+            }
+            13 -> {
+                val lastDigit = absStr.last().digitToInt().toLong()
+                val rest = absBig.divide(java.math.BigInteger.TEN)
+                val stepVal = rest.add(java.math.BigInteger.valueOf(4L * lastDigit))
+                if (isDivisible) {
+                    "$bnNum এর ক্ষেত্রে (বাকি অংশ + ৪×শেষ অঙ্ক) = ${BengaliNumberFormatter.toBn(rest.toString())} + ৪×${BengaliNumberFormatter.toBn(lastDigit)} = ${BengaliNumberFormatter.toBn(stepVal.toString())}, যা ১৩ দ্বারা বিভাজ্য। তাই $bnNum সংখ্যাটি ১৩ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    "$bnNum এর ক্ষেত্রে (বাকি অংশ + ৪×শেষ অঙ্ক) = ${BengaliNumberFormatter.toBn(stepVal.toString())}, যা ১৩ দ্বারা বিভাজ্য নয়। তাই এটি ১৩ দ্বারা নিঃশেষে বিভাজ্য নয়।"
+                }
+            }
+            15 -> {
+                val lastDigit = absStr.last().digitToInt()
+                val sum = absStr.map { it.digitToInt() }.sum()
+                val div5 = lastDigit == 0 || lastDigit == 5
+                val div3 = sum % 3 == 0
+                if (div3 && div5) {
+                    "$bnNum এর শেষ অঙ্ক ${BengaliNumberFormatter.toBn(lastDigit)} (৫ দ্বারা বিভাজ্য) এবং অঙ্কগুলোর যোগফল ${BengaliNumberFormatter.toBn(sum)} (৩ দ্বারা বিভাজ্য)। তাই এটি ১৫ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    val reason = if (!div5) "শেষ অঙ্ক ০ বা ৫ নয়" else "অঙ্কগুলোর যোগফল ৩ দ্বারা বিভাজ্য নয়"
+                    "$bnNum সংখ্যাটি ১৫ দ্বারা বিভাজ্য নয় কারণ: $reason।"
+                }
+            }
+            16 -> {
+                val lastFour = absStr.takeLast(4).toInt()
+                if (isDivisible) {
+                    "$bnNum এর শেষ ৪টি অঙ্ক (${BengaliNumberFormatter.toBn(lastFour)}) ১৬ দ্বারা বিভাজ্য। তাই সম্পূর্ণ সংখ্যাটি ১৬ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    "$bnNum এর শেষ ৪টি অঙ্ক (${BengaliNumberFormatter.toBn(lastFour)}) ১৬ দ্বারা বিভাজ্য নয়।"
+                }
+            }
+            18 -> {
+                val lastDigit = absStr.last().digitToInt()
+                val sum = absStr.map { it.digitToInt() }.sum()
+                if (isDivisible) {
+                    "$bnNum একটি জোড় সংখ্যা (২ দ্বারা বিভাজ্য) এবং অঙ্কগুলোর সমষ্টি ${BengaliNumberFormatter.toBn(sum)} যা ৯ দ্বারা বিভাজ্য। তাই এটি ১৮ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    val reason = if (lastDigit % 2 != 0) "সংখ্যাটি বিজোড়" else "অঙ্কগুলোর সমষ্টি (${BengaliNumberFormatter.toBn(sum)}) ৯ দ্বারা বিভাজ্য নয়"
+                    "$bnNum সংখ্যাটি ১৮ দ্বারা বিভাজ্য নয় কারণ: $reason।"
+                }
+            }
+            25 -> {
+                val lastTwo = absStr.takeLast(2).toInt()
+                if (isDivisible) {
+                    "$bnNum এর শেষ দুটি অঙ্ক ${BengaliNumberFormatter.toBn(lastTwo)} যা ২৫ দ্বারা বিভাজ্য। তাই এটি ২৫ দ্বারা নিঃশেষে বিভাজ্য।"
+                } else {
+                    "$bnNum এর শেষ দুটি অঙ্ক ${BengaliNumberFormatter.toBn(lastTwo)} (০০, ২৫, ৫০ বা ৭৫ নয়)। তাই এটি ২৫ দ্বারা বিভাজ্য নয়।"
                 }
             }
             else -> {
@@ -744,16 +843,85 @@ object NumberSystemProvider {
     /**
      * Curated practice questions for Easy, Medium, Hard (BCS Level).
      */
+    @JvmOverloads
     fun getPracticeQuestions(
         topic: NumberSystemTopic = NumberSystemTopic.ALL,
-        difficulty: NumberSystemDifficulty = NumberSystemDifficulty.EASY
+        difficulty: NumberSystemDifficulty = NumberSystemDifficulty.EASY,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ
     ): List<NumberSystemQuestion> {
         val allQuestions = getCuratedQuestionBank()
         val filtered = allQuestions.filter { q ->
             (topic == NumberSystemTopic.ALL || q.topic == topic) &&
                     q.difficulty == difficulty
         }
-        return if (filtered.isNotEmpty()) filtered.shuffled() else allQuestions.filter { it.difficulty == difficulty }.shuffled()
+        val baseList = if (filtered.isNotEmpty()) filtered.shuffled() else allQuestions.filter { it.difficulty == difficulty }.shuffled()
+
+        return when (inputFormat) {
+            QuestionInputFormat.MCQ -> baseList
+            QuestionInputFormat.TRUE_FALSE -> baseList.mapIndexed { idx, q ->
+                val isTrue = (idx % 2 == 0)
+                val shownOption = if (isTrue) {
+                    q.optionsBn[q.correctIndex]
+                } else {
+                    q.optionsBn.filterIndexed { i, _ -> i != q.correctIndex }.firstOrNull() ?: q.optionsBn[q.correctIndex]
+                }
+                val tfOptions = listOf("সত্য (True)", "মিথ্যা (False)")
+                val tfCorrectIdx = if (isTrue) 0 else 1
+                q.copy(
+                    questionBn = "${q.questionBn} — উত্তর: $shownOption",
+                    optionsBn = tfOptions,
+                    correctIndex = tfCorrectIdx,
+                    inputFormat = QuestionInputFormat.TRUE_FALSE,
+                    correctAnswerBn = tfOptions[tfCorrectIdx]
+                )
+            }
+            QuestionInputFormat.KEYPAD -> {
+                val numericFiltered = baseList.mapNotNull { q ->
+                    val cleanNum = QuizGenerator.extractCleanNumericalAnswer(q.optionsBn.getOrElse(q.correctIndex) { "" })
+                    if (cleanNum == null) {
+                        null
+                    } else {
+                        val stem = if (
+                            (q.questionBn.contains("নিচের কোন") || q.questionBn.contains("কোন সংখ্যাটি")) &&
+                            !q.questionBn.contains("বিকল্পসমূহ:") &&
+                            q.optionsBn.isNotEmpty()
+                        ) {
+                            "${q.questionBn} (বিকল্পসমূহ: ${q.optionsBn.joinToString(", ")})"
+                        } else {
+                            q.questionBn
+                        }
+                        q.copy(
+                            questionBn = stem,
+                            inputFormat = QuestionInputFormat.KEYPAD,
+                            correctAnswerBn = cleanNum
+                        )
+                    }
+                }
+                if (numericFiltered.isNotEmpty()) {
+                    numericFiltered
+                } else {
+                    allQuestions.mapNotNull { q ->
+                        val cleanNum = QuizGenerator.extractCleanNumericalAnswer(q.optionsBn.getOrElse(q.correctIndex) { "" })
+                        cleanNum?.let {
+                            val stem = if (
+                                (q.questionBn.contains("নিচের কোন") || q.questionBn.contains("কোন সংখ্যাটি")) &&
+                                !q.questionBn.contains("বিকল্পসমূহ:") &&
+                                q.optionsBn.isNotEmpty()
+                            ) {
+                                "${q.questionBn} (বিকল্পসমূহ: ${q.optionsBn.joinToString(", ")})"
+                            } else {
+                                q.questionBn
+                            }
+                            q.copy(
+                                questionBn = stem,
+                                inputFormat = QuestionInputFormat.KEYPAD,
+                                correctAnswerBn = it
+                            )
+                        }
+                    }.shuffled().take(5)
+                }
+            }
+        }
     }
 
     private fun getCuratedQuestionBank(): List<NumberSystemQuestion> {
@@ -946,7 +1114,30 @@ object NumberSystemProvider {
                 optionsBn = listOf("৬", "৮", "১২", "১৬"),
                 correctIndex = 1,
                 explanationBn = "n বিজোড় সংখ্যা হলে ধরি n = ৩: ৩² - ১ = ৯ - ১ = ৮।\nn = ৫ হলে: ৫² - ১ = ২৫ - ১ = ২৪ (৮ × ৩)।\nn = ৭ হলে: ৭² - ১ = ৪৯ - ১ = ৪৮ (৮ × ৬)।\nযেহেতু দুটি ক্রমিক জোড় সংখ্যার গুণফল সর্বদা ৮ দ্বারা বিভাজ্য, তাই n² - ১ সর্বদা ৮ দ্বারা বিভাজ্য।",
-                bcsReferenceBn = "১০ম ও ৩৭তম বিসিএস প্রিলিমিনারি"
+                bcsReferenceBn = "১০ম ও ৩৭তম বিসিএস প্রিলিমিনারি",
+                curriculumTracks = setOf(CurriculumTrack.NCTB, CurriculumTrack.BDMO, CurriculumTrack.BCS)
+            ),
+            NumberSystemQuestion(
+                id = "ns_bdmo_1",
+                topic = NumberSystemTopic.FACTORS_MULTIPLES,
+                difficulty = NumberSystemDifficulty.HARD,
+                questionBn = "৭২ (72) সংখ্যাটির সকল ধনাত্মক ভাজকের সমষ্টি σ(৭২) কত?",
+                optionsBn = listOf("১৪৪", "১৮০", "১৯৫", "২১০"),
+                correctIndex = 2,
+                explanationBn = "৭২ = ২³ × ৩²। ভাজকের সমষ্টি σ(৭২) = [(২⁴ - ১)/(২ - ১)] × [(৩³ - ১)/(৩ - ১)] = ১৫ × ১৩ = ১৯৫।",
+                bcsReferenceBn = "BdMO জুনিয়র ও সেকেন্ডারি সংখ্যাতত্ত্ব",
+                curriculumTracks = setOf(CurriculumTrack.BDMO, CurriculumTrack.BCS)
+            ),
+            NumberSystemQuestion(
+                id = "ns_bdmo_2",
+                topic = NumberSystemTopic.DIVISIBILITY,
+                difficulty = NumberSystemDifficulty.HARD,
+                questionBn = "২¹⁰⁰ কে ১০১ দ্বারা ভাগ করলে ভাগশেষ (Remainder) কত থাকবে?",
+                optionsBn = listOf("০", "১", "২", "১০০"),
+                correctIndex = 1,
+                explanationBn = "১০১ একটি মৌলিক সংখ্যা এবং gcd(২, ১০১) = ১। ফার্মার ক্ষুদ্র উপপাদ্য (Fermat's Little Theorem) অনুসারে a^(p-1) ≡ ১ (mod p), তাই ২¹⁰⁰ ≡ ১ (mod ১০১)। ভাগশেষ ১।",
+                bcsReferenceBn = "BdMO সংখ্যাতত্ত্ব ও মডুলার পাটিগণিত",
+                curriculumTracks = setOf(CurriculumTrack.BDMO)
             )
         )
     }

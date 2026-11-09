@@ -1096,7 +1096,12 @@ class ExampleRobolectricTest {
             .addMigrations(
                 com.example.data.db.MathDatabase.MIGRATION_1_2,
                 com.example.data.db.MathDatabase.MIGRATION_2_3,
-                com.example.data.db.MathDatabase.MIGRATION_3_4
+                com.example.data.db.MathDatabase.MIGRATION_3_4,
+                com.example.data.db.MathDatabase.MIGRATION_4_5,
+                com.example.data.db.MathDatabase.MIGRATION_5_6,
+                com.example.data.db.MathDatabase.MIGRATION_6_7,
+                com.example.data.db.MathDatabase.MIGRATION_7_8,
+                com.example.data.db.MathDatabase.MIGRATION_8_9
             )
             .allowMainThreadQueries()
             .build()
@@ -1437,7 +1442,14 @@ class ExampleRobolectricTest {
             com.example.data.db.MathDatabase::class.java,
             dbName
         )
-            .addMigrations(com.example.data.db.MathDatabase.MIGRATION_3_4)
+            .addMigrations(
+                com.example.data.db.MathDatabase.MIGRATION_3_4,
+                com.example.data.db.MathDatabase.MIGRATION_4_5,
+                com.example.data.db.MathDatabase.MIGRATION_5_6,
+                com.example.data.db.MathDatabase.MIGRATION_6_7,
+                com.example.data.db.MathDatabase.MIGRATION_7_8,
+                com.example.data.db.MathDatabase.MIGRATION_8_9
+            )
             .allowMainThreadQueries()
             .build()
 
@@ -2046,5 +2058,550 @@ class ExampleRobolectricTest {
         assertTrue(quarterOpt.labelBn.contains("কাস্টম"))
         assertTrue(halfOpt.labelBn.contains("ঐতিহাসিক বিসিএস রেফারেন্স"))
     }
+
+    @Test
+    fun `verify all 4 NCTB books and 47 chapters structure and exact Bengali chapter titles`() {
+        val books = com.example.math.BookCurriculumRepository.allBooks
+        assertEquals(4, books.size)
+
+        val c6 = com.example.math.BookCurriculumRepository.getChapters(com.example.math.BookId.CLASS_6)
+        val c7 = com.example.math.BookCurriculumRepository.getChapters(com.example.math.BookId.CLASS_7)
+        val c8 = com.example.math.BookCurriculumRepository.getChapters(com.example.math.BookId.CLASS_8)
+        val c910 = com.example.math.BookCurriculumRepository.getChapters(com.example.math.BookId.CLASS_9_10)
+
+        assertEquals(8, c6.size)
+        assertEquals(11, c7.size)
+        assertEquals(11, c8.size)
+        assertEquals(17, c910.size)
+
+        val allChapters = com.example.math.BookCurriculumRepository.getAllChapters()
+        assertEquals(47, allChapters.size)
+
+        // Verify exact Bengali titles for each book
+        assertEquals("স্বাভাবিক সংখ্যা ও ভগ্নাংশ", c6[0].titleBn)
+        assertEquals("তথ্য ও উপাত্ত", c6[7].titleBn)
+        assertEquals("মূলদ ও অমূলদ সংখ্যা", c7[0].titleBn)
+        assertEquals("তথ্য ও উপাত্ত", c7[10].titleBn)
+        assertEquals("প্যাটার্ন", c8[0].titleBn)
+        assertEquals("পিথাগোরাসের উপপাদ্য", c8[8].titleBn)
+        assertEquals("বাস্তব সংখ্যা", c910[0].titleBn)
+        assertEquals("ত্রিকোণমিতিক অনুপাত", c910[8].titleBn)
+        assertEquals("পরিমিতি", c910[15].titleBn)
+        assertEquals("পরিসংখ্যান", c910[16].titleBn)
+
+        // Verify every chapter has lessons, formulas, objectives, and valid printed page ranges
+        allChapters.forEach { ch ->
+            assertTrue("Chapter ${ch.bookId.id}-${ch.chapterNumber} must have lessons", ch.lessons.isNotEmpty())
+            assertTrue("Chapter ${ch.bookId.id}-${ch.chapterNumber} must have formulas", ch.formulas.isNotEmpty())
+            assertTrue("Chapter ${ch.bookId.id}-${ch.chapterNumber} must have objectives", ch.objectivesBn.isNotEmpty())
+            assertTrue("Valid page range", ch.printedPageStart in 1..ch.printedPageEnd)
+            val structuredPage = com.example.math.BookCurriculumRepository.getStructuredPageContent(
+                ch.bookId,
+                ch.printedPageStart
+            )
+            assertEquals(ch.chapterNumber, structuredPage.chapterNumber)
+            assertEquals(ch.printedPageStart + 5, structuredPage.pdfPage)
+        }
+    }
+
+    @Test
+    fun `verify BookQuestionEngine covers all 47 chapters 10 question formats 6 practice modes and 3 provenance types`() {
+        val allChapters = com.example.math.BookCurriculumRepository.getAllChapters()
+        val observedFormats = mutableSetOf<com.example.math.BookQuestionFormat>()
+        val observedProvenance = mutableSetOf<com.example.math.BookQuestionProvenance>()
+
+        allChapters.forEach { ch ->
+            val questions = com.example.math.BookQuestionEngine.getQuestionsForChapter(ch.bookId, ch.chapterNumber)
+            assertTrue("Chapter ${ch.bookId.id} #${ch.chapterNumber} must have >= 10 multi-format questions", questions.size >= 10)
+            questions.forEach { q ->
+                observedFormats.add(q.format)
+                observedProvenance.add(q.provenance)
+                assertTrue("Prompt must not be blank", q.promptBn.isNotBlank())
+                assertTrue("Step-by-step solution must not be empty", q.stepByStepSolutionBn.isNotEmpty())
+            }
+        }
+
+        // All 10 question formats and all 3 provenance types must be present
+        assertEquals(com.example.math.BookQuestionFormat.entries.toSet(), observedFormats)
+        assertEquals(com.example.math.BookQuestionProvenance.entries.toSet(), observedProvenance)
+
+        // All 6 practice modes must build non-empty sessions
+        com.example.math.BookPracticeMode.entries.forEach { mode ->
+            val sessionQs = com.example.math.BookQuestionEngine.buildSessionQuestions(
+                bookId = com.example.math.BookId.CLASS_9_10,
+                chapterNumber = 9,
+                mode = mode,
+                maxCount = 8
+            )
+            assertEquals(8, sessionQs.size)
+        }
+
+        // Verify Bengali/English numeric equivalence in evaluation
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৩৬", "36"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("36", "৩৬"))
+    }
+
+    @Test
+    fun `verify Room migration 4 to 5 preserves existing v4 data and creates all 5 Book tables`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val dbName = "migration_v4_to_v5_test_${System.currentTimeMillis()}.db"
+        val dbFile = app.getDatabasePath(dbName)
+        if (dbFile.exists()) dbFile.delete()
+        dbFile.parentFile?.mkdirs()
+
+        val sqliteDb = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+        try {
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `bookmarks` (`id` TEXT NOT NULL, `category` TEXT NOT NULL, `titleBn` TEXT NOT NULL, `subtitleBn` TEXT NOT NULL, `detailBn` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `quiz_scores` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `topic` TEXT NOT NULL, `topicTitleBn` TEXT NOT NULL, `score` INTEGER NOT NULL, `totalQuestions` INTEGER NOT NULL, `percentage` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_quiz_scores_timestamp` ON `quiz_scores` (`timestamp`)")
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `user_progress` (`itemId` TEXT NOT NULL, `isLearned` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`itemId`))")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_user_progress_isLearned` ON `user_progress` (`isLearned`)")
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `practice_history` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `module` TEXT NOT NULL, `topicId` TEXT NOT NULL, `topicTitleBn` TEXT NOT NULL, `difficulty` TEXT NOT NULL, `mode` TEXT NOT NULL, `score` INTEGER NOT NULL, `correctCount` INTEGER NOT NULL, `wrongCount` INTEGER NOT NULL, `totalQuestions` INTEGER NOT NULL, `accuracyPercent` INTEGER NOT NULL, `bestStreak` INTEGER NOT NULL, `durationSeconds` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL)")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_practice_history_module` ON `practice_history` (`module`)")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_practice_history_timestamp` ON `practice_history` (`timestamp`)")
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `topic_analytics` (`analyticsKey` TEXT NOT NULL, `module` TEXT NOT NULL, `topicId` TEXT NOT NULL, `topicTitleBn` TEXT NOT NULL, `difficulty` TEXT NOT NULL, `totalAttempted` INTEGER NOT NULL, `totalCorrect` INTEGER NOT NULL, `totalWrong` INTEGER NOT NULL, `bestStreak` INTEGER NOT NULL, `totalTimeSeconds` INTEGER NOT NULL, `lastPracticedAt` INTEGER NOT NULL, PRIMARY KEY(`analyticsKey`))")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_topic_analytics_module_topicId` ON `topic_analytics` (`module`, `topicId`)")
+            sqliteDb.execSQL("CREATE TABLE IF NOT EXISTS `recent_formulas` (`formulaId` TEXT NOT NULL, `titleBn` TEXT NOT NULL, `subjectId` TEXT NOT NULL, `viewedAt` INTEGER NOT NULL, PRIMARY KEY(`formulaId`))")
+            sqliteDb.execSQL("CREATE INDEX IF NOT EXISTS `index_recent_formulas_viewedAt` ON `recent_formulas` (`viewedAt`)")
+            sqliteDb.execSQL("INSERT INTO `bookmarks` (`id`, `category`, `titleBn`, `subtitleBn`, `detailBn`, `timestamp`) VALUES ('bm_v4_1', 'FORMULA', 'বর্গের সূত্র', '(a+b)²', 'a²+2ab+b²', 1700002000000)")
+            sqliteDb.version = 3
+        } finally {
+            sqliteDb.close()
+        }
+
+        val migratedDb = androidx.room.Room.databaseBuilder(
+            app,
+            com.example.data.db.MathDatabase::class.java,
+            dbName
+        )
+            .addMigrations(
+                com.example.data.db.MathDatabase.MIGRATION_3_4,
+                com.example.data.db.MathDatabase.MIGRATION_4_5,
+                com.example.data.db.MathDatabase.MIGRATION_5_6,
+                com.example.data.db.MathDatabase.MIGRATION_6_7,
+                com.example.data.db.MathDatabase.MIGRATION_7_8,
+                com.example.data.db.MathDatabase.MIGRATION_8_9
+            )
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val dao = migratedDb.mathDao()
+            val repo = com.example.data.repository.MathRepository(dao)
+
+            // Pre-existing bookmark survived migration to v5
+            val bms = dao.getAllBookmarks().first()
+            assertEquals(1, bms.size)
+            assertEquals("bm_v4_1", bms.first().id)
+
+            // Test all 5 new v5 Book tables via Repository
+            repo.toggleBookLessonCompleted(
+                bookId = "class_6",
+                chapterNumber = 1,
+                lessonId = "c6_1_l1"
+            )
+            val lessonProg = dao.getAllBookLessonProgress().first()
+            assertEquals(1, lessonProg.size)
+            assertTrue(lessonProg.first().isCompleted)
+
+            repo.updateBookReadingState(
+                bookId = "class_8",
+                chapterNumber = 2,
+                printedPage = 25,
+                pdfPage = 30,
+                incrementPagesRead = true
+            )
+            repo.toggleBookPageBookmark(
+                bookId = "class_8",
+                printedPage = 25,
+                bookTitleBn = "অষ্টম শ্রেণির গণিত",
+                chapterTitleBn = "মুনাফা"
+            )
+            val readingState = dao.getBookReadingStateByBookId("class_8")
+            assertNotNull(readingState)
+            assertEquals(25, readingState!!.lastReadPrintedPage)
+            assertEquals("25", readingState.bookmarkedPagesCsv)
+
+            repo.saveBookNote(
+                bookId = "class_9_10",
+                chapterNumber = 9,
+                lessonId = "c910_9_l1",
+                printedPage = 177,
+                titleBn = "ত্রিকোণমিতির অভেদ",
+                contentBn = "sin²θ + cos²θ = 1"
+            )
+            val notes = dao.getAllBookNotes().first()
+            assertEquals(1, notes.size)
+            assertEquals("ত্রিকোণমিতির অভেদ", notes.first().noteTitleBn)
+
+            repo.recordBookQuestionMistake(
+                questionId = "m_1",
+                bookId = "class_7",
+                chapterNumber = 5,
+                questionPromptBn = "a+b=7, ab=10 হলে a²+b²=?",
+                wrongAnswerBn = "25",
+                correctAnswerBn = "29",
+                explanationBn = "7² - 2(10) = 29",
+                sourceProvenance = "ORIGINAL_TEXTBOOK",
+                chapterTitleBn = "বীজগণিতীয় সূত্রাবলি ও প্রয়োগ"
+            )
+            val mistakes = dao.getAllBookMistakes().first()
+            assertEquals(1, mistakes.size)
+            assertEquals(1, mistakes.first().mistakeCount)
+
+            // Spaced Revision 1 -> 3 -> 7 -> 14 days progression
+            repo.scheduleSpacedRevisionItem(
+                itemId = "rev_1",
+                itemType = "MISTAKE",
+                bookId = "class_7",
+                chapterNumber = 5,
+                titleBn = "বীজগণিত অনুসিদ্ধান্ত",
+                subtitleBn = "a² + b² = (a+b)² - 2ab"
+            )
+            var rev = dao.getBookSpacedRevisionById("rev_1")!!
+            assertEquals(1, rev.intervalDays)
+            assertEquals(0, rev.intervalStepIndex)
+
+            repo.advanceSpacedRevisionItem("rev_1", answeredCorrectly = true)
+            rev = dao.getBookSpacedRevisionById("rev_1")!!
+            assertEquals(3, rev.intervalDays)
+            assertEquals(1, rev.intervalStepIndex)
+
+            repo.advanceSpacedRevisionItem("rev_1", answeredCorrectly = true)
+            rev = dao.getBookSpacedRevisionById("rev_1")!!
+            assertEquals(7, rev.intervalDays)
+            assertEquals(2, rev.intervalStepIndex)
+
+            repo.advanceSpacedRevisionItem("rev_1", answeredCorrectly = true)
+            rev = dao.getBookSpacedRevisionById("rev_1")!!
+            assertEquals(14, rev.intervalDays)
+            assertEquals(3, rev.intervalStepIndex)
+
+            // Reset to 1 day if forgotten
+            repo.advanceSpacedRevisionItem("rev_1", answeredCorrectly = false)
+            rev = dao.getBookSpacedRevisionById("rev_1")!!
+            assertEquals(1, rev.intervalDays)
+            assertEquals(0, rev.intervalStepIndex)
+        } finally {
+            migratedDb.close()
+            if (dbFile.exists()) dbFile.delete()
+        }
+    }
+
+    @Test
+    fun `verify BookViewModel navigation search practice and interactive labs`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val viewModel = com.example.ui.MathViewModel(app)
+
+        // Navigate to BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> BookPdfReader -> BookInteractiveLab
+        viewModel.openBookHub()
+        assertEquals(com.example.ui.Screen.BookHub, viewModel.currentScreen)
+
+        viewModel.openBookDetail(com.example.math.BookId.CLASS_8)
+        assertEquals(com.example.ui.Screen.BookDetail, viewModel.currentScreen)
+        assertEquals(com.example.math.BookId.CLASS_8, viewModel.selectedBookId.value)
+
+        viewModel.openBookChapter(com.example.math.BookId.CLASS_8, 9)
+        assertEquals(com.example.ui.Screen.BookChapterOverview, viewModel.currentScreen)
+        assertEquals(9, viewModel.selectedBookChapterNumber.value)
+
+        viewModel.openBookLesson(com.example.math.BookId.CLASS_8, 9, "c8_9_l1")
+        assertEquals(com.example.ui.Screen.BookLesson, viewModel.currentScreen)
+
+        viewModel.openBookPdfReader(com.example.math.BookId.CLASS_8, printedPage = 150, chapterNumber = 9)
+        assertEquals(com.example.ui.Screen.BookPdfReader, viewModel.currentScreen)
+        assertEquals(150, viewModel.selectedBookPrintedPage.value)
+
+        viewModel.openBookInteractiveLab(com.example.math.BookInteractiveLabType.GEOMETRY_CANVAS_LAB)
+        assertEquals(com.example.ui.Screen.BookInteractiveLab, viewModel.currentScreen)
+
+        // Start BookPractice & answer a question
+        viewModel.startBookPractice(
+            bookId = com.example.math.BookId.CLASS_8,
+            chapterNumber = 9,
+            mode = com.example.math.BookPracticeMode.STANDARD,
+            questionCount = 5
+        )
+        assertEquals(com.example.ui.Screen.BookPractice, viewModel.currentScreen)
+        val firstQ = viewModel.bookPracticeSession.value.currentQuestion!!
+        val correctIdx = firstQ.correctOptionIndices.iterator().next()
+        viewModel.toggleBookPracticeOption(correctIdx)
+        viewModel.submitBookPracticeAnswer()
+        assertTrue(viewModel.bookPracticeSession.value.isAnswerSubmitted)
+        assertEquals(true, viewModel.bookPracticeSession.value.isCurrentCorrect)
+
+        // Offline search across all 4 books
+        val searchResults = com.example.math.BookCurriculumRepository.searchAllBooks("পিথাগোরাস")
+        assertTrue("Search for 'পিথাগোরাস' must return matches", searchResults.isNotEmpty())
+
+        // Verify openBookHub deduplicates backstack when BookHub is already in stack
+        viewModel.openBookHub()
+        assertEquals(com.example.ui.Screen.BookHub, viewModel.currentScreen)
+        val bookHubCount = viewModel.screenStack.value.count { it == com.example.ui.Screen.BookHub }
+        assertEquals("ScreenStack must not contain duplicate BookHub entries", 1, bookHubCount)
+    }
+
+    @Test
+    fun `verify NCTB chapter page boundaries are continuous and non-overlapping across all 47 chapters and all 12 labs compute accurate math`() {
+        val expectedFinalChapterPages = mapOf(
+            com.example.math.BookId.CLASS_6 to 149,
+            com.example.math.BookId.CLASS_7 to 169,
+            com.example.math.BookId.CLASS_8 to 174,
+            com.example.math.BookId.CLASS_9_10 to 344
+        )
+
+        com.example.math.BookId.entries.forEach { bookId ->
+            val chapters = com.example.math.BookCurriculumRepository.getChapters(bookId)
+            assertEquals(1, chapters.first().printedPageStart)
+            assertEquals(expectedFinalChapterPages[bookId], chapters.last().printedPageEnd)
+
+            for (i in 0 until chapters.size - 1) {
+                val curr = chapters[i]
+                val next = chapters[i + 1]
+                assertEquals(
+                    "Contiguous NCTB page boundary required between ${bookId.id} Ch ${curr.chapterNumber} and Ch ${next.chapterNumber}",
+                    curr.printedPageEnd + 1,
+                    next.printedPageStart
+                )
+            }
+
+            // Verify final PDF page mapping reaches totalPdfPages
+            assertEquals(bookId.totalPdfPages, bookId.printedToPdfPage(bookId.totalPrintedPages))
+        }
+
+        // Verify provenance labels and sourcePrintedPage discipline
+        assertEquals("মূল পাঠ্যবইয়ের প্রশ্ন", com.example.math.BookQuestionProvenance.ORIGINAL_TEXTBOOK.badgeBn)
+        assertEquals("পাঠ্যবইয়ের ধারণাভিত্তিক অনুশীলন", com.example.math.BookQuestionProvenance.CONCEPT_DERIVED.badgeBn)
+        assertEquals("স্বয়ংক্রিয় অতিরিক্ত অনুশীলন", com.example.math.BookQuestionProvenance.GENERATED.badgeBn)
+
+        com.example.math.BookCurriculumRepository.getAllChapters().forEach { ch ->
+            val qs = com.example.math.BookQuestionEngine.getQuestionsForChapter(ch.bookId, ch.chapterNumber)
+            qs.forEach { q ->
+                when (q.provenance) {
+                    com.example.math.BookQuestionProvenance.ORIGINAL_TEXTBOOK -> {
+                        assertNotNull("ORIGINAL_TEXTBOOK question ${q.id} must have sourcePrintedPage", q.sourcePrintedPage)
+                        assertTrue(
+                            "sourcePrintedPage ${q.sourcePrintedPage} must be within book range",
+                            q.sourcePrintedPage!! in 1..ch.bookId.totalPrintedPages
+                        )
+                    }
+                    com.example.math.BookQuestionProvenance.CONCEPT_DERIVED,
+                    com.example.math.BookQuestionProvenance.GENERATED -> {
+                        assertNull("Non-original question ${q.id} must not claim a textbook page", q.sourcePrintedPage)
+                    }
+                }
+            }
+        }
+
+        // Verify all Interactive Labs compute accurate non-empty mathematical explanation lines
+        com.example.math.BookInteractiveLabType.entries.forEach { lab ->
+            val lines = com.example.ui.screens.computeLabExplanationLines(lab, 12, 5, 3)
+            assertTrue("Lab ${lab.name} must produce >= 3 mathematical explanation lines", lines.size >= 3)
+            assertTrue("Lab ${lab.name} explanation lines must not be blank", lines.all { it.isNotBlank() })
+        }
+    }
+
+    @Test
+    fun `verify Room migration 5 to 6 preserves v5 data and creates all 3 BCS tables`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val dbName = "test_migration_v5_v6_${System.currentTimeMillis()}.db"
+        val dbFile = app.getDatabasePath(dbName)
+        if (dbFile.exists()) dbFile.delete()
+        dbFile.parentFile?.mkdirs()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
+            androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(app)
+                .name(dbName)
+                .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE IF NOT EXISTS `bookmarks` (`id` TEXT NOT NULL, `category` TEXT NOT NULL, `titleBn` TEXT NOT NULL, `subtitleBn` TEXT NOT NULL, `detailBn` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+                        db.execSQL("INSERT INTO `bookmarks` (`id`, `category`, `titleBn`, `subtitleBn`, `detailBn`, `timestamp`) VALUES ('bm_v5_saved', 'FORMULA', 'উৎপাদকের সূত্র', 'a³-b³', '(a-b)(a²+ab+b²)', 1700003000000)")
+                    }
+                    override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+                })
+                .build()
+        )
+        val sqliteDb = helper.writableDatabase
+        try {
+            // Apply MIGRATION_5_6 directly to the v5 SQLite database
+            com.example.data.db.MathDatabase.MIGRATION_5_6.migrate(sqliteDb)
+
+            // 1. Verify v5 bookmarks preserved
+            val cursor = sqliteDb.query("SELECT id, titleBn FROM bookmarks WHERE id = 'bm_v5_saved'")
+            assertTrue(cursor.moveToFirst())
+            assertEquals("bm_v5_saved", cursor.getString(0))
+            assertEquals("উৎপাদকের সূত্র", cursor.getString(1))
+            cursor.close()
+
+            // 2. Verify bcs_user_profile table exists and accepts insertion
+            sqliteDb.execSQL("INSERT INTO `bcs_user_profile` (`profileId`, `selectedExamProfileId`, `onboardingCompleted`, `currentStageIndex`, `dailyTargetMinutes`, `dailyTargetQuestions`, `targetCompletionEpochMs`, `officialExamDateEpochMs`, `updatedAt`) VALUES ('active_profile', 'BCS_50TH_PRELIM_2025', 1, 2, 45, 25, NULL, NULL, 1700000000000)")
+            val profileCursor = sqliteDb.query("SELECT selectedExamProfileId, onboardingCompleted FROM bcs_user_profile WHERE profileId = 'active_profile'")
+            assertTrue(profileCursor.moveToFirst())
+            assertEquals("BCS_50TH_PRELIM_2025", profileCursor.getString(0))
+            assertEquals(1, profileCursor.getInt(1))
+            profileCursor.close()
+
+            // 3. Verify bcs_topic_progress table exists and accepts insertion
+            sqliteDb.execSQL("INSERT INTO `bcs_topic_progress` (`topicId`, `subjectTrack`, `isGuideCompleted`, `miniCheckPassed`, `questionsAttempted`, `questionsCorrect`, `totalTimeSeconds`, `masteryPercent`, `lastStudiedAt`) VALUES ('bcs_topic_linear', 'MATH', 1, 1, 10, 9, 300, 90, 1700000000000)")
+            val progressCursor = sqliteDb.query("SELECT isGuideCompleted, masteryPercent FROM bcs_topic_progress WHERE topicId = 'bcs_topic_linear'")
+            assertTrue(progressCursor.moveToFirst())
+            assertEquals(1, progressCursor.getInt(0))
+            assertEquals(90, progressCursor.getInt(1))
+            progressCursor.close()
+
+            // 4. Verify bcs_mistake_notebook table exists and accepts insertion
+            sqliteDb.execSQL("INSERT INTO `bcs_mistake_notebook` (`questionId`, `subjectTrack`, `topicId`, `questionPromptBn`, `wrongAnswerBn`, `correctAnswerBn`, `explanationBn`, `shortcutTipBn`, `provenanceBadgeBn`, `mistakeCount`, `retrySuccessCount`, `isResolved`, `nextReviewEpochMs`, `intervalStage`, `lastMistakeAt`) VALUES ('q_m_1', 'MATH', 'bcs_topic_linear', 'x+y=7', '4', '5', 'x=5', 'shortcut', '45th BCS', 1, 0, 0, 1700086400000, 0, 1700000000000)")
+            val mistakeCursor = sqliteDb.query("SELECT wrongAnswerBn, isResolved FROM bcs_mistake_notebook WHERE questionId = 'q_m_1'")
+            assertTrue(mistakeCursor.moveToFirst())
+            assertEquals("4", mistakeCursor.getString(0))
+            assertEquals(0, mistakeCursor.getInt(1))
+            mistakeCursor.close()
+        } finally {
+            sqliteDb.close()
+            dbFile.delete()
+        }
+    }
+
+    @Test
+    fun `regression BUG-01 book mistake spaced revision id normalization and unresolve toggle`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val db = com.example.data.db.MathDatabase.getInstance(app)
+        val dao = db.mathDao()
+        val repo = com.example.data.repository.MathRepository(dao)
+
+        // Record mistake with already-prefixed questionId "mistake_c6_q1"
+        repo.recordBookQuestionMistake(
+            questionId = "mistake_c6_q1",
+            bookId = "class_6",
+            chapterNumber = 1,
+            questionPromptBn = "মৌলিক সংখ্যা কোনটি?",
+            wrongAnswerBn = "৯",
+            correctAnswerBn = "৭",
+            explanationBn = "৭ মৌলিক সংখ্যা",
+            sourceProvenance = "ORIGINAL_TEXTBOOK",
+            chapterTitleBn = "স্বাভাবিক সংখ্যা ও ভগ্নাংশ"
+        )
+
+        // Verify spaced revision item is NOT double-prefixed ("mistake_mistake_c6_q1")
+        val revItem = dao.getBookSpacedRevisionById("mistake_c6_q1")
+        assertNotNull("Spaced revision item should use single mistake_ prefix", revItem)
+        val doublePrefixed = dao.getBookSpacedRevisionById("mistake_mistake_c6_q1")
+        assertNull("Double-prefixed spaced revision item must not be created", doublePrefixed)
+
+        // Mark mistake resolved = true
+        repo.markBookMistakeResolved("mistake_c6_q1", resolved = true)
+        assertTrue(dao.getBookMistakeById("mistake_c6_q1")?.isResolved == true)
+
+        // Mark mistake resolved = false (toggle back to unresolved)
+        repo.markBookMistakeResolved("mistake_c6_q1", resolved = false)
+        assertFalse(
+            "markBookMistakeResolved(id, false) must unresolve the mistake",
+            dao.getBookMistakeById("mistake_c6_q1")?.isResolved ?: true
+        )
+    }
+
+    @Test
+    fun `regression BUG-02 bookmarks routing for BOOK_PAGE, BCS_PREP, and book_formula items`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val vm = com.example.ui.MathViewModel(app)
+
+        val firstChapter = com.example.math.BookCurriculumRepository.getChapters(com.example.math.BookId.CLASS_7).first()
+        val firstFormula = firstChapter.formulas.first()
+
+        // 1. Verify BOOK_PAGE bookmark parsing and routing to BookPdfReader
+        val bookPageBmId = "book_page_class_8_15"
+        val suffix = bookPageBmId.removePrefix("book_page_")
+        val bookIdStr = suffix.substringBeforeLast("_", "class_6")
+        val printedPage = suffix.substringAfterLast("_", "1").toIntOrNull() ?: 1
+        vm.openBookPdfReader(com.example.math.BookId.fromId(bookIdStr), printedPage)
+        assertEquals(com.example.ui.Screen.BookPdfReader, vm.currentScreen)
+        assertEquals(com.example.math.BookId.CLASS_8, vm.selectedBookId.value)
+        assertEquals(15, vm.selectedBookPrintedPage.value)
+
+        // 2. Verify BCS_PREP bookmark routing to BcsPreparation
+        vm.navigateTo(com.example.ui.Screen.BcsPreparation)
+        assertEquals(com.example.ui.Screen.BcsPreparation, vm.currentScreen)
+
+        // 3. Verify book_formula_ bookmark resolution and routing to BookChapterOverview
+        val formulaBmId = "book_formula_${firstFormula.id}"
+        val rawFormulaId = formulaBmId.removePrefix("book_formula_")
+        val matchingChapter = com.example.math.BookCurriculumRepository.getAllChapters().firstOrNull { ch ->
+            ch.formulas.any { it.id == rawFormulaId }
+        }
+        assertNotNull("book_formula_ bookmark must resolve to its NCTB chapter", matchingChapter)
+        vm.openBookChapter(matchingChapter!!.bookId, matchingChapter.chapterNumber)
+        assertEquals(com.example.ui.Screen.BookChapterOverview, vm.currentScreen)
+        assertEquals(com.example.math.BookId.CLASS_7, vm.selectedBookId.value)
+    }
+
+    @Test
+    fun `regression BUG-03 BCS exam profile cold-start restoration and BUG-04 bookId lesson progress isolation`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val db = com.example.data.db.MathDatabase.getInstance(app)
+        val repo = com.example.data.repository.MathRepository(db.mathDao())
+
+        // Save BCS Legacy profile into Room DB
+        repo.saveBcsUserProfile(
+            com.example.data.model.BcsUserProfileEntity(
+                profileId = "active_profile",
+                selectedExamProfileId = com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM.id,
+                onboardingCompleted = true,
+                currentStageIndex = 3,
+                dailyTargetMinutes = 45,
+                dailyTargetQuestions = 30,
+                officialExamDateEpochMs = 1800000000000L
+            )
+        )
+
+        // Instantiate a fresh MathViewModel to simulate cold start
+        val freshVm = com.example.ui.MathViewModel(app)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        kotlinx.coroutines.delay(50)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertEquals(
+            "Fresh ViewModel must sync selectedBcsExamProfile from persisted Room profile",
+            com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM,
+            freshVm.selectedBcsExamProfile.value
+        )
+        assertEquals(
+            com.example.math.BcsSyllabusVersion.BCS_LEGACY_15,
+            freshVm.selectedBcsSyllabusVersion.value
+        )
+
+        // Verify BUG-04: Lesson completion check isolates by bookId
+        repo.upsertBookLessonProgress(
+            bookId = com.example.math.BookId.CLASS_6.id,
+            chapterNumber = 1,
+            lessonId = "shared_lesson_id",
+            isCompleted = true,
+            miniCheckPassed = true,
+            timeSpentDeltaSeconds = 20
+        )
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+        kotlinx.coroutines.delay(50)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
+
+        assertFalse(
+            "Lesson completed in CLASS_6 must not report completed for CLASS_7",
+            freshVm.isBookLessonCompleted("shared_lesson_id", com.example.math.BookId.CLASS_7)
+        )
+    }
+
+    @Test
+    fun `regression BUG-05 Bengali digit normalization in Number System and Primes input parsing`() {
+        assertEquals(42L, com.example.math.BengaliNumberFormatter.toEnglishDigits("৪২").toLongOrNull())
+        assertEquals(-7L, com.example.math.BengaliNumberFormatter.toEnglishDigits("-৭").toLongOrNull())
+        assertEquals(73, com.example.math.BengaliNumberFormatter.toEnglishDigits("৭৩").toIntOrNull())
+        assertEquals(4872L, com.example.math.BengaliNumberFormatter.toEnglishDigits("৪৮৭২").toLongOrNull())
+
+        val gcdRes = com.example.math.NumberSystemProvider.calculateGcdLcm(
+            com.example.math.BengaliNumberFormatter.toEnglishDigits("২৪").toLong(),
+            com.example.math.BengaliNumberFormatter.toEnglishDigits("৩৬").toLong()
+        )
+        assertEquals(12L, gcdRes.gcd)
+        assertEquals(72L, gcdRes.lcm)
+    }
 }
+
 

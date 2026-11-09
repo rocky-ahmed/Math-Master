@@ -50,8 +50,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,7 +76,7 @@ fun MentalMathPlayScreen(
     viewModel: MathViewModel,
     modifier: Modifier = Modifier
 ) {
-    val session by viewModel.mentalMathSession.collectAsState()
+    val session by viewModel.mentalMathSession.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.exitMentalMathToSetup()
@@ -223,6 +223,15 @@ fun MentalMathPlayScreen(
                                                 text = currentQ.explanationBn,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = bannerText.copy(alpha = 0.9f)
+                                            )
+                                        }
+                                        if (currentQ.mentalStrategyTipBn.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = currentQ.mentalStrategyTipBn,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = bannerText.copy(alpha = 0.85f),
+                                                modifier = Modifier.testTag("mm_play_strategy_tip")
                                             )
                                         }
                                     }

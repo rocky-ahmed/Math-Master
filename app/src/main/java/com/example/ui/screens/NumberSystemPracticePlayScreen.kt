@@ -38,10 +38,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +51,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.math.BengaliNumberFormatter
+import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
 
@@ -64,7 +66,7 @@ fun NumberSystemPracticePlayScreen(
         viewModel.navigateBack()
     }
 
-    val state by viewModel.numberSystemPracticeState.collectAsState()
+    val state by viewModel.numberSystemPracticeState.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -170,87 +172,176 @@ fun NumberSystemPracticePlayScreen(
                         }
                     }
 
-                    // Options List
-                    items(currentQ.optionsBn.size) { optIdx ->
-                        val optionText = currentQ.optionsBn[optIdx]
-                        val isSelected = state.selectedOptionIndex == optIdx
-                        val isCorrect = optIdx == currentQ.correctIndex
-
-                        val containerColor = when {
-                            state.isSubmitted && isCorrect -> Color(0xFFDCFCE7) // Light green
-                            state.isSubmitted && isSelected && !isCorrect -> Color(0xFFFFE4E6) // Light red
-                            isSelected -> MaterialTheme.colorScheme.primaryContainer
-                            else -> MaterialTheme.colorScheme.surface
-                        }
-
-                        val borderColor = when {
-                            state.isSubmitted && isCorrect -> Color(0xFF16A34A)
-                            state.isSubmitted && isSelected && !isCorrect -> Color(0xFFDC2626)
-                            isSelected -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.outlineVariant
-                        }
-
-                        ElevatedCard(
-                            colors = CardDefaults.elevatedCardColors(containerColor = containerColor),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
-                                .clickable(enabled = !state.isSubmitted) {
-                                    viewModel.selectNumberSystemOption(optIdx)
-                                }
-                                .testTag("option_card_$optIdx")
-                        ) {
-                            Row(
+                    // Input / Options Section
+                    if (state.inputFormat == QuestionInputFormat.KEYPAD) {
+                        item {
+                            ElevatedCard(
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier
-                                    .padding(14.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .fillMaxWidth()
+                                    .testTag("number_system_keypad_card")
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.surfaceVariant
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    Text(
-                                        text = BengaliNumberFormatter.toBn(optIdx + 1),
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                    OutlinedTextField(
+                                        value = state.typedInput,
+                                        onValueChange = { viewModel.setNumberSystemTypedInput(it) },
+                                        enabled = !state.isSubmitted,
+                                        label = { Text("সংখ্যা বা উত্তর লিখুন (বাংলা বা ইংরেজি)") },
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("number_system_keypad_input")
                                     )
+                                    val digitRows = listOf(
+                                        listOf("১", "২", "৩", "৪", "৫"),
+                                        listOf("৬", "৭", "৮", "৯", "০")
+                                    )
+                                    digitRows.forEach { rowDigits ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            rowDigits.forEach { d ->
+                                                OutlinedButton(
+                                                    onClick = { viewModel.appendNumberSystemKeypadDigit(d) },
+                                                    enabled = !state.isSubmitted,
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .testTag("ns_key_$d"),
+                                                    contentPadding = PaddingValues(vertical = 8.dp)
+                                                ) {
+                                                    Text(d, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.appendNumberSystemKeypadDigit(".") },
+                                            enabled = !state.isSubmitted,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(".", fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.backspaceNumberSystemKeypad() },
+                                            enabled = !state.isSubmitted,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("মুছুন")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.clearNumberSystemKeypad() },
+                                            enabled = !state.isSubmitted,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("ক্লিয়ার")
+                                        }
+                                    }
+                                    if (state.isSubmitted) {
+                                        val isCorrect = state.selectedOptionIndex == currentQ.correctIndex
+                                        Text(
+                                            text = if (isCorrect) {
+                                                "সঠিক উত্তর! (${currentQ.correctAnswerBn.ifBlank { currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" } }})"
+                                            } else {
+                                                "ভুল উত্তর। সঠিক উত্তর: ${currentQ.correctAnswerBn.ifBlank { currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" } }}"
+                                            },
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (isCorrect) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                        )
+                                    }
                                 }
+                            }
+                        }
+                    } else {
+                        // Options List
+                        items(currentQ.optionsBn.size) { optIdx ->
+                            val optionText = currentQ.optionsBn[optIdx]
+                            val isSelected = state.selectedOptionIndex == optIdx
+                            val isCorrect = optIdx == currentQ.correctIndex
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                            val containerColor = when {
+                                state.isSubmitted && isCorrect -> Color(0xFFDCFCE7) // Light green
+                                state.isSubmitted && isSelected && !isCorrect -> Color(0xFFFFE4E6) // Light red
+                                isSelected -> MaterialTheme.colorScheme.primaryContainer
+                                else -> MaterialTheme.colorScheme.surface
+                            }
 
-                                Text(
-                                    text = optionText,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                    color = if (state.isSubmitted && isCorrect) Color(0xFF15803D)
-                                    else if (state.isSubmitted && isSelected && !isCorrect) Color(0xFFB91C1C)
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
+                            val borderColor = when {
+                                state.isSubmitted && isCorrect -> Color(0xFF16A34A)
+                                state.isSubmitted && isSelected && !isCorrect -> Color(0xFFDC2626)
+                                isSelected -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.outlineVariant
+                            }
 
-                                if (state.isSubmitted) {
-                                    if (isCorrect) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "সঠিক",
-                                            tint = Color(0xFF16A34A)
+                            ElevatedCard(
+                                colors = CardDefaults.elevatedCardColors(containerColor = containerColor),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(1.5.dp, borderColor, RoundedCornerShape(12.dp))
+                                    .clickable(enabled = !state.isSubmitted) {
+                                        viewModel.selectNumberSystemOption(optIdx)
+                                    }
+                                    .testTag("option_card_$optIdx")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(14.dp)
+                                        .fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isSelected) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.surfaceVariant
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = BengaliNumberFormatter.toBn(optIdx + 1),
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-                                    } else if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "ভুল",
-                                            tint = Color(0xFFDC2626)
-                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(12.dp))
+
+                                    Text(
+                                        text = optionText,
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                        ),
+                                        modifier = Modifier.weight(1f),
+                                        color = if (state.isSubmitted && isCorrect) Color(0xFF15803D)
+                                        else if (state.isSubmitted && isSelected && !isCorrect) Color(0xFFB91C1C)
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    if (state.isSubmitted) {
+                                        if (isCorrect) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "সঠিক",
+                                                tint = Color(0xFF16A34A)
+                                            )
+                                        } else if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "ভুল",
+                                                tint = Color(0xFFDC2626)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -300,9 +391,14 @@ fun NumberSystemPracticePlayScreen(
 
                 // Bottom Action Buttons
                 if (!state.isSubmitted) {
+                    val canSubmit = if (state.inputFormat == QuestionInputFormat.KEYPAD) {
+                        state.typedInput.isNotBlank()
+                    } else {
+                        state.selectedOptionIndex != null
+                    }
                     Button(
                         onClick = { viewModel.submitNumberSystemAnswer() },
-                        enabled = state.selectedOptionIndex != null,
+                        enabled = canSubmit,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)

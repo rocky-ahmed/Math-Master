@@ -73,6 +73,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.math.AnalyticsTimeFilter
+import com.example.math.BookCurriculumRepository
+import com.example.math.BookId
 import com.example.math.LearningAnalyticsEngine
 import com.example.math.TopicMasteryReport
 import com.example.math.TopicMasteryStatus
@@ -95,6 +97,10 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     val activeExam by viewModel.activeExamAttempt.collectAsStateWithLifecycle()
     val dailyActivities by viewModel.dailyStudyActivities.collectAsStateWithLifecycle()
     val selectedTimeFilter by viewModel.dashboardTimeFilter.collectAsStateWithLifecycle()
+    val bookLessonProgress by viewModel.bookLessonProgress.collectAsStateWithLifecycle()
+    val bcsTopicProgress by viewModel.bcsTopicProgress.collectAsStateWithLifecycle()
+    val unifiedMistakes by viewModel.unifiedMistakes.collectAsStateWithLifecycle()
+    val formulaMastery by viewModel.formulaMastery.collectAsStateWithLifecycle()
 
     var selectedModuleFilter by remember { mutableStateOf("ALL") }
     var showGoalConfigDialog by remember { mutableStateOf(false) }
@@ -459,6 +465,172 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
+            // 3B. NCTB Textbook Curriculum Progress Card (4 Books, 47 Chapters)
+            item(key = "dashboard_book_progress_card") {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.openBookHub() }
+                        .testTag("dashboard_book_progress_card"),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.School,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "পাঠ্যবই শিক্ষা অগ্রগতি (৬ষ্ঠ – ৯ম-১০ম শ্রেণি)",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "৪টি বোর্ড বই • ৪৭টি অধ্যায় • সম্পূর্ণ অফলাইন পাঠ্যক্রম",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            TextButton(onClick = { viewModel.openBookHub() }) {
+                                Text("খুলুন", fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        BookId.entries.forEach { book ->
+                            val totalLessons = BookCurriculumRepository.getTotalLessonsCount(book).coerceAtLeast(1)
+                            val doneLessons = bookLessonProgress.count { it.bookId == book.id && it.isCompleted }
+                            val pct = ((doneLessons * 100) / totalLessons).coerceIn(0, 100)
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "${book.titleBn} (${book.totalChapters.toBengaliDigits()} অধ্যায়)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${doneLessons.toBengaliDigits()}/${totalLessons.toBengaliDigits()} পাঠ (${pct.toBengaliDigits()}%)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                LinearProgressIndicator(
+                                    progress = { pct / 100f },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3C. Cross-Module Ecosystem Completion & Unified Spaced Mistake Notebook Card (Room v7)
+            item(key = "dashboard_ecosystem_mastery_card") {
+                val bcsDone = bcsTopicProgress.filter { it.isGuideCompleted }.map { it.rawTopicId }.distinct().size
+                val bcsTotal = com.example.math.BcsCurriculumAndGuideRepository.mathGuideLessons.size.coerceAtLeast(1)
+                val unresolvedUnified = unifiedMistakes.filter { !it.resolved }
+                val practicedFormulasCount = formulaMastery.count { it.practiceCount > 0 }
+
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dashboard_ecosystem_mastery_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "ইকোসিস্টেম সমন্বিত অগ্রগতি ও স্পেসড রিভিশন (Room v7)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "• বিসিএস গাইড সম্পন্ন: ${bcsDone.toBengaliDigits()}/${bcsTotal.toBengaliDigits()}টি পাঠ\n" +
+                                    "• চর্চাকৃত সূত্র (Formula Mastery): ${practicedFormulasCount.toBengaliDigits()}টি সূত্র\n" +
+                                    "• অমীমাংসিত ভুল প্রশ্ন (Spaced Mistake Queue): ${unresolvedUnified.size.toBengaliDigits()}টি",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (unresolvedUnified.isNotEmpty()) {
+                            unresolvedUnified.take(3).forEach { mistake ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = mistake.questionPromptBn,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 2
+                                            )
+                                            Text(
+                                                text = "সঠিক উত্তর: ${mistake.correctAnswerBn} • ভুলের সংখ্যা: ${mistake.failureCount.toBengaliDigits()}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = { viewModel.resolveUnifiedMistakeItem(mistake.mistakeKey) },
+                                            modifier = Modifier.testTag("btn_resolve_mistake_${mistake.mistakeKey}")
+                                        ) {
+                                            Text("সমাধিত", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.navigateTo(Screen.BcsPreparation) },
+                                modifier = Modifier.weight(1f).testTag("btn_dashboard_to_bcs")
+                            ) {
+                                Text("বিসিএস প্রস্তুতি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.navigateTo(Screen.FormulaLibrary) },
+                                modifier = Modifier.weight(1f).testTag("btn_dashboard_to_formula_lib")
+                            ) {
+                                Text("সূত্র লাইব্রেরি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
             // 4. Deterministic Learning Recommendations Engine
             if (analyticsData.recommendations.isNotEmpty()) {
                 item {
@@ -613,7 +785,8 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             "PRACTICE_LAB" to "প্র্যাকটিস ল্যাব",
                             "MENTAL_MATH" to "মেন্টাল ম্যাথ",
                             "QUIZ" to "কুইজ ও পরীক্ষা",
-                            "NUMBER_SYSTEM" to "বাস্তব সংখ্যা"
+                            "NUMBER_SYSTEM" to "বাস্তব সংখ্যা",
+                            "BOOK" to "পাঠ্যবই অনুশীলন"
                         ).forEach { (key, label) ->
                             FilterChip(
                                 selected = selectedModuleFilter == key,

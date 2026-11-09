@@ -29,6 +29,58 @@ enum class QuestionInputFormat(
 }
 
 /**
+ * Filterable curriculum & competition tracks across Formula Library (Module 05),
+ * Practice Lab (Module 06), and Real Numbers & Divisibility (Module 08).
+ */
+enum class CurriculumTrack(
+    val id: String,
+    val titleBn: String,
+    val shortBadgeBn: String,
+    val descriptionBn: String
+) {
+    ALL("all", "সকল ট্র্যাক", "সকল", "NCTB বোর্ড বই, গণিত অলিম্পিয়াড ও বিসিএস সমন্বিত সংগ্রহ"),
+    NCTB("nctb", "NCTB পাঠ্যক্রম", "NCTB ৬ষ্ঠ–১০ম", "জাতীয় শিক্ষাক্রম ও পাঠ্যপুস্তক বোর্ড (৬ষ্ঠ থেকে ৯ম-১০ম শ্রেণি)"),
+    BDMO("bdmo", "BdMO অলিম্পিয়াড", "BdMO অলিম্পিয়াড", "বাংলাদেশ গণিত অলিম্পিয়াড (সংখ্যাতত্ত্ব, কম্বিনেটরিক্স, জ্যামিতি ও বীজগণিত)"),
+    BCS("bcs", "বিসিএস প্রস্তুতি", "বিসিএস ও জব", "১০ম–৫০তম বিসিএস প্রিলিমিনারি ও লিখিত গাণিতিক যুক্তি");
+
+    val badgeBn: String get() = shortBadgeBn
+}
+
+data class ModularExponentiationResult(
+    val base: Long,
+    val exponent: Long,
+    val modulus: Long,
+    val remainder: Long,
+    val congruenceNotationBn: String,
+    val stepsBn: List<Pair<String, String>>,
+    val theoremNoteBn: String
+)
+
+data class DivisorAnalysisResult(
+    val number: Long,
+    val primePowerBn: String,
+    val divisorCount: Long,
+    val divisorSum: Long,
+    val eulerTotient: Long,
+    val divisorsPreviewBn: String,
+    val stepsBn: List<Pair<String, String>>
+)
+
+data class SimultaneousLinearResult(
+    val isUniqueSolution: Boolean,
+    val isInfiniteSolutions: Boolean,
+    val isNoSolution: Boolean,
+    val determinant: Double,
+    val xExactBn: String,
+    val yExactBn: String,
+    val statusBn: String,
+    val stepsBn: List<Pair<String, String>>,
+    val verificationBn: String
+) {
+    val hasUniqueSolution: Boolean get() = isUniqueSolution
+}
+
+/**
  * Exact arbitrary-precision Rational number (p / q) with automatic GCD reduction
  * and positive denominator normalization.
  */
@@ -247,13 +299,28 @@ object SharedMathEngine {
             '৫' to '5', '৬' to '6', '৭' to '7', '৮' to '8', '৯' to '9',
             '−' to '-', '–' to '-', '×' to '*', '÷' to '/'
         )
-        val sb = StringBuilder()
-        for (ch in raw.trim()) {
-            if (ch != ' ') {
-                sb.append(bnToEn[ch] ?: ch)
+        val asciiSpacePreserved = buildString {
+            for (ch in raw.trim()) {
+                append(bnToEn[ch] ?: ch)
+            }
+        }.replace(Regex("""\s+"""), " ").trim()
+
+        val unitStripped = stripCommonUnitSuffixes(asciiSpacePreserved)
+
+        // Convert mixed fractions ("1 1/2", "1 সমস্ত 1/2", "1 পূর্ণ 1/2", "-2 3/4") to improper fractions
+        val mixedMatch = Regex("""^([+-]?\d+)\s+(?:সমস্ত\s+|পূর্ণ\s+)?(\d+)\s*/\s*(\d+)$""").find(unitStripped)
+        if (mixedMatch != null) {
+            val whole = mixedMatch.groupValues[1].toLongOrNull()
+            val num = mixedMatch.groupValues[2].toLongOrNull()
+            val den = mixedMatch.groupValues[3].toLongOrNull()
+            if (whole != null && num != null && den != null && den != 0L) {
+                val sign = if (whole < 0 || mixedMatch.groupValues[1].startsWith("-")) -1L else 1L
+                val impNum = sign * (abs(whole) * den + num)
+                return "$impNum/$den"
             }
         }
-        val str = sb.toString()
+
+        val str = asciiSpacePreserved.replace(" ", "")
         // Normalize trailing .0
         val asDouble = str.toDoubleOrNull()
         if (asDouble != null && asDouble == floor(asDouble) && abs(asDouble) < 1e12) {
@@ -277,16 +344,20 @@ object SharedMathEngine {
         if (normUser in trueTokens && normExpected in trueTokens) return true
         if (normUser in falseTokens && normExpected in falseTokens) return true
 
-        // Rational / Fraction equivalence (e.g., "2/4" == "1/2" or "0.5")
-        val rUser = parseRationalOrNull(normUser)
-        val rExpected = parseRationalOrNull(normExpected)
+        val strippedUser = stripCommonUnitSuffixes(normUser)
+        val strippedExpected = stripCommonUnitSuffixes(normExpected)
+        if (strippedUser.isNotBlank() && strippedUser == strippedExpected) return true
+
+        // Rational / Fraction / Ratio equivalence (e.g., "2/4" == "1/2" or "0.5", "3:4" == "6:8")
+        val rUser = parseRationalOrNull(strippedUser)
+        val rExpected = parseRationalOrNull(strippedExpected)
         if (rUser != null && rExpected != null && rUser == rExpected) {
             return true
         }
 
         // Decimal tolerance check
-        val dUser = normUser.removeSuffix("%").toDoubleOrNull()
-        val dExpected = normExpected.removeSuffix("%").toDoubleOrNull()
+        val dUser = strippedUser.removeSuffix("%").toDoubleOrNull()
+        val dExpected = strippedExpected.removeSuffix("%").toDoubleOrNull()
         if (dUser != null && dExpected != null) {
             return abs(dUser - dExpected) < 1e-4
         }
@@ -294,10 +365,40 @@ object SharedMathEngine {
         return false
     }
 
+    private fun stripCommonUnitSuffixes(token: String): String {
+        var result = token.trim()
+        val suffixes = listOf(
+            "বর্গকিলোমিটার", "ঘনকিলোমিটার", "কিলোমিটার",
+            "বর্গসেন্টিমিটার", "ঘনসেন্টিমিটার", "সেন্টিমিটার", "মিলিমিটার",
+            "বর্গসে.মি.", "ঘনসে.মি.", "বর্গকি.মি.", "ঘনকি.মি.",
+            "বর্গমিটার", "ঘনমিটার", "বর্গসেমি", "ঘনসেমি",
+            "বর্গএকক", "ঘনএকক", "বর্গ একক", "ঘন একক",
+            "বর্গ মিটার", "ঘন মিটার", "বর্গ সেমি", "ঘন সেমি",
+            "সে.মি.", "কি.মি.", "ব.মি.", "ঘ.মি.",
+            "সেমি", "কিমি", "মিটার", "লিটার", "ডিগ্রি",
+            "মি.", "একক", "টাকা", "জন", "টি", "দিন",
+            "ঘণ্টা", "ঘন্টা", "মিনিট", "সেকেন্ড", "বছর",
+            "কেজি", "গ্রাম", "মাইল", "বার", "°"
+        )
+        var changed = true
+        while (changed) {
+            changed = false
+            for (suffix in suffixes) {
+                if (result.endsWith(suffix) && result.length > suffix.length) {
+                    result = result.removeSuffix(suffix).trim()
+                    changed = true
+                    break
+                }
+            }
+        }
+        return result
+    }
+
     fun parseRationalOrNull(token: String): Rational? {
         return try {
-            if (token.contains("/")) {
-                val parts = token.split("/")
+            if (token.contains("/") || token.contains(":")) {
+                val delimiter = if (token.contains("/")) "/" else ":"
+                val parts = token.split(delimiter)
                 if (parts.size != 2) return null
                 val n = BigInteger(parts[0].trim())
                 val d = BigInteger(parts[1].trim())
@@ -772,9 +873,64 @@ object SharedMathEngine {
         )
     }
 
+    private fun expandAlgebraicParentheses(expr: String): String {
+        var s = expr.replace(" ", "").replace("²", "^2").replace("X", "x")
+        val parenRegex = Regex("""([+-]?\d*)\*?\(([^()]+)\)""")
+        var safety = 0
+        while (parenRegex.containsMatchIn(s) && safety < 20) {
+            safety++
+            val next = parenRegex.replace(s) { m ->
+                val rawMult = m.groupValues[1]
+                val mult = when (rawMult) {
+                    "", "+" -> 1L
+                    "-" -> -1L
+                    else -> rawMult.toLongOrNull() ?: return@replace m.value
+                }
+                val inside = m.groupValues[2].replace("-", "+-")
+                val innerTokens = inside.split("+").filter { it.isNotEmpty() }
+                if (innerTokens.isEmpty()) return@replace m.value
+                val expandedTerms = mutableListOf<String>()
+                for (tok in innerTokens) {
+                    when {
+                        tok.contains("x^2") -> {
+                            val cStr = tok.replace("x^2", "").replace("*", "")
+                            val c = when (cStr) {
+                                "", "+" -> 1L
+                                "-" -> -1L
+                                else -> cStr.toLongOrNull() ?: return@replace m.value
+                            }
+                            val prod = mult * c
+                            expandedTerms.add(if (prod >= 0) "+${prod}x^2" else "${prod}x^2")
+                        }
+                        tok.contains("x") -> {
+                            val cStr = tok.replace("x", "").replace("*", "")
+                            val c = when (cStr) {
+                                "", "+" -> 1L
+                                "-" -> -1L
+                                else -> cStr.toLongOrNull() ?: return@replace m.value
+                            }
+                            val prod = mult * c
+                            expandedTerms.add(if (prod >= 0) "+${prod}x" else "${prod}x")
+                        }
+                        else -> {
+                            val c = tok.toLongOrNull() ?: return@replace m.value
+                            val prod = mult * c
+                            expandedTerms.add(if (prod >= 0) "+$prod" else "$prod")
+                        }
+                    }
+                }
+                expandedTerms.joinToString("")
+            }
+            if (next == s) break
+            s = next
+        }
+        return s.removePrefix("+")
+    }
+
     private fun parseQuadraticExpression(clean: String): Triple<Long, Long, Long>? {
         return try {
-            val s = clean.replace(" ", "").replace("²", "^2")
+            val s = expandAlgebraicParentheses(clean)
+            if (s.contains("(") || s.contains(")")) return null
             // Reject unsupported characters
             if (s.any { it.isLetter() && it != 'x' && it != 'X' }) return null
             val normalized = s.replace("X", "x").replace("-", "+-")
@@ -977,16 +1133,32 @@ object SharedMathEngine {
                     else parts.add(if (c < 0) "− $cStr" else "+ $cStr")
                 }
                 val simplified = parts.joinToString(" ")
+                val steps = buildList {
+                    if (clean.contains("(")) {
+                        val expandedAscii = expandAlgebraicParentheses(clean)
+                        add(
+                            "ধাপ ১: বণ্টন বিধি অনুসারে বন্ধনী সম্প্রসারণ (Distributive Expansion)" to
+                                "${BengaliNumberFormatter.toBn(input.trim())} = ${BengaliNumberFormatter.toBn(expandedAscii)}"
+                        )
+                        add(
+                            "ধাপ ২: সদৃশ পদগুলোর (Like Terms) সহগ একত্রীকরণ" to
+                                "x² এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(a)}, x এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(b)}, ধ্রুবক সমষ্টি = ${BengaliNumberFormatter.toBn(c)}"
+                        )
+                        add("ধাপ ৩: সরলীকৃত বীজগণিতীয় রাশি" to simplified)
+                    } else {
+                        add(
+                            "ধাপ ১: সদৃশ পদগুলোর (Like Terms) সহগ একত্রীকরণ" to
+                                "x² এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(a)}, x এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(b)}, ধ্রুবক সমষ্টি = ${BengaliNumberFormatter.toBn(c)}"
+                        )
+                        add("ধাপ ২: সরলীকৃত বীজগণিতীয় রাশি" to simplified)
+                    }
+                }
                 return SimplificationResult(
                     isSuccess = true,
                     originalInputBn = BengaliNumberFormatter.toBn(input.trim()),
                     simplifiedFormBn = simplified,
                     isExact = true,
-                    stepsBn = listOf(
-                        "ধাপ ১: সদৃশ পদগুলোর (Like Terms) সহগ একত্রীকরণ" to
-                            "x² এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(a)}, x এর সহগ সমষ্টি = ${BengaliNumberFormatter.toBn(b)}, ধ্রুবক সমষ্টি = ${BengaliNumberFormatter.toBn(c)}",
-                        "ধাপ ২: সরলীকৃত বীজগণিতীয় রাশি" to simplified
-                    ),
+                    stepsBn = steps,
                     verificationBn = "সদৃশ পদগুলো যোগ-বিয়োগ করে আদর্শ বহুপদী আকারে সাজানো হয়েছে।"
                 )
             }
@@ -1027,5 +1199,323 @@ object SharedMathEngine {
             sb.append(map[c] ?: c)
         }
         return sb.toString()
+    }
+
+    // -------------------------------------------------------------
+    // MODULAR ARITHMETIC, DIVISOR ANALYZER & SIMULTANEOUS EQUATIONS
+    // -------------------------------------------------------------
+
+    fun modPowStepsBn(base: Long, exponent: Long, modulus: Long): ModularExponentiationResult {
+        val baseBn = BengaliNumberFormatter.toBn(base)
+        val rawExpBn = BengaliNumberFormatter.toBn(exponent)
+        val rawModBn = BengaliNumberFormatter.toBn(modulus)
+
+        if (modulus <= 0L) {
+            return ModularExponentiationResult(
+                base = base,
+                exponent = exponent,
+                modulus = modulus,
+                remainder = 0L,
+                congruenceNotationBn = "অসংজ্ঞায়িত (Modulus ≤ ০)",
+                stepsBn = listOf(
+                    "ধাপ ১: ভাজক (Modulus) যাচাই" to
+                        "প্রদত্ত ভাজক m = $rawModBn ≤ ০। মডুলার পাটিগণিতে ভাজক অবশ্যই ধনাত্মক পূর্ণসংখ্যা (m ≥ ১) হতে হবে।"
+                ),
+                theoremNoteBn = "শূন্য বা ঋণাত্মক ভাজক দ্বারা মডুলার ভাগশেষ সংজ্ঞায়িত নয়।"
+            )
+        }
+
+        if (modulus == 1L) {
+            val safeExp = exponent.coerceAtLeast(0L)
+            val expBn = BengaliNumberFormatter.toBn(safeExp)
+            return ModularExponentiationResult(
+                base = base,
+                exponent = safeExp,
+                modulus = 1L,
+                remainder = 0L,
+                congruenceNotationBn = "$baseBn^$expBn ≡ ০ (mod ১)",
+                stepsBn = listOf(
+                    "ধাপ ১: একক ভাজক (Modulus = ১) বিধি" to
+                        "যেকোনো পূর্ণসংখ্যাকে ১ দ্বারা ভাগ করলে ভাগশেষ সর্বদা ০ হয়। অতএব $baseBn^$expBn ≡ ০ (mod ১)।"
+                ),
+                theoremNoteBn = "সকল পূর্ণসংখ্যা ১ দ্বারা নিঃশেষে বিভাজ্য, তাই mod ১ এ ভাগশেষ সর্বদা ০।"
+            )
+        }
+
+        val safeMod = modulus
+        val safeExp = exponent.coerceAtLeast(0L)
+        val bigBase = BigInteger.valueOf(base)
+        val bigExp = BigInteger.valueOf(safeExp)
+        val bigMod = BigInteger.valueOf(safeMod)
+        val bigReducedBase = bigBase.mod(bigMod)
+        val reducedBase = bigReducedBase.toLong()
+        val rem = bigBase.modPow(bigExp, bigMod).toLong()
+
+        val expBn = BengaliNumberFormatter.toBn(safeExp)
+        val modBn = BengaliNumberFormatter.toBn(safeMod)
+        val redBaseBn = BengaliNumberFormatter.toBn(reducedBase)
+        val remBn = BengaliNumberFormatter.toBn(rem)
+
+        val steps = mutableListOf<Pair<String, String>>()
+        if (exponent < 0L) {
+            steps.add(
+                "ধাপ ০: ঋণাত্মক ঘাত সতর্কবার্তা" to
+                    "প্রদত্ত ঘাত ($rawExpBn) ঋণাত্মক হওয়ায় অঋণাত্মক সূচক ০ ধরে হিসাব করা হয়েছে।"
+            )
+        }
+        steps.add(
+            "ধাপ ১: ভিত্তিকে ভাজক (Modulus) দ্বারা লঘুকরণ" to
+                "$baseBn ≡ $redBaseBn (mod $modBn)"
+        )
+
+        var curBaseBig = bigReducedBase
+        var curExp = safeExp
+        var accBig = BigInteger.ONE.mod(bigMod)
+        val traceLines = mutableListOf<String>()
+        var bitStep = 1
+        while (curExp > 0L && bitStep <= 24) {
+            if (curExp % 2L == 1L) {
+                val nextAccBig = accBig.multiply(curBaseBig).mod(bigMod)
+                traceLines.add(
+                    "ঘাত বিজোড় (${BengaliNumberFormatter.toBn(curExp)}): গুণফল = (${BengaliNumberFormatter.toBn(accBig.toLong())} × ${BengaliNumberFormatter.toBn(curBaseBig.toLong())}) mod $modBn = ${BengaliNumberFormatter.toBn(nextAccBig.toLong())}"
+                )
+                accBig = nextAccBig
+            }
+            curExp /= 2L
+            if (curExp > 0L) {
+                val nextBaseBig = curBaseBig.multiply(curBaseBig).mod(bigMod)
+                traceLines.add(
+                    "বর্গকরণ: ${BengaliNumberFormatter.toBn(curBaseBig.toLong())}² mod $modBn = ${BengaliNumberFormatter.toBn(nextBaseBig.toLong())} (বাকি ঘাত: ${BengaliNumberFormatter.toBn(curExp)})"
+                )
+                curBaseBig = nextBaseBig
+            }
+            bitStep++
+        }
+        if (traceLines.isEmpty()) {
+            traceLines.add("ঘাত ০ হওয়ায় যেকোনো সংখ্যার ঘাত ০ = ১ ≡ ${BengaliNumberFormatter.toBn(1L % safeMod)} (mod $modBn)")
+        }
+        steps.add(
+            "ধাপ ২: বাইনারি সূচকীকরণ (Binary Exponentiation) ধাপসমূহ" to
+                traceLines.joinToString("\n")
+        )
+        steps.add(
+            "ধাপ ৩: চূড়ান্ত ভাগশেষ (Modular Remainder)" to
+                "$baseBn^$expBn কে $modBn দ্বারা ভাগ করলে ভাগশেষ হবে $remBn।"
+        )
+
+        val isModPrime = safeMod <= 1_000_000_000_000L && NumberSystemProvider.isPrime(safeMod)
+        val theoremNote = if (isModPrime && reducedBase != 0L) {
+            "ফার্মার ক্ষুদ্র উপপাদ্য (Fermat's Little Theorem): যেহেতু $modBn মৌলিক এবং gcd($baseBn, $modBn) = ১, তাই $baseBn^${BengaliNumberFormatter.toBn(safeMod - 1)} ≡ ১ (mod $modBn)।"
+        } else {
+            "অয়লারের টোশেন্ট উপপাদ্য (Euler's Totient Theorem): gcd(a, m) = ১ হলে a^φ(m) ≡ ১ (mod m)।"
+        }
+
+        return ModularExponentiationResult(
+            base = base,
+            exponent = safeExp,
+            modulus = safeMod,
+            remainder = rem,
+            congruenceNotationBn = "$baseBn^$expBn ≡ $remBn (mod $modBn)",
+            stepsBn = steps,
+            theoremNoteBn = theoremNote
+        )
+    }
+
+    fun analyzeDivisorsAndTotient(n: Long): DivisorAnalysisResult {
+        if (n <= 0L) {
+            val rawBn = BengaliNumberFormatter.toBn(n)
+            return DivisorAnalysisResult(
+                number = n,
+                primePowerBn = "অসংজ্ঞায়িত (N ≤ ০)",
+                divisorCount = 0L,
+                divisorSum = 0L,
+                eulerTotient = 0L,
+                divisorsPreviewBn = "প্রযোজ্য নয়",
+                stepsBn = listOf(
+                    "ধাপ ১: ইনপুট ডোমেইন যাচাই" to
+                        "প্রদত্ত সংখ্যা N = $rawBn ≤ ০। ধনাত্মক ভাজক সংখ্যা d(N), ভাজক সমষ্টি σ(N) এবং অয়লারের টোশেন্ট ফাংশন φ(N) শুধুমাত্র ধনাত্মক পূর্ণসংখ্যা (N ≥ ১) এর জন্য সংজ্ঞায়িত।"
+                )
+            )
+        }
+
+        val safeN = n.coerceIn(1L, 1_000_000_000_000L)
+        val nBn = BengaliNumberFormatter.toBn(safeN)
+        if (safeN == 1L) {
+            return DivisorAnalysisResult(
+                number = 1L,
+                primePowerBn = "১",
+                divisorCount = 1L,
+                divisorSum = 1L,
+                eulerTotient = 1L,
+                divisorsPreviewBn = "১",
+                stepsBn = listOf(
+                    "ধাপ ১: মৌলিক উৎপাদক বিশ্লেষণ" to "১ এর একমাত্র ধনাত্মক ভাজক ১। d(১) = ১, σ(১) = ১, φ(১) = ১।"
+                )
+            )
+        }
+
+        val expMap = primeFactorizationExponents(safeN)
+        val primePowerStr = formatPrimePowerBn(safeN)
+        var divCount = 1L
+        var divSumBig = BigInteger.ONE
+        var totient = safeN
+
+        val countTerms = mutableListOf<String>()
+        val sumTerms = mutableListOf<String>()
+
+        for ((p, a) in expMap) {
+            divCount *= (a + 1L)
+            countTerms.add("(${BengaliNumberFormatter.toBn(a)} + ১)")
+
+            // Overflow-safe geometric series 1 + p + p^2 + ... + p^a using BigInteger
+            val pBig = BigInteger.valueOf(p)
+            val geomFactorBig = pBig.pow(a + 1).subtract(BigInteger.ONE).divide(pBig.subtract(BigInteger.ONE))
+            divSumBig = divSumBig.multiply(geomFactorBig)
+            sumTerms.add("(${BengaliNumberFormatter.toBn(p)}^${BengaliNumberFormatter.toBn(a + 1)} − ১)/(${BengaliNumberFormatter.toBn(p)} − ১)")
+
+            totient = (totient / p) * (p - 1L)
+        }
+
+        val divSum = divSumBig.coerceIn(BigInteger.ONE, BigInteger.valueOf(Long.MAX_VALUE)).toLong()
+        val factors = if (safeN <= 100_000L) NumberSystemProvider.getFactors(safeN) else emptyList()
+        val preview = if (factors.isNotEmpty()) {
+            factors.take(16).joinToString(", ") { BengaliNumberFormatter.toBn(it) } +
+                if (factors.size > 16) " ..." else ""
+        } else {
+            "১, ..., $nBn"
+        }
+
+        val steps = listOf(
+            "ধাপ ১: মৌলিক ঘাত আকারে প্রকাশ (Prime Power Factorization)" to
+                "$nBn = $primePowerStr",
+            "ধাপ ২: মোট ভাজক সংখ্যা d(N) = Π(aᵢ + 1)" to
+                "d($nBn) = ${countTerms.joinToString(" × ")} = ${BengaliNumberFormatter.toBn(divCount)}টি",
+            "ধাপ ৩: সকল ভাজকের সমষ্টি σ(N) = Π[(pᵢ^(aᵢ+1) − 1)/(pᵢ − 1)]" to
+                "σ($nBn) = ${sumTerms.joinToString(" × ")} = ${BengaliNumberFormatter.toBn(divSumBig.toString())}",
+            "ধাপ ৪: অয়লারের টোশেন্ট ফাংশন φ(N) [১ থেকে $nBn পর্যন্ত সহমৌলিক সংখ্যা]" to
+                "φ($nBn) = ${BengaliNumberFormatter.toBn(totient)}"
+        )
+
+        return DivisorAnalysisResult(
+            number = safeN,
+            primePowerBn = primePowerStr,
+            divisorCount = divCount,
+            divisorSum = divSum,
+            eulerTotient = totient,
+            divisorsPreviewBn = preview,
+            stepsBn = steps
+        )
+    }
+
+    fun solveSimultaneousLinear(
+        a1: Double,
+        b1: Double,
+        c1: Double,
+        a2: Double,
+        b2: Double,
+        c2: Double
+    ): SimultaneousLinearResult {
+        if (listOf(a1, b1, c1, a2, b2, c2).any { it.isNaN() || it.isInfinite() }) {
+            return SimultaneousLinearResult(
+                isUniqueSolution = false,
+                isInfiniteSolutions = false,
+                isNoSolution = true,
+                determinant = Double.NaN,
+                xExactBn = "অসংজ্ঞায়িত",
+                yExactBn = "অসংজ্ঞায়িত",
+                statusBn = "অবৈধ ইনপুট: সহগগুলোর মান অবশ্যই সসীম বাস্তব সংখ্যা হতে হবে।",
+                stepsBn = listOf(
+                    "ধাপ ১: ইনপুট যাচাই" to "সহগগুলোর মধ্যে অসংজ্ঞায়িত (NaN) বা অসীম (Infinity) মান পাওয়া গেছে।"
+                ),
+                verificationBn = "সসীম বাস্তব সংখ্যা দিয়ে পুনরায় চেষ্টা করুন।"
+            )
+        }
+
+        val det = a1 * b2 - a2 * b1
+        val detX = c1 * b2 - c2 * b1
+        val detY = a1 * c2 - a2 * c1
+
+        val eq1Bn = "${formatDoubleBn(a1)}x + ${formatDoubleBn(b1)}y = ${formatDoubleBn(c1)}"
+        val eq2Bn = "${formatDoubleBn(a2)}x + ${formatDoubleBn(b2)}y = ${formatDoubleBn(c2)}"
+
+        if (abs(det) < 1e-10) {
+            val eq1ZeroCoeffs = abs(a1) < 1e-10 && abs(b1) < 1e-10
+            val eq2ZeroCoeffs = abs(a2) < 1e-10 && abs(b2) < 1e-10
+            val eq1Contradiction = eq1ZeroCoeffs && abs(c1) >= 1e-10
+            val eq2Contradiction = eq2ZeroCoeffs && abs(c2) >= 1e-10
+
+            // Also check proportional ratio consistency when neither equation is trivial 0x+0y=0
+            val isConsistentWhenDetZero = if (eq1Contradiction || eq2Contradiction) {
+                false
+            } else {
+                abs(detX) < 1e-10 && abs(detY) < 1e-10
+            }
+
+            val isInfinite = isConsistentWhenDetZero
+            val status = if (isInfinite) {
+                "অসংখ্য সমাধান বিদ্যমান (সমীকরণদ্বয় সমাপতিত / নির্ভরশীল)"
+            } else {
+                "কোনো সমাধান নেই (সমীকরণদ্বয় অসামঞ্জস্যপূর্ণ / সমান্তরাল রেখা)"
+            }
+            return SimultaneousLinearResult(
+                isUniqueSolution = false,
+                isInfiniteSolutions = isInfinite,
+                isNoSolution = !isInfinite,
+                determinant = 0.0,
+                xExactBn = "অসংজ্ঞায়িত",
+                yExactBn = "অসংজ্ঞায়িত",
+                statusBn = status,
+                stepsBn = listOf(
+                    "ধাপ ১: সহগ নির্ণায়ক (Determinant D = a₁b₂ − a₂b₁) পরীক্ষা" to
+                        "D = (${formatDoubleBn(a1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(a2)} × ${formatDoubleBn(b1)}) = ০",
+                    "ধাপ ২: সমাধানের প্রকৃতি" to status
+                ),
+                verificationBn = "সমীকরণ জোট: (১) $eq1Bn এবং (২) $eq2Bn"
+            )
+        }
+
+        val xVal = detX / det
+        val yVal = detY / det
+        val xRat = runCatching { Rational.fromDouble(detX) / Rational.fromDouble(det) }.getOrNull()
+        val yRat = runCatching { Rational.fromDouble(detY) / Rational.fromDouble(det) }.getOrNull()
+
+        val xText = if (xRat != null && !xRat.isInteger) {
+            "${xRat.toBnString()} (বা ${formatDoubleBn(xVal)})"
+        } else {
+            formatDoubleBn(xVal)
+        }
+        val yText = if (yRat != null && !yRat.isInteger) {
+            "${yRat.toBnString()} (বা ${formatDoubleBn(yVal)})"
+        } else {
+            formatDoubleBn(yVal)
+        }
+
+        val steps = listOf(
+            "ধাপ ১: প্রদত্ত সরল সহসমীকরণ জোট" to
+                "(১) $eq1Bn\n(২) $eq2Bn",
+            "ধাপ ২: ক্রেমারের নিয়ম (Cramer's Rule / আরগুণন পদ্ধতি) অনুসারে নির্ণায়ক গণনা" to
+                "D = a₁b₂ − a₂b₁ = (${formatDoubleBn(a1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(a2)} × ${formatDoubleBn(b1)}) = ${formatDoubleBn(det)}\n" +
+                "Dx = c₁b₂ − c₂b₁ = (${formatDoubleBn(c1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(c2)} × ${formatDoubleBn(b1)}) = ${formatDoubleBn(detX)}\n" +
+                "Dy = a₁c₂ − a₂c₁ = (${formatDoubleBn(a1)} × ${formatDoubleBn(c2)}) − (${formatDoubleBn(a2)} × ${formatDoubleBn(c1)}) = ${formatDoubleBn(detY)}",
+            "ধাপ ৩: চলকের মান নির্ণয় (x = Dx/D, y = Dy/D)" to
+                "x = ${formatDoubleBn(detX)} ÷ ${formatDoubleBn(det)} = $xText\n" +
+                "y = ${formatDoubleBn(detY)} ÷ ${formatDoubleBn(det)} = $yText"
+        )
+
+        val lhs1 = a1 * xVal + b1 * yVal
+        val lhs2 = a2 * xVal + b2 * yVal
+        val verify = "শুদ্ধি পরীক্ষা: ১ম সমীকরণের বামপক্ষ = ${formatDoubleBn(lhs1)} = ডানপক্ষ (${formatDoubleBn(c1)}); ২য় সমীকরণের বামপক্ষ = ${formatDoubleBn(lhs2)} = ডানপক্ষ (${formatDoubleBn(c2)})।"
+
+        return SimultaneousLinearResult(
+            isUniqueSolution = true,
+            isInfiniteSolutions = false,
+            isNoSolution = false,
+            determinant = det,
+            xExactBn = xText,
+            yExactBn = yText,
+            statusBn = "একক ও অনন্য সমাধান বিদ্যমান (Unique Solution)",
+            stepsBn = steps,
+            verificationBn = verify
+        )
     }
 }

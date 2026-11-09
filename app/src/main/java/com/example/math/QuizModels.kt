@@ -71,18 +71,27 @@ object QuizGenerator {
     ): List<QuizQuestion> {
         val rawQuestions = when (topic) {
             QuizTopic.MULTIPLICATION -> generateMultiplicationQuestions(questionCount, difficulty)
-            QuizTopic.PRIMES -> generatePrimeQuestions(questionCount, difficulty)
+            QuizTopic.PRIMES -> generatePrimeQuestions(questionCount, difficulty, questionType)
             QuizTopic.SQUARES_CUBES -> generateSquareCubeQuestions(questionCount, difficulty)
-            QuizTopic.ALGEBRA -> generateAlgebraQuestions(questionCount)
+            QuizTopic.ALGEBRA -> if (questionType == QuizQuestionType.NUMERICAL) {
+                generateNumericalAlgebraQuestions(questionCount, difficulty)
+            } else {
+                generateAlgebraQuestions(questionCount)
+            }
             QuizTopic.ARITHMETIC_PERCENTAGE -> generateArithmeticPercentageQuestions(questionCount, difficulty)
             QuizTopic.NUMBER_SYSTEM_DIVISIBILITY -> generateNumberSystemQuestions(questionCount, difficulty)
             QuizTopic.GEOMETRY_MENSURATION -> generateGeometryQuestions(questionCount, difficulty)
             QuizTopic.MIXED_CHALLENGE -> {
                 val perPool = (questionCount / 4).coerceAtLeast(2)
+                val algPool = if (questionType == QuizQuestionType.NUMERICAL) {
+                    generateNumericalAlgebraQuestions(perPool, difficulty)
+                } else {
+                    generateAlgebraQuestions(perPool)
+                }
                 (generateMultiplicationQuestions(perPool, difficulty) +
-                        generatePrimeQuestions(perPool, difficulty) +
+                        generatePrimeQuestions(perPool, difficulty, questionType) +
                         generateSquareCubeQuestions(perPool, difficulty) +
-                        generateAlgebraQuestions(perPool) +
+                        algPool +
                         generateArithmeticPercentageQuestions(perPool, difficulty) +
                         generateGeometryQuestions(perPool, difficulty))
                     .shuffled()
@@ -91,16 +100,20 @@ object QuizGenerator {
         }
 
         return rawQuestions.mapIndexed { index, q ->
+            val rawAns = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
+            val normalizedNumericAns = extractCleanNumericalAnswer(rawAns)
+            val isNumericCapable = normalizedNumericAns != null
+
             val resolvedType = when (questionType) {
                 QuizQuestionType.MIXED -> {
                     when (index % 3) {
                         0 -> QuizQuestionType.MCQ
                         1 -> QuizQuestionType.TRUE_FALSE
-                        else -> if (q.correctAnswerText.any { it.isDigit() || it in '০'..'৯' }) QuizQuestionType.NUMERICAL else QuizQuestionType.MCQ
+                        else -> if (isNumericCapable) QuizQuestionType.NUMERICAL else QuizQuestionType.MCQ
                     }
                 }
                 QuizQuestionType.NUMERICAL -> {
-                    if (q.correctAnswerText.any { it.isDigit() || it in '০'..'৯' }) QuizQuestionType.NUMERICAL else QuizQuestionType.MCQ
+                    if (isNumericCapable) QuizQuestionType.NUMERICAL else QuizQuestionType.MCQ
                 }
                 else -> questionType
             }
@@ -124,14 +137,52 @@ object QuizGenerator {
                     isStatementTrue = isTrue,
                     difficulty = difficulty
                 )
+            } else if (resolvedType == QuizQuestionType.NUMERICAL) {
+                val stemWithChoicesIfNeeded = if (
+                    (q.questionBn.contains("নিচের কোন") || q.questionBn.contains("কোন সংখ্যাটি")) &&
+                    !q.questionBn.contains("বিকল্পসমূহ:") &&
+                    q.optionsBn.isNotEmpty()
+                ) {
+                    "${q.questionBn} (বিকল্পসমূহ: ${q.optionsBn.joinToString(", ")})"
+                } else {
+                    q.questionBn
+                }
+                q.copy(
+                    questionBn = stemWithChoicesIfNeeded,
+                    questionType = QuizQuestionType.NUMERICAL,
+                    correctAnswerText = normalizedNumericAns ?: rawAns,
+                    difficulty = difficulty
+                )
             } else {
                 q.copy(
                     questionType = resolvedType,
-                    correctAnswerText = q.optionsBn.getOrElse(q.correctIndex) { "" },
+                    correctAnswerText = rawAns,
                     difficulty = difficulty
                 )
             }
         }
+    }
+
+    internal fun extractCleanNumericalAnswer(rawAnswer: String): String? {
+        val cleaned = rawAnswer
+            .replace("টি", "")
+            .replace("জন", "")
+            .replace("টাকা", "")
+            .replace("দিন", "")
+            .replace("ঘণ্টা", "")
+            .replace("ঘন্টা", "")
+            .replace("মিটার", "")
+            .replace("সে.মি.", "")
+            .replace("বর্গ একক", "")
+            .replace("একক", "")
+            .replace("%", "")
+            .replace("°", "")
+            .trim()
+        if (cleaned.isEmpty()) return null
+        if (cleaned.any { it in 'a'..'z' || it in 'A'..'Z' || it == '²' || it == '³' || it == '√' || it == 'π' }) {
+            return null
+        }
+        return if (SharedMathEngine.parseRationalOrNull(SharedMathEngine.normalizeAnswerToken(cleaned)) != null) cleaned else null
     }
 
     private fun generateMultiplicationQuestions(count: Int, difficulty: PracticeDifficulty = PracticeDifficulty.EASY): List<QuizQuestion> {
@@ -177,10 +228,14 @@ object QuizGenerator {
         return list
     }
 
-    private fun generatePrimeQuestions(count: Int, difficulty: PracticeDifficulty = PracticeDifficulty.EASY): List<QuizQuestion> {
+    private fun generatePrimeQuestions(
+        count: Int,
+        difficulty: PracticeDifficulty = PracticeDifficulty.EASY,
+        questionType: QuizQuestionType = QuizQuestionType.MCQ
+    ): List<QuizQuestion> {
         val list = mutableListOf<QuizQuestion>()
         repeat(count) { idx ->
-            val type = idx % 3
+            val type = if (questionType == QuizQuestionType.NUMERICAL) idx % 2 else idx % 3
             when (type) {
                 0 -> {
                     val primeNum = if (difficulty == PracticeDifficulty.EASY || Random.nextBoolean()) {
@@ -464,6 +519,86 @@ object QuizGenerator {
             }
         }
         return result
+    }
+
+    private fun generateNumericalAlgebraQuestions(
+        count: Int,
+        difficulty: PracticeDifficulty = PracticeDifficulty.EASY
+    ): List<QuizQuestion> {
+        val list = mutableListOf<QuizQuestion>()
+        repeat(count) { idx ->
+            val a = when (difficulty) {
+                PracticeDifficulty.EASY -> Random.nextInt(3, 8)
+                PracticeDifficulty.MEDIUM -> Random.nextInt(5, 11)
+                else -> Random.nextInt(7, 15)
+            }
+            val b = Random.nextInt(1, a)
+            val pattern = idx % 4
+            val (questionBn, correctAns, explanationBn) = when (pattern) {
+                0 -> {
+                    val ans = (a + b) * (a + b)
+                    val aBn = BengaliNumberFormatter.toBn(a)
+                    val bBn = BengaliNumberFormatter.toBn(b)
+                    val ansBn = BengaliNumberFormatter.toBn(ans)
+                    Triple(
+                        "যদি a = $aBn এবং b = $bBn হয়, তবে (a + b)² এর মান কত?",
+                        ans,
+                        "(a + b)² = ($aBn + $bBn)² = ${BengaliNumberFormatter.toBn(a + b)}² = $ansBn"
+                    )
+                }
+                1 -> {
+                    val ans = (a * a) - (b * b)
+                    val aBn = BengaliNumberFormatter.toBn(a)
+                    val bBn = BengaliNumberFormatter.toBn(b)
+                    val ansBn = BengaliNumberFormatter.toBn(ans)
+                    Triple(
+                        "যদি a = $aBn এবং b = $bBn হয়, তবে a² - b² এর মান কত?",
+                        ans,
+                        "a² - b² = (a + b)(a - b) = ${BengaliNumberFormatter.toBn(a + b)} × ${BengaliNumberFormatter.toBn(a - b)} = $ansBn"
+                    )
+                }
+                2 -> {
+                    val ans = 4 * a * b
+                    val aBn = BengaliNumberFormatter.toBn(a)
+                    val bBn = BengaliNumberFormatter.toBn(b)
+                    val ansBn = BengaliNumberFormatter.toBn(ans)
+                    Triple(
+                        "যদি a = $aBn এবং b = $bBn হয়, তবে (a + b)² - (a - b)² এর মান কত?",
+                        ans,
+                        "(a + b)² - (a - b)² = 4ab = ৪ × $aBn × $bBn = $ansBn"
+                    )
+                }
+                else -> {
+                    val ans = 2 * ((a * a) + (b * b))
+                    val aBn = BengaliNumberFormatter.toBn(a)
+                    val bBn = BengaliNumberFormatter.toBn(b)
+                    val ansBn = BengaliNumberFormatter.toBn(ans)
+                    Triple(
+                        "যদি a = $aBn এবং b = $bBn হয়, তবে (a + b)² + (a - b)² এর মান কত?",
+                        ans,
+                        "(a + b)² + (a - b)² = 2(a² + b²) = ২ × (${BengaliNumberFormatter.toBn(a * a)} + ${BengaliNumberFormatter.toBn(b * b)}) = $ansBn"
+                    )
+                }
+            }
+            val distractors = listOf(correctAns + 2, (correctAns - 2).coerceAtLeast(1), correctAns + 4)
+            val allOpts = (distractors + correctAns).distinct().shuffled()
+            val optsBn = allOpts.map { BengaliNumberFormatter.toBn(it) }
+            val correctIdx = allOpts.indexOf(correctAns).coerceAtLeast(0)
+            list.add(
+                QuizQuestion(
+                    id = "alg_num_$idx",
+                    questionBn = questionBn,
+                    optionsBn = optsBn,
+                    correctIndex = correctIdx,
+                    explanationBn = explanationBn,
+                    topicTitleBn = "বীজগণিত সূত্র",
+                    questionType = QuizQuestionType.NUMERICAL,
+                    correctAnswerText = BengaliNumberFormatter.toBn(correctAns),
+                    difficulty = difficulty
+                )
+            )
+        }
+        return list
     }
 
     private fun generateArithmeticPercentageQuestions(

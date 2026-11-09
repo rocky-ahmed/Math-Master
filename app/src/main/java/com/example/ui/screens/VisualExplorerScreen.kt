@@ -198,6 +198,14 @@ private fun VisualKnowledgeCheckAndLinksBar(
     var chosenOpt by remember(tabIndex, qIdx) { mutableStateOf<Int?>(null) }
 
     val currentQ = questions.getOrNull(qIdx.coerceIn(0, (questions.size - 1).coerceAtLeast(0)))
+    val invariantNoteBn = remember(tabIndex) {
+        when (tabIndex) {
+            0 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): যেকোনো সদৃশ জ্যামিতিক আকৃতির বাহু k গুণ বৃদ্ধি পেলে পরিসীমা k গুণ এবং ক্ষেত্রফল সর্বদা k² গুণ বৃদ্ধি পায়।"
+            1 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সমীকরণের উভয় পক্ষে একই সংখ্যা যোগ, বিয়োগ বা অশূন্য সংখ্যা দ্বারা গুণ-ভাগ করলে সমতার ভারসাম্য অপরিবর্তিত থাকে।"
+            2 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সংখ্যারেখায় যেকোনো দুটি মূলদ সংখ্যার মধ্যবিন্দু (a+b)/2 নিজেও একটি মূলদ সংখ্যা (অসীম ঘনত্ব ধর্ম)।"
+            else -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): (a+b)² বর্গক্ষেত্রটি চারটি অংশে বিভক্ত: একটি a² বর্গ, একটি b² বর্গ এবং দুটি ab আয়তক্ষেত্র।"
+        }
+    }
 
     Surface(
         tonalElevation = 6.dp,
@@ -208,6 +216,15 @@ private fun VisualKnowledgeCheckAndLinksBar(
             .testTag("visual_knowledge_check_bar")
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(
+                text = invariantNoteBn,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+                    .testTag("visual_guided_discovery_banner")
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,

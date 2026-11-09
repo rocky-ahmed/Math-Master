@@ -39,12 +39,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,7 +69,7 @@ fun MentalMathScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val quizScores by viewModel.quizScores.collectAsState()
+    val quizScores by viewModel.quizScores.collectAsStateWithLifecycle()
     val mentalMathHistory = remember(quizScores) {
         quizScores.filter { it.topicId.startsWith("MENTAL_MATH_") }
     }
@@ -354,6 +354,33 @@ fun MentalMathScreen(
                                     .testTag("mm_format_${fmt.name}")
                             )
                         }
+                    }
+                }
+            }
+
+            // Mental Strategy Coach Card for Selected Category
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("mm_strategy_coach_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = selectedCategory.containerColor.copy(alpha = 0.45f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "মানসিক গণনা কৌশল কোচ (${selectedCategory.titleBn})",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = selectedCategory.primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = selectedCategory.strategyCoachBn,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }

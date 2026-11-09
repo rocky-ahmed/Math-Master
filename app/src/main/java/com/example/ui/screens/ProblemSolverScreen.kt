@@ -67,12 +67,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -104,8 +104,8 @@ fun ProblemSolverScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val bookmarks by viewModel.bookmarks.collectAsState()
-    val solverHistory by viewModel.solverHistory.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val solverHistory by viewModel.solverHistory.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.navigateBack()
@@ -606,6 +606,142 @@ fun ProblemSolverScreen(
                             Toast.makeText(context, "অনুরূপ নতুন সমস্যা লোড হয়েছে!", Toast.LENGTH_SHORT).show()
                         }
                     )
+                }
+
+                // Simultaneous Linear System (a1x + b1y = c1, a2x + b2y = c2) & Cross-Module Bridge Card
+                item {
+                    var simA1 by remember { mutableStateOf("২") }
+                    var simB1 by remember { mutableStateOf("৩") }
+                    var simC1 by remember { mutableStateOf("১৩") }
+                    var simA2 by remember { mutableStateOf("৫") }
+                    var simB2 by remember { mutableStateOf("-২") }
+                    var simC2 by remember { mutableStateOf("৪") }
+
+                    val simResult = remember(simA1, simB1, simC1, simA2, simB2, simC2) {
+                        val a1 = BengaliNumberFormatter.toEnglishDigits(simA1).toDoubleOrNull() ?: 2.0
+                        val b1 = BengaliNumberFormatter.toEnglishDigits(simB1).toDoubleOrNull() ?: 3.0
+                        val c1 = BengaliNumberFormatter.toEnglishDigits(simC1).toDoubleOrNull() ?: 13.0
+                        val a2 = BengaliNumberFormatter.toEnglishDigits(simA2).toDoubleOrNull() ?: 5.0
+                        val b2 = BengaliNumberFormatter.toEnglishDigits(simB2).toDoubleOrNull() ?: -2.0
+                        val c2 = BengaliNumberFormatter.toEnglishDigits(simC2).toDoubleOrNull() ?: 4.0
+                        com.example.math.SharedMathEngine.solveSimultaneousLinear(a1, b1, c1, a2, b2, c2)
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("solver_simultaneous_and_bridge_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "দুই চলকবিশিষ্ট সহসমীকরণ সমাধান (Cramer's Rule: a₁x+b₁y=c₁, a₂x+b₂y=c₂)",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = simA1,
+                                    onValueChange = { simA1 = it },
+                                    label = { Text("a₁") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = simB1,
+                                    onValueChange = { simB1 = it },
+                                    label = { Text("b₁") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = simC1,
+                                    onValueChange = { simC1 = it },
+                                    label = { Text("c₁") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = simA2,
+                                    onValueChange = { simA2 = it },
+                                    label = { Text("a₂") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = simB2,
+                                    onValueChange = { simB2 = it },
+                                    label = { Text("b₂") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedTextField(
+                                    value = simC2,
+                                    onValueChange = { simC2 = it },
+                                    label = { Text("c₂") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    simResult.stepsBn.forEach { (stepTitle, stepBody) ->
+                                        Text(
+                                            text = "• $stepTitle: $stepBody",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                    if (simResult.isUniqueSolution) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "নির্ণেয় সমাধান: x = ${simResult.xExactBn}, y = ${simResult.yExactBn}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF059669)
+                                        )
+                                    }
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.navigateTo(com.example.ui.Screen.FormulaLibrary) },
+                                    modifier = Modifier.weight(1f).testTag("btn_solver_to_formula_lib"),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Text("সংশ্লিষ্ট সূত্র দেখুন", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.navigateTo(com.example.ui.Screen.VisualExplorer) },
+                                    modifier = Modifier.weight(1f).testTag("btn_solver_to_visual_explorer"),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Text("ভিজ্যুয়াল এক্সপ্লোরার", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // P1 UPGRADE: Multi-Difficulty (Easy / Medium / Hard) Similar Problem Generator

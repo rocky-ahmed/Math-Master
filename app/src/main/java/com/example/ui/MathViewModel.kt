@@ -4,6 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.db.MathDatabase
+import com.example.data.model.BookLessonProgressEntity
+import com.example.data.model.BookMistakeEntity
+import com.example.data.model.BookNoteEntity
+import com.example.data.model.BookReadingStateEntity
+import com.example.data.model.BookSpacedRevisionEntity
 import com.example.data.model.BookmarkEntity
 import com.example.data.model.DailyStudyActivityEntity
 import com.example.data.model.ExamAttemptEntity
@@ -20,6 +25,15 @@ import com.example.math.BcsPreparationRepository
 import com.example.math.BcsSyllabusUnit
 import com.example.math.BcsSyllabusVersion
 import com.example.math.BengaliNumberFormatter
+import com.example.math.BookChapterSpec
+import com.example.math.BookCurriculumRepository
+import com.example.math.BookId
+import com.example.math.BookInteractiveLabType
+import com.example.math.BookPracticeMode
+import com.example.math.BookPracticeSessionState
+import com.example.math.BookQuestionEngine
+import com.example.math.BookQuestionFormat
+import com.example.math.BookSearchFilterType
 import com.example.math.DefaultMonotonicClock
 import com.example.math.ExamConfig
 import com.example.math.ExamDetailedResult
@@ -97,6 +111,14 @@ sealed class Screen(val route: String) {
     object ProblemSolver : Screen("problem_solver")
     object VisualExplorer : Screen("visual_explorer")
     object BcsPreparation : Screen("bcs_preparation")
+    object BookHub : Screen("book_hub")
+    object BookDetail : Screen("book_detail")
+    object BookChapterOverview : Screen("book_chapter_overview")
+    object BookLesson : Screen("book_lesson")
+    object BookPractice : Screen("book_practice")
+    object BookPdfReader : Screen("book_pdf_reader")
+    object BookInteractiveLab : Screen("book_interactive_lab")
+    object BookRevision : Screen("book_revision")
 }
 
 data class WeeklyDayStat(
@@ -106,6 +128,29 @@ data class WeeklyDayStat(
     val isToday: Boolean,
     val isMet: Boolean
 )
+
+/**
+ * Persistent state for the Home Screen 'Study Session' learning timer component.
+ */
+data class StudySessionTimerState(
+    val isVisibleOnHome: Boolean = true,
+    val isRunning: Boolean = false,
+    val currentSessionSeconds: Int = 0,
+    val todayTotalSeconds: Int = 0,
+    val allTimeTotalSeconds: Int = 0,
+    val dailyGoalMinutes: Int = 30,
+    val completedSessionsToday: Int = 0,
+    val unrecordedDbSeconds: Int = 0
+) {
+    val dailyGoalSeconds: Int
+        get() = dailyGoalMinutes * 60
+
+    val dailyGoalProgressFraction: Float
+        get() = if (dailyGoalSeconds <= 0) 0f else (todayTotalSeconds.toFloat() / dailyGoalSeconds.toFloat()).coerceIn(0f, 1f)
+
+    val isDailyGoalReached: Boolean
+        get() = todayTotalSeconds >= dailyGoalSeconds
+}
 
 data class QuizSessionState(
     val attemptId: String = "",
@@ -126,6 +171,8 @@ data class QuizSessionState(
     val isFinished: Boolean = false,
     val userAnswers: Map<Int, Int> = emptyMap(),
     val userTypedAnswers: Map<Int, String> = emptyMap(),
+    val pendingOptionSelections: Map<Int, Int> = emptyMap(),
+    val pendingTypedAnswers: Map<Int, String> = emptyMap(),
     val markedForReviewIndices: Set<Int> = emptySet(),
     val visitedIndices: Set<Int> = setOf(0),
     val questionTimeSeconds: Map<Int, Int> = emptyMap(),
@@ -136,12 +183,13 @@ data class QuizSessionState(
     val startElapsedRealtimeMs: Long = 0L,
     val deadlineElapsedRealtimeMs: Long = 0L,
     val detailedResult: ExamDetailedResult? = null,
-    val showSubmitConfirmDialog: Boolean = false
+    val showSubmitConfirmDialog: Boolean = false,
+    val examProfileId: String = ""
 ) {
     val incorrectQuestions: List<QuizQuestion>
         get() = questions.filterIndexed { index, q ->
             val ans = userAnswers[index]
-            ans == null || ans != q.correctIndex
+            ExamScoringEngine.isOptionAnswered(ans) && ans != q.correctIndex
         }
 }
 
@@ -162,6 +210,10 @@ class MathViewModel @JvmOverloads constructor(
     private val _weeklyActivities = MutableStateFlow<List<WeeklyDayStat>>(emptyList())
     val weeklyActivities: StateFlow<List<WeeklyDayStat>> = _weeklyActivities.asStateFlow()
 
+    // Persistent Study Session Timer State
+    private val _studySessionTimer = MutableStateFlow(StudySessionTimerState())
+    val studySessionTimer: StateFlow<StudySessionTimerState> = _studySessionTimer.asStateFlow()
+
     // Customization System State
     private val customPrefs = CustomizationPreferences(application)
     private val initialCustomState = customPrefs.loadCustomizationState()
@@ -176,6 +228,20 @@ class MathViewModel @JvmOverloads constructor(
         val db = MathDatabase.getInstance(application)
         repository = MathRepository(db.mathDao())
         initStreakAndActivity()
+        initStudySessionTimer()
+        viewModelScope.launch {
+            repository.bcsUserProfile.collect { profile ->
+                if (profile != null) {
+                    val examProfile = com.example.math.BcsExamProfile.fromIdOrDefault(profile.selectedExamProfileId)
+                    _selectedBcsExamProfile.value = examProfile
+                    _selectedBcsSyllabusVersion.value = if (examProfile == com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM) {
+                        BcsSyllabusVersion.BCS_LEGACY_15
+                    } else {
+                        BcsSyllabusVersion.BCS_50TH_CURRENT
+                    }
+                }
+            }
+        }
     }
 
     // App Navigation Stack (custom backstack for seamless BackHandler support)
@@ -242,6 +308,61 @@ class MathViewModel @JvmOverloads constructor(
 
     val dailyStudyActivities: StateFlow<List<DailyStudyActivityEntity>> = repository.allDailyStudyActivity
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Room v5 Offline Book Module Flows
+    val bookLessonProgress: StateFlow<List<BookLessonProgressEntity>> = repository.allBookLessonProgress
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bookReadingStates: StateFlow<List<BookReadingStateEntity>> = repository.allBookReadingStates
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bookNotes: StateFlow<List<BookNoteEntity>> = repository.allBookNotes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bookMistakes: StateFlow<List<BookMistakeEntity>> = repository.allBookMistakes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bookSpacedRevisions: StateFlow<List<BookSpacedRevisionEntity>> = repository.allBookSpacedRevisions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Room v6 / v8 BCS Preparation Flows
+    val bcsUserProfile: StateFlow<com.example.data.model.BcsUserProfileEntity?> = repository.bcsUserProfile
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val allBcsUserProfiles: StateFlow<List<com.example.data.model.BcsUserProfileEntity>> = repository.allBcsUserProfiles
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bcsTopicProgress: StateFlow<List<com.example.data.model.BcsTopicProgressEntity>> = repository.allBcsTopicProgress
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bcsMistakes: StateFlow<List<com.example.data.model.BcsMistakeEntity>> = repository.allBcsMistakes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val bcsStudyGoals: StateFlow<List<com.example.data.model.BcsStudyPlanGoalEntity>> = repository.allBcsStudyGoals
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Room v7 Cross-Module Unified Mistake Notebook & Formula Mastery Flows
+    val unifiedMistakes: StateFlow<List<com.example.data.model.UnifiedMistakeEntity>> = repository.allUnifiedMistakes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val formulaMastery: StateFlow<List<com.example.data.model.FormulaMasteryEntity>> = repository.allFormulaMastery
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun resolveUnifiedMistakeItem(mistakeId: String) {
+        viewModelScope.launch {
+            repository.resolveUnifiedMistake(mistakeId)
+        }
+    }
+
+    fun recordFormulaMasteryInteraction(formulaId: String, categoryId: String, isPracticed: Boolean = false) {
+        viewModelScope.launch {
+            repository.recordFormulaMastery(
+                formulaId = formulaId,
+                subjectId = categoryId,
+                masteryLevel = if (isPracticed) "MASTERED" else "LEARNING"
+            )
+        }
+    }
 
     // Analytics & Exam History Filter State
     private val _dashboardTimeFilter = MutableStateFlow(AnalyticsTimeFilter.ALL_TIME)
@@ -329,9 +450,21 @@ class MathViewModel @JvmOverloads constructor(
         navigateTo(Screen.TableDetail)
     }
 
+    private val _selectedLibraryFormulaId = MutableStateFlow<String?>(null)
+    val selectedLibraryFormulaId: StateFlow<String?> = _selectedLibraryFormulaId.asStateFlow()
+
     fun openFormula(formulaId: String) {
         _selectedFormulaId.value = formulaId
         navigateTo(Screen.FormulaDetail)
+    }
+
+    fun openLibraryFormulaFromBookmark(formulaId: String) {
+        _selectedLibraryFormulaId.value = formulaId
+        navigateTo(Screen.FormulaLibrary)
+    }
+
+    fun clearSelectedLibraryFormulaId() {
+        _selectedLibraryFormulaId.value = null
     }
 
     fun recordFormulaView(formula: LibraryFormula) {
@@ -419,7 +552,8 @@ class MathViewModel @JvmOverloads constructor(
         }
 
         val now = clock.elapsedRealtime()
-        val deadline = if (mode == QuizMode.TIMED) now + timedSeconds * 1000L else 0L
+        val effectiveTimedSeconds = if (mode == QuizMode.TIMED) timedSeconds.coerceAtLeast(1) else 0
+        val deadline = if (effectiveTimedSeconds > 0) now + effectiveTimedSeconds * 1000L else 0L
         val attemptId = "exam_${System.currentTimeMillis()}_${effectiveTopic.id}"
         val preset = when (mode) {
             QuizMode.TIMED -> ExamPresetType.TIMED_MOCK
@@ -434,7 +568,7 @@ class MathViewModel @JvmOverloads constructor(
             difficulty = difficulty,
             questionType = questionType,
             questionCount = questions.size.coerceAtLeast(1),
-            durationMinutes = (timedSeconds / 60).coerceAtLeast(1),
+            durationMinutes = if (effectiveTimedSeconds > 0) (effectiveTimedSeconds / 60).coerceAtLeast(1) else 0,
             marksPerCorrect = 1.0,
             negativeMarksPerWrong = 0.0,
             immediateFeedback = (mode == QuizMode.PRACTICE)
@@ -463,8 +597,8 @@ class MathViewModel @JvmOverloads constructor(
             visitedIndices = setOf(0),
             questionTimeSeconds = emptyMap(),
             isReviewMode = false,
-            timeRemainingSeconds = if (mode == QuizMode.TIMED) timedSeconds else 0,
-            configuredDurationSeconds = timedSeconds,
+            timeRemainingSeconds = effectiveTimedSeconds,
+            configuredDurationSeconds = effectiveTimedSeconds,
             elapsedSeconds = 0,
             startElapsedRealtimeMs = now,
             deadlineElapsedRealtimeMs = deadline,
@@ -484,13 +618,16 @@ class MathViewModel @JvmOverloads constructor(
             ExamQuestionBank.generateExamQuestions(config)
         }
         val primaryTopic = config.selectedTopics.firstOrNull() ?: QuizTopic.MIXED_CHALLENGE
+        val isUntimedPractice = config.immediateFeedback || config.preset == ExamPresetType.PRACTICE_EXAM
+        val durationSec = if (isUntimedPractice) 0 else config.durationSeconds
         val mappedMode = when (config.preset) {
             ExamPresetType.PRACTICE_EXAM -> QuizMode.PRACTICE
             ExamPresetType.REVIEW_INCORRECT -> QuizMode.REVIEW_INCORRECT
-            ExamPresetType.MIXED_TEST, ExamPresetType.FULL_LENGTH_MOCK, ExamPresetType.BCS_PRELIMINARY_MOCK -> QuizMode.TIMED
-            else -> if (config.durationSeconds > 0) QuizMode.TIMED else QuizMode.TOPIC
+            ExamPresetType.MIXED_TEST, ExamPresetType.FULL_LENGTH_MOCK, ExamPresetType.BCS_PRELIMINARY_MOCK -> {
+                if (durationSec > 0) QuizMode.TIMED else QuizMode.PRACTICE
+            }
+            else -> if (durationSec > 0) QuizMode.TIMED else if (config.immediateFeedback) QuizMode.PRACTICE else QuizMode.TOPIC
         }
-        val durationSec = config.durationSeconds
         val now = clock.elapsedRealtime()
         val deadline = if (durationSec > 0) now + durationSec * 1000L else 0L
         val attemptId = "exam_${System.currentTimeMillis()}_${config.preset.id}"
@@ -547,14 +684,53 @@ class MathViewModel @JvmOverloads constructor(
             _quizSession.value = nextState
             persistActiveExamStateAsync(nextState)
         } else if (!current.isAnswerSubmitted) {
-            _quizSession.value = current.copy(selectedOptionIndex = index)
+            _quizSession.value = current.copy(
+                selectedOptionIndex = index,
+                pendingOptionSelections = current.pendingOptionSelections + (current.currentIndex to index)
+            )
         }
     }
 
     fun setQuizTypedAnswer(text: String) {
         val current = _quizSession.value
-        if (!current.isAnswerSubmitted && !current.isFinished) {
-            _quizSession.value = current.copy(typedAnswer = text)
+        if (current.isFinished) return
+        val currentQ = current.questions.getOrNull(current.currentIndex)
+        if (current.isFullExamMode && currentQ != null && (currentQ.questionType == QuizQuestionType.NUMERICAL || current.questionType == QuizQuestionType.NUMERICAL)) {
+            val trimmed = text.trim()
+            val updatedTyped = if (trimmed.isEmpty()) {
+                current.userTypedAnswers - current.currentIndex
+            } else {
+                current.userTypedAnswers + (current.currentIndex to trimmed)
+            }
+            val updatedAnswers = if (trimmed.isEmpty()) {
+                current.userAnswers - current.currentIndex
+            } else {
+                val isCorrect = SharedMathEngine.isAnswerCorrect(trimmed, currentQ.correctAnswerText)
+                val matchIdx = currentQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(trimmed, it) }
+                val recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -2
+                current.userAnswers + (current.currentIndex to recordedOption)
+            }
+            val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
+                current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
+            }
+            val nextState = current.copy(
+                typedAnswer = text,
+                userTypedAnswers = updatedTyped,
+                userAnswers = updatedAnswers,
+                correctCount = recomputedCorrect
+            )
+            _quizSession.value = nextState
+            persistActiveExamStateAsync(nextState)
+        } else if (!current.isAnswerSubmitted) {
+            val updatedPendingTyped = if (text.isEmpty()) {
+                current.pendingTypedAnswers - current.currentIndex
+            } else {
+                current.pendingTypedAnswers + (current.currentIndex to text)
+            }
+            _quizSession.value = current.copy(
+                typedAnswer = text,
+                pendingTypedAnswers = updatedPendingTyped
+            )
         }
     }
 
@@ -579,6 +755,8 @@ class MathViewModel @JvmOverloads constructor(
         val idx = current.currentIndex
         val updatedAnswers = current.userAnswers - idx
         val updatedTyped = current.userTypedAnswers - idx
+        val updatedPendingOptions = current.pendingOptionSelections - idx
+        val updatedPendingTyped = current.pendingTypedAnswers - idx
         val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
             current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
         }
@@ -589,6 +767,8 @@ class MathViewModel @JvmOverloads constructor(
             state = QuizState.IN_PROGRESS,
             userAnswers = updatedAnswers,
             userTypedAnswers = updatedTyped,
+            pendingOptionSelections = updatedPendingOptions,
+            pendingTypedAnswers = updatedPendingTyped,
             correctCount = recomputedCorrect
         )
         _quizSession.value = nextState
@@ -599,7 +779,10 @@ class MathViewModel @JvmOverloads constructor(
         val current = _quizSession.value
         if (current.isFinished || targetIndex !in current.questions.indices) return
         val existingChoice = current.userAnswers[targetIndex]?.takeIf { it >= 0 }
-        val existingTyped = current.userTypedAnswers[targetIndex] ?: ""
+            ?: current.pendingOptionSelections[targetIndex]
+        val existingTyped = current.userTypedAnswers[targetIndex]
+            ?: current.pendingTypedAnswers[targetIndex]
+            ?: ""
         val alreadyAnswered = if (current.isFullExamMode) false else current.userAnswers.containsKey(targetIndex)
         val nextState = current.copy(
             currentIndex = targetIndex,
@@ -628,7 +811,7 @@ class MathViewModel @JvmOverloads constructor(
             if (typed.isEmpty()) return
             isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerText)
             val matchIdx = currentQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
-            recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -1
+            recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -2
             updatedTypedMap[current.currentIndex] = typed
         } else {
             if (selectedOpt == null) return
@@ -655,10 +838,55 @@ class MathViewModel @JvmOverloads constructor(
             correctCount = recomputedCorrect,
             userAnswers = updatedAnswers,
             userTypedAnswers = updatedTypedMap,
+            pendingOptionSelections = current.pendingOptionSelections - current.currentIndex,
+            pendingTypedAnswers = current.pendingTypedAnswers - current.currentIndex,
             visitedIndices = current.visitedIndices + current.currentIndex
         )
         _quizSession.value = nextState
         persistActiveExamStateAsync(nextState)
+
+        val isBcsSession = current.examProfileId.isNotBlank() || current.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
+        val activeBcsProfileId = current.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
+        val quizUnifiedKey = "QUIZ_${currentQ.topicTitleBn}_${kotlin.math.abs(currentQ.questionBn.hashCode())}"
+        val userSummaryBn = updatedTypedMap[current.currentIndex]?.takeIf { it.isNotBlank() }
+            ?: currentQ.optionsBn.getOrNull(recordedOption)
+            ?: "ভুল সংখ্যা ইনপুট"
+        val correctAnsBn = currentQ.optionsBn.getOrElse(currentQ.correctIndex) { currentQ.correctAnswerText }
+
+        viewModelScope.launch {
+            if (!isCorrect) {
+                repository.recordUnifiedMistake(
+                    mistakeKey = quizUnifiedKey,
+                    sourceModule = if (isBcsSession) "BCS" else "QUIZ",
+                    subjectId = currentQ.topicTitleBn,
+                    curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
+                    questionPromptBn = currentQ.questionBn,
+                    userAnswerBn = userSummaryBn,
+                    correctAnswerBn = correctAnsBn,
+                    diagnosticExplanationBn = currentQ.explanationBn
+                )
+                if (isBcsSession) {
+                    repository.recordBcsMistake(
+                        questionId = currentQ.id.ifBlank { "bcs_q_${kotlin.math.abs(currentQ.questionBn.hashCode())}" },
+                        subjectTrack = "MATH_REASONING",
+                        topicId = QuizTopic.values().firstOrNull { it.titleBn == currentQ.topicTitleBn }?.id ?: currentQ.topicTitleBn,
+                        questionPromptBn = currentQ.questionBn,
+                        wrongAnswerBn = userSummaryBn,
+                        correctAnswerBn = correctAnsBn,
+                        explanationBn = currentQ.explanationBn,
+                        examProfileId = activeBcsProfileId
+                    )
+                }
+            } else {
+                repository.resolveUnifiedMistake(quizUnifiedKey)
+                if (isBcsSession && currentQ.id.isNotBlank()) {
+                    repository.markBcsMistakeResolved(
+                        questionId = currentQ.id,
+                        examProfileId = activeBcsProfileId
+                    )
+                }
+            }
+        }
 
         if (isCorrect) {
             recordDailyActivity(1)
@@ -670,7 +898,10 @@ class MathViewModel @JvmOverloads constructor(
         if (current.isFinished || current.currentIndex <= 0) return
         val prevIdx = current.currentIndex - 1
         val prevSelected = current.userAnswers[prevIdx]?.takeIf { it >= 0 }
-        val prevTyped = current.userTypedAnswers[prevIdx] ?: ""
+            ?: current.pendingOptionSelections[prevIdx]
+        val prevTyped = current.userTypedAnswers[prevIdx]
+            ?: current.pendingTypedAnswers[prevIdx]
+            ?: ""
         val alreadySubmitted = if (current.isFullExamMode) false else current.userAnswers.containsKey(prevIdx)
         val nextState = current.copy(
             currentIndex = prevIdx,
@@ -691,7 +922,10 @@ class MathViewModel @JvmOverloads constructor(
         val nextIndex = current.currentIndex + 1
         if (nextIndex < current.questions.size) {
             val existingChoice = current.userAnswers[nextIndex]?.takeIf { it >= 0 }
-            val existingTyped = current.userTypedAnswers[nextIndex] ?: ""
+                ?: current.pendingOptionSelections[nextIndex]
+            val existingTyped = current.userTypedAnswers[nextIndex]
+                ?: current.pendingTypedAnswers[nextIndex]
+                ?: ""
             val alreadyAnswered = if (current.isFullExamMode) false else current.userAnswers.containsKey(nextIndex)
             val nextState = current.copy(
                 currentIndex = nextIndex,
@@ -737,7 +971,10 @@ class MathViewModel @JvmOverloads constructor(
         val curQTime = (current.questionTimeSeconds[current.currentIndex] ?: 0) + 1
         val updatedQTimes = current.questionTimeSeconds + (current.currentIndex to curQTime)
 
-        if (current.mode != QuizMode.TIMED && current.configuredDurationSeconds <= 0) {
+        val isUntimedPractice = current.examConfig.immediateFeedback ||
+            current.mode == QuizMode.PRACTICE ||
+            current.configuredDurationSeconds <= 0
+        if (isUntimedPractice) {
             _quizSession.value = current.copy(
                 elapsedSeconds = elapsedSec,
                 questionTimeSeconds = updatedQTimes
@@ -767,12 +1004,45 @@ class MathViewModel @JvmOverloads constructor(
         val current = _quizSession.value
         if (current.isFinished) return
 
-        // If user selected an option on the last question without pressing submit yet, include it
-        val finalAnswers = if (current.selectedOptionIndex != null && !current.userAnswers.containsKey(current.currentIndex)) {
-            current.userAnswers + (current.currentIndex to current.selectedOptionIndex)
-        } else {
-            current.userAnswers
+        // Merge any unsubmitted draft selections or typed numerical inputs across visited questions
+        val mergedAnswers = current.userAnswers.toMutableMap()
+        val mergedTypedAnswers = current.userTypedAnswers.toMutableMap()
+
+        current.pendingOptionSelections.forEach { (qIdx, optIdx) ->
+            if (!mergedAnswers.containsKey(qIdx)) {
+                mergedAnswers[qIdx] = optIdx
+            }
         }
+        current.pendingTypedAnswers.forEach { (qIdx, rawText) ->
+            val trimmed = rawText.trim()
+            val q = current.questions.getOrNull(qIdx)
+            if (trimmed.isNotEmpty() && q != null && !mergedAnswers.containsKey(qIdx)) {
+                val isCorrect = SharedMathEngine.isAnswerCorrect(trimmed, q.correctAnswerText)
+                val matchIdx = q.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(trimmed, it) }
+                val recOpt = if (matchIdx != -1) matchIdx else if (isCorrect) q.correctIndex else -2
+                mergedTypedAnswers[qIdx] = trimmed
+                mergedAnswers[qIdx] = recOpt
+            }
+        }
+
+        val activeQ = current.questions.getOrNull(current.currentIndex)
+        if (current.selectedOptionIndex != null && !mergedAnswers.containsKey(current.currentIndex)) {
+            mergedAnswers[current.currentIndex] = current.selectedOptionIndex
+        } else if (
+            activeQ?.questionType == QuizQuestionType.NUMERICAL &&
+            current.typedAnswer.trim().isNotEmpty() &&
+            !mergedAnswers.containsKey(current.currentIndex)
+        ) {
+            val typed = current.typedAnswer.trim()
+            val isCorrect = SharedMathEngine.isAnswerCorrect(typed, activeQ.correctAnswerText)
+            val matchIdx = activeQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
+            val recOpt = if (matchIdx != -1) matchIdx else if (isCorrect) activeQ.correctIndex else -2
+            mergedTypedAnswers[current.currentIndex] = typed
+            mergedAnswers[current.currentIndex] = recOpt
+        }
+
+        val finalAnswers = mergedAnswers.toMap()
+        val finalTypedAnswers = mergedTypedAnswers.toMap()
 
         val elapsedSec = if (current.startElapsedRealtimeMs > 0L) {
             ((clock.elapsedRealtime() - current.startElapsedRealtimeMs) / 1000L).toInt().coerceAtLeast(1)
@@ -801,7 +1071,7 @@ class MathViewModel @JvmOverloads constructor(
         // Track wrong questions in incorrectQuizQuestionPool for Review Incorrect mode
         val wrongQs = current.questions.filterIndexed { index, q ->
             val ans = finalAnswers[index]
-            ans == null || ans != q.correctIndex
+            ExamScoringEngine.isOptionAnswered(ans) && ans != q.correctIndex
         }
         if (wrongQs.isNotEmpty()) {
             _incorrectQuizQuestionPool.value = (_incorrectQuizQuestionPool.value + wrongQs)
@@ -813,6 +1083,9 @@ class MathViewModel @JvmOverloads constructor(
             attemptId = resolvedAttemptId,
             examTitleBn = resolvedTitle,
             userAnswers = finalAnswers,
+            userTypedAnswers = finalTypedAnswers,
+            pendingOptionSelections = emptyMap(),
+            pendingTypedAnswers = emptyMap(),
             correctCount = detailed.correctCount,
             isFinished = true,
             state = QuizState.COMPLETED,
@@ -839,7 +1112,7 @@ class MathViewModel @JvmOverloads constructor(
                 elapsedSeconds = elapsedSec,
                 remainingSeconds = 0,
                 questionsJson = ExamQuestionBank.serializeQuestions(current.questions),
-                answersJson = ExamQuestionBank.serializeIntMap(finalAnswers),
+                answersJson = ExamQuestionBank.serializeAnswersWithTyped(finalAnswers, finalTypedAnswers),
                 markedForReviewCsv = ExamQuestionBank.serializeIntSet(current.markedForReviewIndices),
                 visitedIndicesCsv = ExamQuestionBank.serializeIntSet(current.visitedIndices),
                 questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(current.questionTimeSeconds),
@@ -853,12 +1126,75 @@ class MathViewModel @JvmOverloads constructor(
                 accuracyPercent = detailed.accuracyPercent,
                 startedAt = System.currentTimeMillis() - (elapsedSec * 1000L),
                 updatedAt = System.currentTimeMillis(),
-                completedAt = detailed.completedAt
+                completedAt = detailed.completedAt,
+                examProfileId = current.examProfileId
             )
             repository.finalizeExamAttempt(
                 completedAttempt = completedEntity,
                 perTopicStats = ExamScoringEngine.toTopicExamStats(detailed.topicBreakdown)
             )
+            val isBcsSession = current.examProfileId.isNotBlank() || current.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
+            val activeBcsProfileId = current.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
+            if (isBcsSession) {
+                detailed.topicBreakdown.forEach { tb ->
+                    if (tb.attemptedCount > 0) {
+                        repository.recordBcsTopicProgress(
+                            topicId = tb.topicId,
+                            subjectTrack = "MATH_REASONING",
+                            isGuideCompleted = false,
+                            miniCheckPassed = tb.accuracyPercent >= 75.0,
+                            additionalTimeSeconds = tb.timeSpentSeconds,
+                            questionsAttemptedDelta = tb.attemptedCount,
+                            questionsCorrectDelta = tb.correctCount,
+                            examProfileId = activeBcsProfileId
+                        )
+                    }
+                }
+            }
+            // Sync mistakes & resolutions for questions not already persisted during immediate-feedback submitQuizAnswer()
+            current.questions.forEachIndexed { index, q ->
+                val ans = finalAnswers[index]
+                if (!ExamScoringEngine.isOptionAnswered(ans)) return@forEachIndexed
+                val quizUnifiedKey = "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
+                val correctAnsBn = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
+                if (ans != q.correctIndex) {
+                    val wrongAnsBn = finalTypedAnswers[index]?.takeIf { it.isNotBlank() }
+                        ?: q.optionsBn.getOrNull(ans ?: -1)
+                        ?: "ভুল সংখ্যা ইনপুট"
+                    if (current.isFullExamMode || !current.userAnswers.containsKey(index)) {
+                        repository.recordUnifiedMistake(
+                            mistakeKey = quizUnifiedKey,
+                            sourceModule = if (isBcsSession) "BCS" else "QUIZ",
+                            subjectId = q.topicTitleBn,
+                            curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
+                            questionPromptBn = q.questionBn,
+                            userAnswerBn = wrongAnsBn,
+                            correctAnswerBn = correctAnsBn,
+                            diagnosticExplanationBn = q.explanationBn
+                        )
+                        if (isBcsSession) {
+                            repository.recordBcsMistake(
+                                questionId = q.id.ifBlank { "bcs_q_${kotlin.math.abs(q.questionBn.hashCode())}" },
+                                subjectTrack = "MATH_REASONING",
+                                topicId = QuizTopic.values().firstOrNull { it.titleBn == q.topicTitleBn }?.id ?: q.topicTitleBn,
+                                questionPromptBn = q.questionBn,
+                                wrongAnswerBn = wrongAnsBn,
+                                correctAnswerBn = correctAnsBn,
+                                explanationBn = q.explanationBn,
+                                examProfileId = activeBcsProfileId
+                            )
+                        }
+                    }
+                } else {
+                    repository.resolveUnifiedMistake(quizUnifiedKey)
+                    if (isBcsSession && q.id.isNotBlank()) {
+                        repository.markBcsMistakeResolved(
+                            questionId = q.id,
+                            examProfileId = activeBcsProfileId
+                        )
+                    }
+                }
+            }
             recordDailyActivity(4)
         }
     }
@@ -866,6 +1202,7 @@ class MathViewModel @JvmOverloads constructor(
     private fun persistActiveExamStateAsync(state: QuizSessionState) {
         if (state.isFinished || state.questions.isEmpty() || state.attemptId.isBlank()) return
         viewModelScope.launch {
+            val answeredCount = state.userAnswers.count { ExamScoringEngine.isOptionAnswered(it.value) }
             val entity = ExamAttemptEntity(
                 attemptId = state.attemptId,
                 examTitleBn = state.examTitleBn.ifBlank { state.topic.titleBn },
@@ -882,21 +1219,22 @@ class MathViewModel @JvmOverloads constructor(
                 elapsedSeconds = state.elapsedSeconds,
                 remainingSeconds = state.timeRemainingSeconds,
                 questionsJson = ExamQuestionBank.serializeQuestions(state.questions),
-                answersJson = ExamQuestionBank.serializeIntMap(state.userAnswers),
+                answersJson = ExamQuestionBank.serializeAnswersWithTyped(state.userAnswers, state.userTypedAnswers),
                 markedForReviewCsv = ExamQuestionBank.serializeIntSet(state.markedForReviewIndices),
                 visitedIndicesCsv = ExamQuestionBank.serializeIntSet(state.visitedIndices),
                 questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(state.questionTimeSeconds),
                 correctCount = state.correctCount,
-                wrongCount = (state.userAnswers.size - state.correctCount).coerceAtLeast(0),
-                unansweredCount = (state.questions.size - state.userAnswers.size).coerceAtLeast(0),
+                wrongCount = (answeredCount - state.correctCount).coerceAtLeast(0),
+                unansweredCount = (state.questions.size - answeredCount).coerceAtLeast(0),
                 earnedMarks = state.correctCount * state.examConfig.marksPerCorrect,
                 negativeMarksDeducted = 0.0,
                 finalScore = state.correctCount * state.examConfig.marksPerCorrect,
                 percentage = if (state.questions.isNotEmpty()) (state.correctCount * 100.0) / state.questions.size else 0.0,
-                accuracyPercent = if (state.userAnswers.isNotEmpty()) (state.correctCount * 100.0) / state.userAnswers.size else 0.0,
+                accuracyPercent = if (answeredCount > 0) (state.correctCount * 100.0) / answeredCount else 0.0,
                 startedAt = System.currentTimeMillis() - (state.elapsedSeconds * 1000L),
                 updatedAt = System.currentTimeMillis(),
-                completedAt = null
+                completedAt = null,
+                examProfileId = state.examProfileId
             )
             repository.saveExamAttemptState(entity)
         }
@@ -908,10 +1246,11 @@ class MathViewModel @JvmOverloads constructor(
             val questions = ExamQuestionBank.deserializeQuestions(entity.questionsJson)
             if (questions.isEmpty()) return@launch
             val answers = ExamQuestionBank.deserializeIntMap(entity.answersJson)
+            val typedAnswers = ExamQuestionBank.deserializeTypedMap(entity.answersJson, questions, answers)
             val marked = ExamQuestionBank.deserializeIntSet(entity.markedForReviewCsv)
             val visited = ExamQuestionBank.deserializeIntSet(entity.visitedIndicesCsv).ifEmpty { setOf(0) }
             val qTimes = ExamQuestionBank.deserializeIntMap(entity.questionTimeSecondsJson)
-            val preset = runCatching { ExamPresetType.valueOf(entity.examType) }.getOrDefault(ExamPresetType.QUICK_TEST)
+            val preset = ExamPresetType.fromIdOrDefault(entity.examType)
             val topics = entity.selectedTopicsCsv.split(",")
                 .mapNotNull { id -> QuizTopic.values().firstOrNull { it.id == id.trim() } }
                 .toSet()
@@ -919,10 +1258,17 @@ class MathViewModel @JvmOverloads constructor(
             val diff = PracticeDifficulty.values().firstOrNull { it.id == entity.difficulty } ?: PracticeDifficulty.MEDIUM
             val qType = QuizQuestionType.values().firstOrNull { it.id == entity.questionType } ?: QuizQuestionType.MCQ
 
-            val remSec = entity.remainingSeconds.coerceAtLeast(30)
+            val remSec = if (entity.durationLimitSeconds > 0) {
+                entity.remainingSeconds.coerceAtLeast(30)
+            } else {
+                0
+            }
             val now = clock.elapsedRealtime()
             val deadline = if (entity.durationLimitSeconds > 0) now + remSec * 1000L else 0L
             val curIdx = entity.currentQuestionIndex.coerceIn(0, questions.lastIndex)
+            val isImmediatePractice = preset == ExamPresetType.PRACTICE_EXAM ||
+                entity.attemptId.startsWith("bcs_mode_topic_practice") ||
+                entity.attemptId.startsWith("bcs_mode_mistake_practice")
 
             val restoredState = QuizSessionState(
                 attemptId = entity.attemptId,
@@ -936,23 +1282,23 @@ class MathViewModel @JvmOverloads constructor(
                     durationMinutes = (entity.durationLimitSeconds / 60).coerceAtLeast(0),
                     marksPerCorrect = entity.marksPerCorrect,
                     negativeMarksPerWrong = entity.negativeMarksPerWrong,
-                    immediateFeedback = (preset == ExamPresetType.PRACTICE_EXAM)
+                    immediateFeedback = isImmediatePractice
                 ),
-                isFullExamMode = (preset != ExamPresetType.PRACTICE_EXAM),
+                isFullExamMode = !isImmediatePractice,
                 topic = topics.first(),
-                mode = if (entity.durationLimitSeconds > 0) QuizMode.TIMED else QuizMode.TOPIC,
+                mode = if (isImmediatePractice) QuizMode.PRACTICE else if (entity.durationLimitSeconds > 0) QuizMode.TIMED else QuizMode.TOPIC,
                 questionType = qType,
                 difficulty = diff,
                 state = QuizState.IN_PROGRESS,
                 questions = questions,
                 currentIndex = curIdx,
-                selectedOptionIndex = answers[curIdx],
-                typedAnswer = "",
-                isAnswerSubmitted = false,
+                selectedOptionIndex = answers[curIdx]?.takeIf { it >= 0 },
+                typedAnswer = typedAnswers[curIdx] ?: "",
+                isAnswerSubmitted = if (!isImmediatePractice) false else answers.containsKey(curIdx),
                 correctCount = answers.count { (i, a) -> questions.getOrNull(i)?.correctIndex == a },
                 isFinished = false,
                 userAnswers = answers,
-                userTypedAnswers = emptyMap(),
+                userTypedAnswers = typedAnswers,
                 markedForReviewIndices = marked,
                 visitedIndices = visited + curIdx,
                 questionTimeSeconds = qTimes,
@@ -961,7 +1307,8 @@ class MathViewModel @JvmOverloads constructor(
                 configuredDurationSeconds = entity.durationLimitSeconds,
                 elapsedSeconds = entity.elapsedSeconds,
                 startElapsedRealtimeMs = now - (entity.elapsedSeconds * 1000L),
-                deadlineElapsedRealtimeMs = deadline
+                deadlineElapsedRealtimeMs = deadline,
+                examProfileId = entity.examProfileId
             )
             _quizSession.value = restoredState
             navigateTo(Screen.QuizPlay)
@@ -977,10 +1324,11 @@ class MathViewModel @JvmOverloads constructor(
     fun openCompletedExamResult(entity: ExamAttemptEntity) {
         val questions = ExamQuestionBank.deserializeQuestions(entity.questionsJson)
         val answers = ExamQuestionBank.deserializeIntMap(entity.answersJson)
+        val typedAnswers = ExamQuestionBank.deserializeTypedMap(entity.answersJson, questions, answers)
         val marked = ExamQuestionBank.deserializeIntSet(entity.markedForReviewCsv)
         val visited = ExamQuestionBank.deserializeIntSet(entity.visitedIndicesCsv)
         val detailed = ExamQuestionBank.reconstructDetailedResult(entity)
-        val preset = runCatching { ExamPresetType.valueOf(entity.examType) }.getOrDefault(ExamPresetType.QUICK_TEST)
+        val preset = ExamPresetType.fromIdOrDefault(entity.examType)
 
         _quizSession.value = QuizSessionState(
             attemptId = entity.attemptId,
@@ -999,13 +1347,15 @@ class MathViewModel @JvmOverloads constructor(
             correctCount = entity.correctCount,
             isFinished = true,
             userAnswers = answers,
+            userTypedAnswers = typedAnswers,
             markedForReviewIndices = marked,
             visitedIndices = visited,
             isReviewMode = false,
             timeRemainingSeconds = 0,
             configuredDurationSeconds = entity.durationLimitSeconds,
             elapsedSeconds = entity.elapsedSeconds,
-            detailedResult = detailed
+            detailedResult = detailed,
+            examProfileId = entity.examProfileId
         )
         navigateTo(Screen.QuizPlay)
     }
@@ -1057,7 +1407,7 @@ class MathViewModel @JvmOverloads constructor(
         val current = _quizSession.value
         val wrongFromCurrent = current.questions.filterIndexed { index, q ->
             val ans = current.userAnswers[index]
-            ans == null || ans != q.correctIndex
+            ExamScoringEngine.isOptionAnswered(ans) && ans != q.correctIndex
         }
         val pool = if (wrongFromCurrent.isNotEmpty()) wrongFromCurrent else _incorrectQuizQuestionPool.value
         if (pool.isEmpty()) {
@@ -1125,6 +1475,47 @@ class MathViewModel @JvmOverloads constructor(
             activeAdaptiveDifficulty = if (difficulty == PracticeDifficulty.ADAPTIVE) PracticeDifficulty.EASY else difficulty,
             inputFormat = inputFormat,
             isUnlimitedMode = isUnlimitedMode,
+            questions = questions,
+            currentIndex = 0,
+            selectedOptionIndex = null,
+            customInputText = "",
+            isAnswerSubmitted = false,
+            isCorrect = false,
+            isHintRevealed = false,
+            hintsUsedCount = 0,
+            consecutiveCorrect = 0,
+            consecutiveWrong = 0,
+            correctCount = 0,
+            wrongCount = 0,
+            startTimeMs = System.currentTimeMillis(),
+            totalTimeSeconds = 0L,
+            isFinished = false,
+            userAnswers = emptyMap(),
+            isReviewMode = false
+        )
+        navigateTo(Screen.PracticeLabPlay)
+    }
+
+    @JvmOverloads
+    fun startInterleavedPracticeChallenge(
+        track: com.example.math.CurriculumTrack = com.example.math.CurriculumTrack.ALL,
+        inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ,
+        count: Int = 10
+    ) {
+        val questions = PracticeLabGenerator.generateInterleavedChallenge(
+            count = count,
+            track = track,
+            inputFormat = inputFormat
+        )
+        val firstCat = questions.firstOrNull()?.category ?: PracticeCategory.ARITHMETIC
+        _practiceSession.value = PracticeSessionState(
+            category = firstCat,
+            difficulty = PracticeDifficulty.ADAPTIVE,
+            activeAdaptiveDifficulty = PracticeDifficulty.MEDIUM,
+            inputFormat = inputFormat,
+            isUnlimitedMode = false,
+            isInterleavedChallenge = true,
+            selectedTrack = track,
             questions = questions,
             currentIndex = 0,
             selectedOptionIndex = null,
@@ -1268,6 +1659,29 @@ class MathViewModel @JvmOverloads constructor(
 
         if (isCorrect) {
             recordDailyActivity(1)
+            viewModelScope.launch {
+                repository.resolveUnifiedMistake("PRACTICE_${currentQ.id}")
+            }
+        } else {
+            val chosenAnsText = if (current.customInputText.isNotBlank()) {
+                current.customInputText.trim()
+            } else {
+                currentQ.optionsBn.getOrNull(effectiveSelectedOpt) ?: "ভুল উত্তর"
+            }
+            viewModelScope.launch {
+                repository.recordUnifiedMistake(
+                    mistakeKey = "PRACTICE_${currentQ.id}",
+                    sourceModule = "PRACTICE_LAB",
+                    subjectId = currentQ.category.id,
+                    curriculumTrack = currentQ.curriculumTrack.name,
+                    questionPromptBn = "${currentQ.questionBn} (${currentQ.expression})",
+                    userAnswerBn = chosenAnsText,
+                    correctAnswerBn = currentQ.correctAnswerBn,
+                    diagnosticExplanationBn = currentQ.diagnosticFeedbackBn.ifBlank {
+                        currentQ.stepByStepExplanationBn.joinToString(" ")
+                    }
+                )
+            }
         }
     }
 
@@ -1557,6 +1971,22 @@ class MathViewModel @JvmOverloads constructor(
 
         if (isCorrect) {
             recordDailyActivity(1)
+            viewModelScope.launch {
+                repository.resolveUnifiedMistake("MENTAL_MATH_${currentQ.id}")
+            }
+        } else {
+            viewModelScope.launch {
+                repository.recordUnifiedMistake(
+                    mistakeKey = "MENTAL_MATH_${currentQ.id}",
+                    sourceModule = "MENTAL_MATH",
+                    subjectId = current.category.id,
+                    curriculumTrack = "NCTB",
+                    questionPromptBn = currentQ.expressionBn,
+                    userAnswerBn = BengaliNumberFormatter.toBn(optionValue),
+                    correctAnswerBn = currentQ.correctAnswerBn,
+                    diagnosticExplanationBn = currentQ.explanationBn.ifBlank { currentQ.mentalStrategyTipBn }
+                )
+            }
         }
     }
 
@@ -1763,7 +2193,6 @@ class MathViewModel @JvmOverloads constructor(
                 _tutorFeedback.value = "অভিনন্দন! আপনি সফলভাবে ${num} এর নামতা সম্পন্ন করেছেন!"
                 viewModelScope.launch {
                     repository.recordPractice("table_${num}")
-                    repository.toggleLearned("table_${num}", currentlyLearned = false)
                     recordDailyActivity(3)
                 }
             }
@@ -1984,7 +2413,7 @@ class MathViewModel @JvmOverloads constructor(
         difficulty: com.example.math.NumberSystemDifficulty = com.example.math.NumberSystemDifficulty.EASY,
         inputFormat: QuestionInputFormat = QuestionInputFormat.MCQ
     ) {
-        val questions = com.example.math.NumberSystemProvider.getPracticeQuestions(topic, difficulty)
+        val questions = com.example.math.NumberSystemProvider.getPracticeQuestions(topic, difficulty, inputFormat)
         _numberSystemPracticeState.value = com.example.math.NumberSystemPracticeState(
             topic = topic,
             difficulty = difficulty,
@@ -1996,7 +2425,10 @@ class MathViewModel @JvmOverloads constructor(
             isSubmitted = false,
             score = 0,
             isCompleted = false,
-            userAnswers = emptyMap()
+            userAnswers = emptyMap(),
+            currentStreak = 0,
+            highestStreak = 0,
+            sessionStartEpochMs = System.currentTimeMillis()
         )
         navigateTo(Screen.NumberSystemPractice)
     }
@@ -2008,24 +2440,95 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
+    fun setNumberSystemTypedInput(input: String) {
+        val current = _numberSystemPracticeState.value
+        if (!current.isSubmitted && !current.isCompleted) {
+            _numberSystemPracticeState.value = current.copy(typedInput = input)
+        }
+    }
+
+    fun appendNumberSystemKeypadDigit(digit: String) {
+        val current = _numberSystemPracticeState.value
+        if (!current.isSubmitted && !current.isCompleted && current.typedInput.length < 15) {
+            _numberSystemPracticeState.value = current.copy(typedInput = current.typedInput + digit)
+        }
+    }
+
+    fun backspaceNumberSystemKeypad() {
+        val current = _numberSystemPracticeState.value
+        if (!current.isSubmitted && !current.isCompleted && current.typedInput.isNotEmpty()) {
+            _numberSystemPracticeState.value = current.copy(typedInput = current.typedInput.dropLast(1))
+        }
+    }
+
+    fun clearNumberSystemKeypad() {
+        val current = _numberSystemPracticeState.value
+        if (!current.isSubmitted && !current.isCompleted) {
+            _numberSystemPracticeState.value = current.copy(typedInput = "")
+        }
+    }
+
     fun submitNumberSystemAnswer() {
         val current = _numberSystemPracticeState.value
-        val selected = current.selectedOptionIndex ?: return
         if (current.isSubmitted || current.isCompleted) return
-
         val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
-        val isCorrect = selected == currentQ.correctIndex
+
+        val isCorrect: Boolean
+        val recordedChoice: Int
+
+        if (current.inputFormat == QuestionInputFormat.KEYPAD && current.selectedOptionIndex == null) {
+            val typed = current.typedInput.trim()
+            if (typed.isEmpty()) return
+            isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerBn) ||
+                SharedMathEngine.isAnswerCorrect(
+                    typed,
+                    currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" }.removeSuffix("টি").trim()
+                )
+            recordedChoice = if (isCorrect) currentQ.correctIndex else -2
+        } else {
+            val selected = current.selectedOptionIndex ?: return
+            isCorrect = selected == currentQ.correctIndex
+            recordedChoice = selected
+        }
+
         val newScore = if (isCorrect) current.score + 1 else current.score
-        val updatedAnswers = current.userAnswers + (current.currentIndex to selected)
+        val nextStreak = if (isCorrect) current.currentStreak + 1 else 0
+        val nextHighestStreak = maxOf(current.highestStreak, nextStreak)
+        val updatedAnswers = current.userAnswers + (current.currentIndex to recordedChoice)
 
         _numberSystemPracticeState.value = current.copy(
             isSubmitted = true,
+            selectedOptionIndex = recordedChoice,
             score = newScore,
-            userAnswers = updatedAnswers
+            userAnswers = updatedAnswers,
+            currentStreak = nextStreak,
+            highestStreak = nextHighestStreak
         )
 
         if (isCorrect) {
             recordDailyActivity(1)
+            viewModelScope.launch {
+                repository.resolveUnifiedMistake("NUMBER_SYSTEM_${currentQ.id}")
+            }
+        } else {
+            val userAnsText = if (current.inputFormat == QuestionInputFormat.KEYPAD && current.typedInput.isNotBlank()) {
+                current.typedInput.trim()
+            } else {
+                currentQ.optionsBn.getOrElse(recordedChoice) { "ভুল উত্তর" }
+            }
+            val expectedAnsText = currentQ.optionsBn.getOrElse(currentQ.correctIndex) { currentQ.correctAnswerBn }
+            viewModelScope.launch {
+                repository.recordUnifiedMistake(
+                    mistakeKey = "NUMBER_SYSTEM_${currentQ.id}",
+                    sourceModule = "NUMBER_SYSTEM",
+                    subjectId = currentQ.topic.id,
+                    curriculumTrack = if (currentQ.curriculumTracks.contains(com.example.math.CurriculumTrack.BCS)) "BCS" else "NCTB",
+                    questionPromptBn = currentQ.questionBn,
+                    userAnswerBn = userAnsText,
+                    correctAnswerBn = expectedAnsText,
+                    diagnosticExplanationBn = currentQ.explanationBn
+                )
+            }
         }
     }
 
@@ -2042,6 +2545,8 @@ class MathViewModel @JvmOverloads constructor(
             val total = current.questions.size
             val percentage = if (total > 0) (current.score * 100) / total else 0
             val topicTitle = "বাস্তব সংখ্যা ও বিভাজ্যতা (${current.difficulty.titleBn})"
+            val elapsedSec = ((System.currentTimeMillis() - current.sessionStartEpochMs) / 1000L).coerceAtLeast(1L)
+            val bestStreak = current.highestStreak.coerceAtLeast(if (current.score > 0) 1 else 0)
 
             viewModelScope.launch {
                 repository.recordQuizScore(
@@ -2065,8 +2570,8 @@ class MathViewModel @JvmOverloads constructor(
                     wrongCount = (total - current.score).coerceAtLeast(0),
                     totalQuestions = total,
                     accuracyPercent = percentage,
-                    durationSeconds = 30L,
-                    highestStreak = current.score
+                    durationSeconds = elapsedSec,
+                    highestStreak = bestStreak
                 )
                 recordDailyActivity(3)
             }
@@ -2103,7 +2608,7 @@ class MathViewModel @JvmOverloads constructor(
                 startQuiz(topic = topic, count = 10, mode = QuizMode.TOPIC)
             }
             RecommendationActionType.OPEN_EXAM_PRESET -> {
-                val preset = runCatching { ExamPresetType.valueOf(rec.targetTopicId) }.getOrDefault(ExamPresetType.QUICK_TEST)
+                val preset = ExamPresetType.fromIdOrDefault(rec.targetTopicId)
                 startConfiguredExam(ExamConfig(preset = preset))
             }
             RecommendationActionType.OPEN_PRACTICE_LAB -> navigateTo(Screen.PracticeLab)
@@ -2162,8 +2667,280 @@ class MathViewModel @JvmOverloads constructor(
     private val _selectedBcsSyllabusVersion = MutableStateFlow(BcsSyllabusVersion.BCS_50TH_CURRENT)
     val selectedBcsSyllabusVersion: StateFlow<BcsSyllabusVersion> = _selectedBcsSyllabusVersion.asStateFlow()
 
+    private val _selectedBcsExamProfile = MutableStateFlow(com.example.math.BcsExamProfile.BCS_50TH_PRELIM)
+    val selectedBcsExamProfile: StateFlow<com.example.math.BcsExamProfile> = _selectedBcsExamProfile.asStateFlow()
+
     fun setBcsSyllabusVersion(version: BcsSyllabusVersion) {
         _selectedBcsSyllabusVersion.value = version
+        if (version == BcsSyllabusVersion.BCS_LEGACY_15) {
+            _selectedBcsExamProfile.value = com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM
+        } else if (_selectedBcsExamProfile.value == com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM) {
+            _selectedBcsExamProfile.value = com.example.math.BcsExamProfile.BCS_50TH_PRELIM
+        }
+    }
+
+    fun setBcsExamProfile(profile: com.example.math.BcsExamProfile) {
+        _selectedBcsExamProfile.value = profile
+        if (profile == com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM) {
+            _selectedBcsSyllabusVersion.value = BcsSyllabusVersion.BCS_LEGACY_15
+        } else {
+            _selectedBcsSyllabusVersion.value = BcsSyllabusVersion.BCS_50TH_CURRENT
+        }
+        viewModelScope.launch {
+            val savedScoped = repository.getBcsUserProfile("profile_${profile.id}")
+            val currentProfile = repository.getBcsUserProfile("active_profile")
+            val nextActive = if (savedScoped != null) {
+                savedScoped.copy(
+                    profileId = "active_profile",
+                    selectedExamProfileId = profile.id,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else {
+                (currentProfile ?: com.example.data.model.BcsUserProfileEntity()).copy(
+                    profileId = "active_profile",
+                    selectedExamProfileId = profile.id,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            repository.saveBcsUserProfile(nextActive)
+        }
+    }
+
+    fun saveBcsOnboarding(
+        profile: com.example.math.BcsExamProfile,
+        stage: com.example.math.BcsPreparationStage,
+        dailyMinutes: Int,
+        dailyQuestions: Int,
+        targetCompletionEpochMs: Long? = null,
+        officialExamDateEpochMs: Long? = null,
+        preparationLevel: String = "BEGINNER",
+        weeklyTargetTopics: Int = 3,
+        weeklyTargetMocks: Int = 1
+    ) {
+        _selectedBcsExamProfile.value = profile
+        if (profile == com.example.math.BcsExamProfile.BCS_LEGACY_PRELIM) {
+            _selectedBcsSyllabusVersion.value = BcsSyllabusVersion.BCS_LEGACY_15
+        } else {
+            _selectedBcsSyllabusVersion.value = BcsSyllabusVersion.BCS_50TH_CURRENT
+        }
+        viewModelScope.launch {
+            val existing = repository.getBcsUserProfile()
+            repository.saveBcsUserProfile(
+                com.example.data.model.BcsUserProfileEntity(
+                    profileId = "active_profile",
+                    selectedExamProfileId = profile.id,
+                    onboardingCompleted = true,
+                    currentStageIndex = stage.stageNumber,
+                    dailyTargetMinutes = dailyMinutes,
+                    dailyTargetQuestions = dailyQuestions,
+                    targetCompletionEpochMs = targetCompletionEpochMs ?: existing?.targetCompletionEpochMs,
+                    officialExamDateEpochMs = officialExamDateEpochMs ?: existing?.officialExamDateEpochMs,
+                    updatedAt = System.currentTimeMillis(),
+                    preparationLevel = preparationLevel,
+                    weeklyTargetTopics = weeklyTargetTopics,
+                    weeklyTargetMocks = weeklyTargetMocks,
+                    targetAccuracyPercent = existing?.targetAccuracyPercent ?: 75
+                )
+            )
+            recordDailyActivity(2)
+        }
+    }
+
+    fun completeBcsTopicGuide(topicId: String, subjectTrack: String) {
+        val activeProfileId = _selectedBcsExamProfile.value.id
+        viewModelScope.launch {
+            repository.recordBcsTopicProgress(
+                topicId = topicId,
+                subjectTrack = subjectTrack,
+                isGuideCompleted = true,
+                miniCheckPassed = false,
+                additionalTimeSeconds = 45,
+                examProfileId = activeProfileId
+            )
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = activeProfileId,
+                lessonsDelta = 1,
+                studyTimeMinutesDelta = 5
+            )
+            recordDailyActivity(1)
+        }
+    }
+
+    fun recordBcsMiniCheckResult(topicId: String, subjectTrack: String, passed: Boolean) {
+        val activeProfileId = _selectedBcsExamProfile.value.id
+        viewModelScope.launch {
+            repository.recordBcsTopicProgress(
+                topicId = topicId,
+                subjectTrack = subjectTrack,
+                isGuideCompleted = true,
+                miniCheckPassed = passed,
+                additionalTimeSeconds = 30,
+                questionsAttemptedDelta = 1,
+                questionsCorrectDelta = if (passed) 1 else 0,
+                examProfileId = activeProfileId
+            )
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = activeProfileId,
+                questionsDelta = 1,
+                studyTimeMinutesDelta = 2
+            )
+            if (passed) {
+                recordDailyActivity(2)
+            }
+        }
+    }
+
+    fun recordBcsMistake(
+        questionId: String,
+        subjectTrack: String,
+        topicId: String,
+        promptBn: String,
+        wrongAnsBn: String,
+        correctAnsBn: String,
+        explanationBn: String,
+        shortcutTipBn: String = "",
+        provenanceBadgeBn: String = ""
+    ) {
+        val activeProfileId = _selectedBcsExamProfile.value.id
+        viewModelScope.launch {
+            repository.recordBcsMistake(
+                questionId = questionId,
+                subjectTrack = subjectTrack,
+                topicId = topicId,
+                questionPromptBn = promptBn,
+                wrongAnswerBn = wrongAnsBn,
+                correctAnswerBn = correctAnsBn,
+                explanationBn = explanationBn,
+                shortcutTipBn = shortcutTipBn,
+                provenanceBadgeBn = provenanceBadgeBn,
+                examProfileId = activeProfileId
+            )
+            repository.recordBcsTopicProgress(
+                topicId = topicId,
+                subjectTrack = subjectTrack,
+                isGuideCompleted = false,
+                miniCheckPassed = false,
+                additionalTimeSeconds = 25,
+                questionsAttemptedDelta = 1,
+                questionsCorrectDelta = 0,
+                examProfileId = activeProfileId
+            )
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = activeProfileId,
+                questionsDelta = 1,
+                studyTimeMinutesDelta = 1
+            )
+        }
+    }
+
+    fun markBcsMistakeResolved(questionId: String) {
+        val activeProfileId = _selectedBcsExamProfile.value.id
+        viewModelScope.launch {
+            repository.markBcsMistakeResolved(questionId, examProfileId = activeProfileId)
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = activeProfileId,
+                revisionsDelta = 1,
+                questionsDelta = 1,
+                studyTimeMinutesDelta = 2
+            )
+            recordDailyActivity(1)
+        }
+    }
+
+    fun deleteBcsMistake(questionId: String) {
+        val activeProfileId = _selectedBcsExamProfile.value.id
+        viewModelScope.launch {
+            repository.deleteBcsMistake(questionId, examProfileId = activeProfileId)
+        }
+    }
+
+    fun startBcsModeExam(
+        mode: com.example.math.BcsPracticeMode,
+        unit: BcsSyllabusUnit? = null,
+        difficulty: PracticeDifficulty = PracticeDifficulty.MEDIUM,
+        customNegativeMarking: Double? = null
+    ) {
+        val activeProfile = _selectedBcsExamProfile.value
+        val unresolvedIds = bcsMistakes.value
+            .filter { !it.isResolved && it.belongsToProfile(activeProfile.id) }
+            .map { it.rawQuestionId }
+            .toSet()
+        val weakUnits = BcsPreparationRepository.analyzeBcsWeakUnits(
+            topicStats = topicAnalytics.value,
+            syllabusVersion = _selectedBcsSyllabusVersion.value
+        ).filter { it.isWeak }.map { it.unit }.toSet()
+
+        val questions = BcsPreparationRepository.generateBcsModeExamQuestions(
+            mode = mode,
+            examProfile = activeProfile,
+            unit = unit,
+            difficulty = difficulty,
+            unresolvedMistakeIds = unresolvedIds,
+            weakUnits = weakUnits
+        )
+        val isUntimedPractice = (mode == com.example.math.BcsPracticeMode.TOPIC_PRACTICE ||
+            mode == com.example.math.BcsPracticeMode.MISTAKE_PRACTICE)
+        val durationMinutes = if (isUntimedPractice) 0 else mode.durationMinutes.coerceAtLeast(5)
+        val durationSec = durationMinutes * 60
+        val negPenalty = customNegativeMarking ?: mode.negativeMarking
+        val now = clock.elapsedRealtime()
+        val deadline = if (durationSec > 0) now + durationSec * 1000L else 0L
+        val attemptId = "bcs_mode_${mode.id.lowercase()}_${System.currentTimeMillis()}"
+        val titleBn = "${mode.titleBn} (${activeProfile.shortBadgeBn})"
+
+        val config = ExamConfig(
+            preset = ExamPresetType.BCS_PRELIMINARY_MOCK,
+            selectedTopics = setOf(unit?.mappedQuizTopic ?: QuizTopic.MIXED_CHALLENGE),
+            difficulty = difficulty,
+            questionType = QuizQuestionType.MCQ,
+            questionCount = questions.size,
+            durationMinutes = durationMinutes,
+            marksPerCorrect = 1.0,
+            negativeMarksPerWrong = negPenalty,
+            immediateFeedback = isUntimedPractice
+        )
+
+        val newState = QuizSessionState(
+            attemptId = attemptId,
+            examTitleBn = titleBn,
+            examConfig = config,
+            isFullExamMode = !config.immediateFeedback,
+            topic = unit?.mappedQuizTopic ?: QuizTopic.MIXED_CHALLENGE,
+            mode = if (config.immediateFeedback) QuizMode.PRACTICE else QuizMode.TIMED,
+            questionType = QuizQuestionType.MCQ,
+            difficulty = difficulty,
+            state = if (questions.isNotEmpty()) QuizState.IN_PROGRESS else QuizState.ERROR,
+            questions = questions,
+            currentIndex = 0,
+            selectedOptionIndex = null,
+            typedAnswer = "",
+            isAnswerSubmitted = false,
+            correctCount = 0,
+            isFinished = false,
+            userAnswers = emptyMap(),
+            userTypedAnswers = emptyMap(),
+            markedForReviewIndices = emptySet(),
+            visitedIndices = setOf(0),
+            questionTimeSeconds = emptyMap(),
+            isReviewMode = false,
+            timeRemainingSeconds = durationSec,
+            configuredDurationSeconds = durationSec,
+            elapsedSeconds = 0,
+            startElapsedRealtimeMs = now,
+            deadlineElapsedRealtimeMs = deadline,
+            examProfileId = activeProfile.id
+        )
+        _quizSession.value = newState
+        persistActiveExamStateAsync(newState)
+        viewModelScope.launch {
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = activeProfile.id,
+                mockExamsDelta = 1,
+                questionsDelta = questions.size,
+                studyTimeMinutesDelta = (mode.durationMinutes / 2).coerceAtLeast(5)
+            )
+        }
+        navigateTo(Screen.QuizPlay)
     }
 
     fun startBcsMockExam(
@@ -2228,10 +3005,737 @@ class MathViewModel @JvmOverloads constructor(
             configuredDurationSeconds = durationSec,
             elapsedSeconds = 0,
             startElapsedRealtimeMs = now,
-            deadlineElapsedRealtimeMs = deadline
+            deadlineElapsedRealtimeMs = deadline,
+            examProfileId = _selectedBcsExamProfile.value.id
         )
         _quizSession.value = newState
         persistActiveExamStateAsync(newState)
+        viewModelScope.launch {
+            repository.recordBcsStudyGoalDelta(
+                examProfileId = _selectedBcsExamProfile.value.id,
+                mockExamsDelta = 1,
+                questionsDelta = questions.size,
+                studyTimeMinutesDelta = (durationMinutes / 2).coerceAtLeast(5)
+            )
+        }
         navigateTo(Screen.QuizPlay)
+    }
+
+    // ==========================================
+    // MODULE: BOOK (CLASS 6, 7, 8, 9-10 OFFLINE TEXTBOOK LEARNING SYSTEM)
+    // ==========================================
+    private val _selectedBookId = MutableStateFlow(BookId.CLASS_6)
+    val selectedBookId: StateFlow<BookId> = _selectedBookId.asStateFlow()
+
+    private val _selectedBookChapterNumber = MutableStateFlow(1)
+    val selectedBookChapterNumber: StateFlow<Int> = _selectedBookChapterNumber.asStateFlow()
+
+    private val _selectedBookLessonId = MutableStateFlow("c6_1_l1")
+    val selectedBookLessonId: StateFlow<String> = _selectedBookLessonId.asStateFlow()
+
+    private val _selectedBookPrintedPage = MutableStateFlow(1)
+    val selectedBookPrintedPage: StateFlow<Int> = _selectedBookPrintedPage.asStateFlow()
+
+    private val _selectedBookLabType = MutableStateFlow(BookInteractiveLabType.NUMBER_LINE_LAB)
+    val selectedBookLabType: StateFlow<BookInteractiveLabType> = _selectedBookLabType.asStateFlow()
+
+    private val _bookPracticeSession = MutableStateFlow(BookPracticeSessionState())
+    val bookPracticeSession: StateFlow<BookPracticeSessionState> = _bookPracticeSession.asStateFlow()
+
+    private val _bookSearchQuery = MutableStateFlow("")
+    val bookSearchQuery: StateFlow<String> = _bookSearchQuery.asStateFlow()
+
+    private val _bookSearchFilter = MutableStateFlow(BookSearchFilterType.ALL)
+    val bookSearchFilter: StateFlow<BookSearchFilterType> = _bookSearchFilter.asStateFlow()
+
+    fun setBookSearchQuery(query: String) {
+        _bookSearchQuery.value = query
+    }
+
+    fun setBookSearchFilter(filter: BookSearchFilterType) {
+        _bookSearchFilter.value = filter
+    }
+
+    fun openBookHub() {
+        val current = _screenStack.value
+        val existingIdx = current.indexOf(Screen.BookHub)
+        if (existingIdx != -1) {
+            _screenStack.value = current.take(existingIdx + 1)
+        } else {
+            navigateTo(Screen.BookHub)
+        }
+    }
+
+    fun selectBook(bookId: BookId) {
+        _selectedBookId.value = bookId
+    }
+
+    fun openBookDetail(bookId: BookId) {
+        _selectedBookId.value = bookId
+        navigateTo(Screen.BookDetail)
+    }
+
+    fun openBookChapter(bookId: BookId, chapterNumber: Int) {
+        _selectedBookId.value = bookId
+        _selectedBookChapterNumber.value = chapterNumber
+        val chapter = BookCurriculumRepository.getChapter(bookId, chapterNumber)
+        chapter?.lessons?.firstOrNull()?.let { _selectedBookLessonId.value = it.id }
+        navigateTo(Screen.BookChapterOverview)
+    }
+
+    fun openBookLesson(bookId: BookId, chapterNumber: Int, lessonId: String) {
+        _selectedBookId.value = bookId
+        _selectedBookChapterNumber.value = chapterNumber
+        _selectedBookLessonId.value = lessonId
+        navigateTo(Screen.BookLesson)
+        recordDailyActivity(1)
+    }
+
+    @JvmOverloads
+    fun openBookPdfReader(
+        bookId: BookId = _selectedBookId.value,
+        printedPage: Int? = null,
+        chapterNumber: Int? = null
+    ) {
+        _selectedBookId.value = bookId
+        val savedReadingState = bookReadingStates.value.firstOrNull { it.bookId == bookId.id }
+        val targetPrintedPage = when {
+            printedPage != null -> printedPage.coerceIn(1, bookId.maxPrintedPage)
+            chapterNumber != null -> {
+                val ch = BookCurriculumRepository.getChapter(bookId, chapterNumber)
+                ch?.printedPageStart ?: 1
+            }
+            savedReadingState != null -> savedReadingState.lastReadPrintedPage.coerceIn(1, bookId.maxPrintedPage)
+            else -> 1
+        }
+        val inferredChapter = chapterNumber
+            ?: BookCurriculumRepository.getChapterForPrintedPage(bookId, targetPrintedPage).chapterNumber
+        _selectedBookPrintedPage.value = targetPrintedPage
+        _selectedBookChapterNumber.value = inferredChapter
+        updateBookReaderPage(bookId, targetPrintedPage, inferredChapter)
+        navigateTo(Screen.BookPdfReader)
+    }
+
+    @JvmOverloads
+    fun openBookInteractiveLab(
+        labType: BookInteractiveLabType,
+        bookId: BookId = _selectedBookId.value,
+        chapterNumber: Int = _selectedBookChapterNumber.value
+    ) {
+        _selectedBookId.value = bookId
+        _selectedBookChapterNumber.value = chapterNumber
+        _selectedBookLabType.value = labType
+        navigateTo(Screen.BookInteractiveLab)
+    }
+
+    @JvmOverloads
+    fun openBookRevision(bookId: BookId = _selectedBookId.value) {
+        _selectedBookId.value = bookId
+        navigateTo(Screen.BookRevision)
+    }
+
+    fun updateBookReaderPage(
+        bookId: BookId,
+        printedPage: Int,
+        chapterNumber: Int? = null,
+        zoomScale: Float = 1.0f,
+        preferredViewMode: String? = null
+    ) {
+        val clampedPrinted = printedPage.coerceIn(1, bookId.maxPrintedPage)
+        val pdfPage = bookId.printedToPdfPage(clampedPrinted)
+        val chNum = chapterNumber
+            ?: BookCurriculumRepository.getChapterForPrintedPage(bookId, clampedPrinted).chapterNumber
+        _selectedBookPrintedPage.value = clampedPrinted
+        _selectedBookChapterNumber.value = chNum
+        viewModelScope.launch {
+            repository.updateBookReadingState(
+                bookId = bookId.id,
+                printedPage = clampedPrinted,
+                pdfPage = pdfPage,
+                chapterNumber = chNum,
+                incrementPagesRead = true,
+                preferredViewMode = preferredViewMode,
+                lastZoomScale = zoomScale,
+                activeEditionId = bookId.editionMetadata.editionId
+            )
+        }
+    }
+
+    fun updateBookReaderPreferences(
+        bookId: BookId,
+        preferredViewMode: String? = null,
+        zoomScale: Float? = null
+    ) {
+        viewModelScope.launch {
+            repository.updateBookReadingState(
+                bookId = bookId.id,
+                preferredViewMode = preferredViewMode,
+                lastZoomScale = zoomScale,
+                activeEditionId = bookId.editionMetadata.editionId
+            )
+        }
+    }
+
+    fun toggleBookReaderPageBookmark(bookId: BookId, printedPage: Int) {
+        viewModelScope.launch {
+            val chapter = BookCurriculumRepository.getChapterForPrintedPage(bookId, printedPage)
+            repository.toggleBookPageBookmark(
+                bookId = bookId.id,
+                printedPage = printedPage,
+                bookTitleBn = bookId.titleBn,
+                chapterTitleBn = "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)}: ${chapter.titleBn}"
+            )
+        }
+    }
+
+    fun isBookLessonCompleted(lessonId: String, bookId: BookId = _selectedBookId.value): Boolean {
+        return bookLessonProgress.value.firstOrNull { it.bookId == bookId.id && it.lessonId == lessonId }?.isCompleted == true
+    }
+
+    fun toggleBookLessonCompleted(
+        bookId: BookId,
+        chapterNumber: Int,
+        lessonId: String
+    ) {
+        viewModelScope.launch {
+            val existing = bookLessonProgress.value.firstOrNull { it.bookId == bookId.id && it.lessonId == lessonId }
+            val nextCompleted = !(existing?.isCompleted ?: false)
+            repository.toggleBookLessonCompleted(
+                bookId = bookId.id,
+                chapterNumber = chapterNumber,
+                lessonId = lessonId
+            )
+            if (nextCompleted) {
+                recordDailyActivity(2)
+            }
+        }
+    }
+
+    fun recordLessonMiniCheckResult(
+        bookId: BookId,
+        chapterNumber: Int,
+        lessonId: String,
+        passed: Boolean
+    ) {
+        viewModelScope.launch {
+            val existing = bookLessonProgress.value.firstOrNull { it.bookId == bookId.id && it.lessonId == lessonId }
+            repository.upsertBookLessonProgress(
+                bookId = bookId.id,
+                chapterNumber = chapterNumber,
+                lessonId = lessonId,
+                isCompleted = existing?.isCompleted == true || passed,
+                miniCheckPassed = passed,
+                timeSpentDeltaSeconds = 45
+            )
+            if (!passed) {
+                val lesson = BookCurriculumRepository.getLesson(bookId, chapterNumber, lessonId)
+                if (lesson != null) {
+                    repository.scheduleSpacedRevisionItem(
+                        itemId = "rev_lesson_$lessonId",
+                        bookId = bookId.id,
+                        chapterNumber = chapterNumber,
+                        itemType = "WEAK_LESSON",
+                        titleBn = "পাঠ ${lesson.code}: ${lesson.titleBn}",
+                        subtitleBn = lesson.miniCheckExplanationBn
+                    )
+                }
+            } else {
+                recordDailyActivity(1)
+            }
+        }
+    }
+
+    fun saveBookPersonalNote(
+        id: Int = 0,
+        bookId: BookId = _selectedBookId.value,
+        chapterNumber: Int = _selectedBookChapterNumber.value,
+        lessonId: String? = null,
+        noteTitleBn: String,
+        noteBodyBn: String,
+        tagBn: String = "সাধারণ নোট"
+    ) {
+        if (noteTitleBn.isBlank() && noteBodyBn.isBlank()) return
+        viewModelScope.launch {
+            val chapter = BookCurriculumRepository.getChapter(bookId, chapterNumber)
+            repository.saveBookNote(
+                id = id,
+                bookId = bookId.id,
+                chapterNumber = chapterNumber,
+                lessonId = lessonId ?: "${chapterNumber}.1",
+                printedPage = chapter?.printedPageStart ?: 1,
+                titleBn = noteTitleBn.ifBlank { "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapterNumber)} নোট ($tagBn)" },
+                contentBn = noteBodyBn.trim()
+            )
+            recordDailyActivity(1)
+        }
+    }
+
+    fun deleteBookPersonalNote(id: Int) {
+        viewModelScope.launch {
+            repository.deleteBookNote(id)
+        }
+    }
+
+    fun markBookMistakeResolved(mistakeId: String, resolved: Boolean = true) {
+        viewModelScope.launch {
+            repository.markBookMistakeResolved(mistakeId, resolved)
+        }
+    }
+
+    fun deleteBookMistake(mistakeId: String) {
+        viewModelScope.launch {
+            repository.deleteBookMistake(mistakeId)
+        }
+    }
+
+    fun scheduleBookSpacedRevision(
+        itemId: String,
+        bookId: BookId,
+        chapterNumber: Int,
+        itemType: String,
+        titleBn: String,
+        summaryBn: String
+    ) {
+        viewModelScope.launch {
+            repository.scheduleSpacedRevisionItem(
+                itemId = itemId,
+                bookId = bookId.id,
+                chapterNumber = chapterNumber,
+                itemType = itemType,
+                titleBn = titleBn,
+                subtitleBn = summaryBn
+            )
+        }
+    }
+
+    fun completeSpacedRevisionReview(itemId: String, rememberedWell: Boolean) {
+        viewModelScope.launch {
+            repository.advanceSpacedRevisionItem(itemId, rememberedWell)
+            recordDailyActivity(1)
+        }
+    }
+
+    // --- Multi-Format Book Practice Engine Operations ---
+    @JvmOverloads
+    fun startBookPractice(
+        bookId: BookId = _selectedBookId.value,
+        chapterNumber: Int? = _selectedBookChapterNumber.value,
+        mode: BookPracticeMode = BookPracticeMode.STANDARD,
+        questionCount: Int = 10
+    ) {
+        _selectedBookId.value = bookId
+        if (chapterNumber != null) {
+            _selectedBookChapterNumber.value = chapterNumber
+        }
+        val weakQIds = bookMistakes.value
+            .filter { it.bookId == bookId.id && !it.isResolved }
+            .map { it.questionId.removePrefix("mistake_") }
+            .toSet()
+        val questions = BookQuestionEngine.buildSessionQuestions(
+            bookId = bookId,
+            chapterNumber = chapterNumber,
+            mode = mode,
+            maxCount = questionCount,
+            weakQuestionIds = weakQIds
+        )
+        _bookPracticeSession.value = BookPracticeSessionState(
+            bookId = bookId,
+            chapterNumber = chapterNumber,
+            mode = mode,
+            questions = questions,
+            currentIndex = 0,
+            selectedOptionIndices = emptySet(),
+            userTextInput = "",
+            isAnswerSubmitted = false,
+            isCurrentCorrect = null,
+            showHint = false,
+            correctCount = 0,
+            wrongCount = 0,
+            isCompleted = false,
+            elapsedSeconds = 0,
+            answeredResults = emptyMap(),
+            selectedOptionsByIndex = emptyMap(),
+            userTextInputsByIndex = emptyMap(),
+            sessionStartEpochMs = System.currentTimeMillis()
+        )
+        navigateTo(Screen.BookPractice)
+    }
+
+    fun toggleBookPracticeOption(index: Int) {
+        val current = _bookPracticeSession.value
+        if (current.isAnswerSubmitted || current.isCompleted) return
+        val currentQ = current.currentQuestion ?: return
+        val nextSet = if (currentQ.format == BookQuestionFormat.MULTIPLE_SELECT) {
+            if (current.selectedOptionIndices.contains(index)) {
+                current.selectedOptionIndices - index
+            } else {
+                current.selectedOptionIndices + index
+            }
+        } else {
+            setOf(index)
+        }
+        _bookPracticeSession.value = current.copy(
+            selectedOptionIndices = nextSet,
+            selectedOptionsByIndex = current.selectedOptionsByIndex + (current.currentIndex to nextSet)
+        )
+    }
+
+    fun setBookPracticeTextInput(text: String) {
+        val current = _bookPracticeSession.value
+        if (!current.isAnswerSubmitted && !current.isCompleted) {
+            _bookPracticeSession.value = current.copy(
+                userTextInput = text,
+                userTextInputsByIndex = current.userTextInputsByIndex + (current.currentIndex to text)
+            )
+        }
+    }
+
+    fun toggleBookPracticeHint() {
+        val current = _bookPracticeSession.value
+        _bookPracticeSession.value = current.copy(showHint = !current.showHint)
+    }
+
+    fun submitBookPracticeAnswer() {
+        val current = _bookPracticeSession.value
+        if (current.isAnswerSubmitted || current.isCompleted || current.answeredResults.containsKey(current.currentIndex)) return
+        val q = current.currentQuestion ?: return
+
+        val (isCorrect, userSummary) = BookQuestionEngine.evaluateQuestion(
+            question = q,
+            selectedOptionIndices = current.selectedOptionIndices,
+            userTextInput = current.userTextInput
+        )
+
+        val updatedResults = current.answeredResults + (current.currentIndex to isCorrect)
+        val updatedSelections = current.selectedOptionsByIndex + (current.currentIndex to current.selectedOptionIndices)
+        val updatedTextInputs = current.userTextInputsByIndex + (current.currentIndex to current.userTextInput)
+        val newCorrect = updatedResults.values.count { it }
+        val newWrong = updatedResults.values.count { !it }
+
+        _bookPracticeSession.value = current.copy(
+            isAnswerSubmitted = true,
+            isCurrentCorrect = isCorrect,
+            correctCount = newCorrect,
+            wrongCount = newWrong,
+            answeredResults = updatedResults,
+            selectedOptionsByIndex = updatedSelections,
+            userTextInputsByIndex = updatedTextInputs
+        )
+
+        viewModelScope.launch {
+            val chapter = BookCurriculumRepository.getChapter(q.bookId, q.chapterNumber)
+            val targetLessonId = q.lessonId ?: chapter?.lessons?.firstOrNull()?.id
+            if (targetLessonId != null) {
+                val existing = bookLessonProgress.value.firstOrNull { it.bookId == q.bookId.id && it.lessonId == targetLessonId }
+                repository.upsertBookLessonProgress(
+                    bookId = q.bookId.id,
+                    chapterNumber = q.chapterNumber,
+                    lessonId = targetLessonId,
+                    isCompleted = existing?.isCompleted == true || isCorrect,
+                    miniCheckPassed = isCorrect,
+                    timeSpentDeltaSeconds = 30
+                )
+            }
+
+            if (!isCorrect) {
+                // Automatically record in Mistake Notebook, Spaced Revision (1-3-7-14 day), and Unified Mistake Notebook
+                repository.recordBookQuestionMistake(
+                    questionId = "mistake_${q.id}",
+                    bookId = q.bookId.id,
+                    chapterNumber = q.chapterNumber,
+                    questionPromptBn = q.promptBn,
+                    wrongAnswerBn = userSummary,
+                    correctAnswerBn = q.correctTextAnswer,
+                    explanationBn = q.explanationBn,
+                    sourceProvenance = q.provenance.name,
+                    chapterTitleBn = chapter?.titleBn ?: "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(q.chapterNumber)}"
+                )
+            } else {
+                recordDailyActivity(1)
+                repository.markBookMistakeResolved("mistake_${q.id}", resolved = true)
+                repository.resolveUnifiedMistake("BOOK_${q.id}")
+            }
+        }
+    }
+
+    fun nextBookPracticeQuestion() {
+        val current = _bookPracticeSession.value
+        if (!current.isAnswerSubmitted) return
+        val nextIdx = current.currentIndex + 1
+        if (nextIdx < current.questions.size) {
+            val alreadyAnswered = current.answeredResults.containsKey(nextIdx)
+            _bookPracticeSession.value = current.copy(
+                currentIndex = nextIdx,
+                selectedOptionIndices = current.selectedOptionsByIndex[nextIdx] ?: emptySet(),
+                userTextInput = current.userTextInputsByIndex[nextIdx] ?: "",
+                isAnswerSubmitted = alreadyAnswered,
+                isCurrentCorrect = current.answeredResults[nextIdx],
+                showHint = false
+            )
+        } else {
+            finishBookPracticeSession()
+        }
+    }
+
+    fun previousBookPracticeQuestion() {
+        val current = _bookPracticeSession.value
+        if (current.currentIndex <= 0 || current.isCompleted) return
+        val prevIdx = current.currentIndex - 1
+        _bookPracticeSession.value = current.copy(
+            currentIndex = prevIdx,
+            selectedOptionIndices = current.selectedOptionsByIndex[prevIdx] ?: emptySet(),
+            userTextInput = current.userTextInputsByIndex[prevIdx] ?: "",
+            isAnswerSubmitted = current.answeredResults.containsKey(prevIdx),
+            isCurrentCorrect = current.answeredResults[prevIdx],
+            showHint = false
+        )
+    }
+
+    fun finishBookPracticeSession() {
+        val current = _bookPracticeSession.value
+        if (current.isCompleted) return
+        val total = current.questions.size.coerceAtLeast(1)
+        val pct = (current.correctCount * 100) / total
+        val elapsedSec = if (current.elapsedSeconds > 0) {
+            current.elapsedSeconds.toLong()
+        } else {
+            ((System.currentTimeMillis() - current.sessionStartEpochMs) / 1000L).coerceAtLeast(1L)
+        }
+
+        _bookPracticeSession.value = current.copy(
+            isCompleted = true
+        )
+
+        viewModelScope.launch {
+            val chLabel = current.chapterNumber?.let { "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(it)}" } ?: "মিশ্র অনুশীলন"
+            val titleBn = "${current.bookId.titleBn} ($chLabel • ${current.mode.titleBn})"
+            repository.recordQuizScore(
+                QuizScoreEntity(
+                    topicId = "BOOK_${current.bookId.id}_C${current.chapterNumber ?: 0}",
+                    topicTitleBn = titleBn,
+                    score = current.correctCount,
+                    totalQuestions = total,
+                    percentage = pct
+                )
+            )
+            repository.recordSessionAndAnalytics(
+                moduleType = "BOOK",
+                categoryId = "BOOK_${current.bookId.id}_C${current.chapterNumber ?: 0}",
+                categoryTitleBn = titleBn,
+                difficulty = current.mode.id,
+                mode = current.mode.id,
+                inputFormat = "MULTI_FORMAT",
+                score = current.correctCount * 10,
+                correctCount = current.correctCount,
+                wrongCount = current.wrongCount,
+                totalQuestions = total,
+                accuracyPercent = pct,
+                durationSeconds = elapsedSec,
+                highestStreak = current.correctCount
+            )
+            recordDailyActivity(3)
+        }
+    }
+
+    // =========================================================================
+    // PERSISTENT 'STUDY SESSION' TIMER COMPONENT
+    // =========================================================================
+
+    private fun initStudySessionTimer() {
+        val today = getTodayDateStr()
+        val isVisible = prefs.getBoolean("study_timer_visible_on_home", true)
+        val isRunning = prefs.getBoolean("study_timer_is_running", false)
+        val savedSessionSec = prefs.getInt("study_timer_current_session_sec", 0)
+        val savedTodaySec = prefs.getInt("study_timer_today_sec_$today", 0)
+        val savedAllTimeSec = prefs.getInt("study_timer_all_time_sec", 0)
+        val savedGoalMin = prefs.getInt("study_timer_daily_goal_min", 30).coerceIn(5, 240)
+        val savedSessionsCount = prefs.getInt("study_timer_sessions_$today", 0)
+        val lastWallMs = prefs.getLong("study_timer_last_wall_ms", 0L)
+
+        // Recover elapsed wall-clock seconds if the timer was left running
+        val nowWallMs = System.currentTimeMillis()
+        val recoveredDeltaSec = if (isRunning && lastWallMs > 0L && nowWallMs > lastWallMs) {
+            ((nowWallMs - lastWallMs) / 1000L).toInt().coerceIn(0, 14400)
+        } else {
+            0
+        }
+
+        val currentSessionSec = savedSessionSec + recoveredDeltaSec
+        val todayTotalSec = savedTodaySec + recoveredDeltaSec
+        val allTimeTotalSec = savedAllTimeSec + recoveredDeltaSec
+
+        if (recoveredDeltaSec > 0) {
+            prefs.edit()
+                .putInt("study_timer_current_session_sec", currentSessionSec)
+                .putInt("study_timer_today_sec_$today", todayTotalSec)
+                .putInt("study_timer_all_time_sec", allTimeTotalSec)
+                .putLong("study_timer_last_wall_ms", nowWallMs)
+                .apply()
+        }
+
+        _studySessionTimer.value = StudySessionTimerState(
+            isVisibleOnHome = isVisible,
+            isRunning = isRunning,
+            currentSessionSeconds = currentSessionSec,
+            todayTotalSeconds = todayTotalSec,
+            allTimeTotalSeconds = allTimeTotalSec,
+            dailyGoalMinutes = savedGoalMin,
+            completedSessionsToday = savedSessionsCount,
+            unrecordedDbSeconds = recoveredDeltaSec
+        )
+    }
+
+    fun toggleStudyTimerVisibility() {
+        val current = _studySessionTimer.value
+        val nextVisible = !current.isVisibleOnHome
+        prefs.edit().putBoolean("study_timer_visible_on_home", nextVisible).apply()
+        _studySessionTimer.value = current.copy(isVisibleOnHome = nextVisible)
+    }
+
+    fun setStudyTimerVisibility(visible: Boolean) {
+        val current = _studySessionTimer.value
+        prefs.edit().putBoolean("study_timer_visible_on_home", visible).apply()
+        _studySessionTimer.value = current.copy(isVisibleOnHome = visible)
+    }
+
+    fun toggleStudySessionRunning() {
+        val current = _studySessionTimer.value
+        val nextRunning = !current.isRunning
+        val nowWallMs = System.currentTimeMillis()
+        prefs.edit()
+            .putBoolean("study_timer_is_running", nextRunning)
+            .putLong("study_timer_last_wall_ms", if (nextRunning) nowWallMs else 0L)
+            .apply()
+
+        val unrecorded = current.unrecordedDbSeconds
+        _studySessionTimer.value = current.copy(
+            isRunning = nextRunning,
+            unrecordedDbSeconds = if (!nextRunning) 0 else unrecorded
+        )
+
+        if (!nextRunning && unrecorded > 0) {
+            viewModelScope.launch {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 0,
+                    correctDelta = 0,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = unrecorded,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 0
+                )
+            }
+        }
+    }
+
+    fun tickStudySessionTimer(deltaSeconds: Int = 1) {
+        if (deltaSeconds <= 0) return
+        val current = _studySessionTimer.value
+        if (!current.isRunning) return
+
+        val today = getTodayDateStr()
+        val nextSessionSec = current.currentSessionSeconds + deltaSeconds
+        val nextTodaySec = current.todayTotalSeconds + deltaSeconds
+        val nextAllTimeSec = current.allTimeTotalSeconds + deltaSeconds
+        val nextUnrecorded = current.unrecordedDbSeconds + deltaSeconds
+
+        prefs.edit()
+            .putInt("study_timer_current_session_sec", nextSessionSec)
+            .putInt("study_timer_today_sec_$today", nextTodaySec)
+            .putInt("study_timer_all_time_sec", nextAllTimeSec)
+            .putLong("study_timer_last_wall_ms", System.currentTimeMillis())
+            .apply()
+
+        // Flush to Room DB every 30 seconds of accumulated study time
+        val shouldFlushToDb = nextUnrecorded >= 30
+        _studySessionTimer.value = current.copy(
+            currentSessionSeconds = nextSessionSec,
+            todayTotalSeconds = nextTodaySec,
+            allTimeTotalSeconds = nextAllTimeSec,
+            unrecordedDbSeconds = if (shouldFlushToDb) 0 else nextUnrecorded
+        )
+
+        if (shouldFlushToDb) {
+            viewModelScope.launch {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 0,
+                    correctDelta = 0,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = nextUnrecorded,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 0
+                )
+            }
+        }
+    }
+
+    fun finishAndSaveStudySession() {
+        val current = _studySessionTimer.value
+        if (current.currentSessionSeconds <= 0 && !current.isRunning) return
+
+        val today = getTodayDateStr()
+        val nextCompleted = current.completedSessionsToday + 1
+        val unrecorded = current.unrecordedDbSeconds
+
+        prefs.edit()
+            .putBoolean("study_timer_is_running", false)
+            .putInt("study_timer_current_session_sec", 0)
+            .putInt("study_timer_sessions_$today", nextCompleted)
+            .putLong("study_timer_last_wall_ms", 0L)
+            .apply()
+
+        _studySessionTimer.value = current.copy(
+            isRunning = false,
+            currentSessionSeconds = 0,
+            completedSessionsToday = nextCompleted,
+            unrecordedDbSeconds = 0
+        )
+
+        recordDailyActivity(1)
+        viewModelScope.launch {
+            repository.recordDailyStudyDelta(
+                questionsAttemptedDelta = 0,
+                correctDelta = 0,
+                wrongDelta = 0,
+                studyTimeSecondsDelta = unrecorded,
+                examsCompletedDelta = 0,
+                practiceSessionsCompletedDelta = 1
+            )
+        }
+    }
+
+    fun resetCurrentStudySession() {
+        val current = _studySessionTimer.value
+        val unrecorded = current.unrecordedDbSeconds
+        prefs.edit()
+            .putBoolean("study_timer_is_running", false)
+            .putInt("study_timer_current_session_sec", 0)
+            .putLong("study_timer_last_wall_ms", 0L)
+            .apply()
+
+        _studySessionTimer.value = current.copy(
+            isRunning = false,
+            currentSessionSeconds = 0,
+            unrecordedDbSeconds = 0
+        )
+
+        if (unrecorded > 0) {
+            viewModelScope.launch {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 0,
+                    correctDelta = 0,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = unrecorded,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 0
+                )
+            }
+        }
+    }
+
+    fun setStudyDailyGoalMinutes(minutes: Int) {
+        val clamped = minutes.coerceIn(5, 240)
+        val current = _studySessionTimer.value
+        prefs.edit().putInt("study_timer_daily_goal_min", clamped).apply()
+        _studySessionTimer.value = current.copy(dailyGoalMinutes = clamped)
     }
 }

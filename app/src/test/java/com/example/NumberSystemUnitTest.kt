@@ -208,8 +208,8 @@ class NumberSystemUnitTest {
         assertTrue(NumberSystemProvider.checkDivisibility(144L, 12).first)
         assertFalse(NumberSystemProvider.checkDivisibility(148L, 12).first) // div by 4, not by 3
 
-        // Verify all 11 divisibility rules (2..12) exist
-        assertEquals(11, NumberSystemProvider.divisibilityRules.size)
+        // Verify all 16 divisibility rules (2..12 plus 13, 15, 16, 18, 25) exist
+        assertEquals(16, NumberSystemProvider.divisibilityRules.size)
 
         // Coprime and Euclidean integer division
         val coprimeRes = NumberSystemProvider.analyzeCoprimeAndDivision(35L, 12L)

@@ -33,8 +33,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -58,9 +58,9 @@ fun TablesScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val selectedRange by viewModel.selectedTableRange.collectAsState()
-    val progressList by viewModel.progressList.collectAsState()
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val selectedRange by viewModel.selectedTableRange.collectAsStateWithLifecycle()
+    val progressList by viewModel.progressList.collectAsStateWithLifecycle()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
     val ranges = TableRange.values()
 
@@ -206,12 +206,12 @@ fun TableDetailScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val tableNumber by viewModel.selectedTableNumber.collectAsState()
+    val tableNumber by viewModel.selectedTableNumber.collectAsStateWithLifecycle()
     val table = MultiplicationProvider.getTable(tableNumber)
     val itemId = "table_${tableNumber}"
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
-    val progressList by viewModel.progressList.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val progressList by viewModel.progressList.collectAsStateWithLifecycle()
 
     val isBookmarked = bookmarks.any { it.id == itemId }
     val isLearned = progressList.any { it.itemId == itemId && it.isLearned }

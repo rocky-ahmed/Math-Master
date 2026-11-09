@@ -135,10 +135,53 @@ data class LibraryFormula(
     val conditionsBn: String = "সকল বাস্তব সংখ্যার ডোমেনে প্রযোজ্য (হর ≠ ০)।",
     val derivationStepsBn: List<String> = emptyList(),
     val difficultyLevel: FormulaDifficulty = FormulaDifficulty.BASIC,
-    val relatedFormulaIds: List<String> = emptyList()
+    val relatedFormulaIds: List<String> = emptyList(),
+    val curriculumTracks: Set<CurriculumTrack> = FormulaLibraryProvider.inferDefaultTracks(subject, difficultyLevel, id)
 )
 
 object FormulaLibraryProvider {
+
+    fun inferDefaultTracks(
+        subject: FormulaSubject,
+        difficulty: FormulaDifficulty,
+        id: String
+    ): Set<CurriculumTrack> {
+        val tracks = mutableSetOf<CurriculumTrack>()
+        if (subject != FormulaSubject.CALCULUS) {
+            tracks.add(CurriculumTrack.NCTB)
+        }
+        if (subject in setOf(
+                FormulaSubject.ARITHMETIC,
+                FormulaSubject.NUMBER_THEORY,
+                FormulaSubject.ALGEBRA,
+                FormulaSubject.GEOMETRY,
+                FormulaSubject.MENSURATION,
+                FormulaSubject.PROBABILITY,
+                FormulaSubject.SEQUENCES_SERIES,
+                FormulaSubject.COMMERCIAL_MATH,
+                FormulaSubject.STATISTICS
+            )
+        ) {
+            tracks.add(CurriculumTrack.BCS)
+        }
+        if (difficulty != FormulaDifficulty.BASIC ||
+            id.contains("bdmo") ||
+            subject in setOf(
+                FormulaSubject.NUMBER_THEORY,
+                FormulaSubject.ALGEBRA,
+                FormulaSubject.GEOMETRY,
+                FormulaSubject.PROBABILITY,
+                FormulaSubject.SEQUENCES_SERIES,
+                FormulaSubject.CALCULUS
+            )
+        ) {
+            tracks.add(CurriculumTrack.BDMO)
+        }
+        if (tracks.isEmpty()) {
+            tracks.add(CurriculumTrack.NCTB)
+        }
+        return tracks
+    }
 
     val allFormulas: List<LibraryFormula> by lazy {
         arithmeticFormulas +
@@ -324,6 +367,117 @@ object FormulaLibraryProvider {
             tags = listOf("ভাজ্য", "ভাজক", "ভাগশেষ", "division", "remainder", "euclidean"),
             difficultyLevel = FormulaDifficulty.BASIC,
             relatedFormulaIds = listOf("lib_nt_01")
+        ),
+        LibraryFormula(
+            id = "nt_bdmo_1",
+            subject = FormulaSubject.NUMBER_THEORY,
+            subCategory = "ভাজক ও সমষ্টি (BdMO)",
+            titleBn = "ভাজকের সংখ্যা d(N) ও ভাজকের সমষ্টি σ(N)",
+            titleEn = "Divisor Count d(N) & Divisor Sum σ(N)",
+            formulaExpression = "d(N) = ∏(aᵢ + 1),  σ(N) = ∏((pᵢ^(aᵢ+1) − 1) / (pᵢ − 1))",
+            latexExpression = "\\sigma(N) = \\prod_{i=1}^{k} \\frac{p_i^{a_i+1}-1}{p_i-1}",
+            plainTextExpression = "d(N) = prod(a_i + 1), sigma(N) = prod((p_i^(a_i+1) - 1)/(p_i - 1))",
+            explanationBn = "N = p₁^a₁ · p₂^a₂... হলে মোট ভাজক সংখ্যা d(N) এবং সকল ধনাত্মক ভাজকের যোগফল σ(N) গুণোত্তর ধারার সূত্র দিয়ে নির্ণয় করা হয়।",
+            variables = listOf(
+                "N" to "ধনাত্মক পূর্ণসংখ্যা (N > 1)",
+                "pᵢ" to "মৌলিক উৎপাদক",
+                "aᵢ" to "মৌলিক উৎপাদকের ঘাত"
+            ),
+            conditionsBn = "N ≥ 2 পূর্ণসংখ্যা এবং pᵢ ভিন্ন ভিন্ন মৌলিক সংখ্যা।",
+            exampleProblemBn = "৩৬ এর মোট ভাজক কয়টি এবং ভাজকগুলোর সমষ্টি কত?",
+            exampleSolutionBn = "৩৬ = ২² × ৩²। d(৩৬) = (২+১)(২+১) = ৯টি। σ(৩৬) = ((২³−১)/(২−১)) × ((৩³−১)/(৩−১)) = ৭ × ১৩ = ৯১।",
+            tipsBn = "BdMO ও BCS এ ভাজকের সমষ্টি নির্ণয়ে এই গুণোত্তর সূত্রটি সবচেয়ে দ্রুত কাজ করে।",
+            tags = listOf("ভাজক", "সমষ্টি", "divisor sum", "sigma", "bdmo"),
+            difficultyLevel = FormulaDifficulty.INTERMEDIATE,
+            curriculumTracks = setOf(CurriculumTrack.BDMO, CurriculumTrack.BCS)
+        ),
+        LibraryFormula(
+            id = "nt_bdmo_2",
+            subject = FormulaSubject.NUMBER_THEORY,
+            subCategory = "অয়লারের টশেন্ট ও সহমৌলিকতা",
+            titleBn = "অয়লারের টশেন্ট ফাংশন φ(N)",
+            titleEn = "Euler's Totient Function φ(N)",
+            formulaExpression = "φ(N) = N × ∏(1 − 1/pᵢ)",
+            latexExpression = "\\phi(N) = N \\prod_{p | N} \\left(1 - \\frac{1}{p}\\right)",
+            plainTextExpression = "phi(N) = N * prod(1 - 1/p)",
+            explanationBn = "১ থেকে N পর্যন্ত যতগুলো সংখ্যা N এর সাথে সহমৌলিক ( অর্থাৎ যাদের সাথে N এর গ.সা.গু ১), তাদের সংখ্যাকে φ(N) বলা হয়।",
+            variables = listOf(
+                "N" to "ধনাত্মক পূর্ণসংখ্যা",
+                "pᵢ" to "N এর মৌলিক উৎপাদকসমূহ"
+            ),
+            conditionsBn = "N ≥ 1 একটি ধনাত্মক পূর্ণসংখ্যা। মৌলিক সংখ্যা p এর জন্য φ(p) = p − 1।",
+            exampleProblemBn = "৩৬ এর চেয়ে ছোট বা সমান কয়টি ধনাত্মক পূর্ণসংখ্যা ৩৬ এর সাথে সহমৌলিক?",
+            exampleSolutionBn = "৩৬ = ২² × ৩²। φ(৩৬) = ৩৬ × (১ − ১/২) × (১ − ১/৩) = ৩৬ × (১/২) × (২/৩) = ১২টি।",
+            tipsBn = "বড় ঘাতের ভাগশেষ নির্ণয়ে (অয়লারের উপপাদ্য: a^φ(m) ≡ 1 mod m) এটি অপরিহার্য।",
+            tags = listOf("টশেন্ট", "সহমৌলিক", "totient", "euler", "coprime", "bdmo"),
+            difficultyLevel = FormulaDifficulty.ADVANCED,
+            curriculumTracks = setOf(CurriculumTrack.BDMO)
+        ),
+        LibraryFormula(
+            id = "nt_bdmo_3",
+            subject = FormulaSubject.NUMBER_THEORY,
+            subCategory = "মডুলার পাটিগণিত (Modular Arithmetic)",
+            titleBn = "ফার্মার ক্ষুদ্র উপপাদ্য (Fermat's Little Theorem)",
+            titleEn = "Fermat's Little Theorem",
+            formulaExpression = "a^(p−1) ≡ 1 (mod p), যখন p মৌলিক ও gcd(a, p) = 1",
+            latexExpression = "a^{p-1} \\equiv 1 \\pmod{p}",
+            plainTextExpression = "a^(p-1) = 1 (mod p)",
+            explanationBn = "p একটি মৌলিক সংখ্যা হলে এবং a সংখ্যাটি p দ্বারা বিভাজ্য না হলে, a^(p−1) কে p দ্বারা ভাগ করলে সর্বদা ভাগশেষ ১ থাকে।",
+            variables = listOf(
+                "a" to "যেকোনো পূর্ণসংখ্যা (ভিত্তি)",
+                "p" to "মৌলিক ভাজক (Prime Modulus)"
+            ),
+            conditionsBn = "p মৌলিক সংখ্যা এবং p দ্বারা a নিঃশেষে বিভাজ্য নয়।",
+            exampleProblemBn = "২^১০০ কে ১০১ দ্বারা ভাগ করলে ভাগশেষ কত থাকবে?",
+            exampleSolutionBn = "যেহেতু ১০১ মৌলিক এবং gcd(২, ১০১) = ১, তাই ফার্মার উপপাদ্য মতে ২^(১০১−১) = ২^১০০ ≡ ১ (mod ১০১)। ভাগশেষ = ১।",
+            tipsBn = "অলিম্পিয়াডে বিশাল সূচকের ভাগশেষ ১ সেকেন্ডে বের করার প্রধান হাতিয়ার।",
+            tags = listOf("ফার্মা", "মডুলার", "ভাগশেষ", "fermat", "modular", "bdmo"),
+            difficultyLevel = FormulaDifficulty.ADVANCED,
+            curriculumTracks = setOf(CurriculumTrack.BDMO)
+        ),
+        LibraryFormula(
+            id = "nt_bdmo_4",
+            subject = FormulaSubject.NUMBER_THEORY,
+            subCategory = "ফ্যাক্টরিয়াল ও শূন্যের সংখ্যা",
+            titleBn = "লেজেন্ডারের সূত্র ও n! এর শেষে শূন্যের সংখ্যা",
+            titleEn = "Legendre's Formula & Trailing Zeros in n!",
+            formulaExpression = "E_p(n!) = ⌊n/p⌋ + ⌊n/p²⌋ + ⌊n/p³⌋ + ...",
+            latexExpression = "E_p(n!) = \\sum_{k=1}^{\\infty} \\left\\lfloor \\frac{n}{p^k} \\right\\rfloor",
+            plainTextExpression = "E_p(n!) = floor(n/p) + floor(n/p^2) + floor(n/p^3) + ...",
+            explanationBn = "n! (ফ্যাক্টরিয়াল) এ মৌলিক সংখ্যা p এর সর্বোচ্চ ঘাত নির্ণয়ের সূত্র। p = 5 বসালে n! এর শেষে মোট কয়টি শূন্য (Trailing Zeros) আছে তা পাওয়া যায়।",
+            variables = listOf(
+                "n" to "ফ্যাক্টরিয়ালের সংখ্যা (n!)",
+                "p" to "মৌলিক উৎপাদক (শূন্যের সংখ্যার জন্য p = 5)"
+            ),
+            conditionsBn = "n ≥ 1 পূর্ণসংখ্যা এবং p মৌলিক সংখ্যা।",
+            exampleProblemBn = "১০০! (১০০ ফ্যাক্টরিয়াল) এর শেষে কয়টি শূন্য আছে?",
+            exampleSolutionBn = "শূন্যের সংখ্যা = ⌊১০০/৫⌋ + ⌊১০০/২৫⌋ = ২০ + ৪ = ২৪টি।",
+            tipsBn = "বিসিএস ও অলিম্পিয়াডে ১০০!, ২০০! বা ১০০০! এর শেষে শূন্যের সংখ্যা নির্ণয়ে p = ৫ ব্যবহার করুন।",
+            tags = listOf("ফ্যাক্টরিয়াল", "শূন্য", "লেজেন্ডার", "factorial", "trailing zeros", "bdmo", "bcs"),
+            difficultyLevel = FormulaDifficulty.INTERMEDIATE,
+            curriculumTracks = setOf(CurriculumTrack.BDMO, CurriculumTrack.BCS)
+        ),
+        LibraryFormula(
+            id = "nt_bdmo_5",
+            subject = FormulaSubject.NUMBER_THEORY,
+            subCategory = "মডুলার পাটিগণিত (Modular Arithmetic)",
+            titleBn = "একক স্থানীয় অঙ্ক ও ঘাতের পর্যায়কাল (Cyclicity)",
+            titleEn = "Unit Digit Cyclicity & Modular Reduction",
+            formulaExpression = "a^b (mod 10) = (a mod 10)^((b − 1 mod 4) + 1) mod 10",
+            latexExpression = "a^b \\pmod{10}",
+            plainTextExpression = "a^b mod 10 using cycle of 4",
+            explanationBn = "যেকোনো সংখ্যার ঘাতের একক স্থানীয় অঙ্ক প্রতি ৪ ঘাত পরপর পুনরাবৃত্তি করে। তাই সূচককে ৪ দিয়ে ভাগ করে একক স্থানীয় অঙ্ক নির্ণয় করা যায়।",
+            variables = listOf(
+                "a" to "ভিত্তি সংখ্যা (Base)",
+                "b" to "ঘাত বা সূচক (Exponent, b ≥ 1)"
+            ),
+            conditionsBn = "b ≥ 1 ধনাত্মক পূর্ণসংখ্যা।",
+            exampleProblemBn = "৭^২২২ সংখ্যাটির একক স্থানীয় অঙ্ক কত?",
+            exampleSolutionBn = "২২২ কে ৪ দিয়ে ভাগ করলে ভাগশেষ ২ থাকে। তাই ৭^২২২ এর একক অঙ্ক = ৭² = ৪৯ এর একক অঙ্ক = ৯।",
+            tipsBn = "০, ১, ৫, ৬ এর যেকোনো ধনাত্মক ঘাতের একক স্থানীয় অঙ্ক অপরিবর্তিত থাকে।",
+            tags = listOf("একক অঙ্ক", "ঘাত", "unit digit", "cyclicity", "bcs", "bdmo"),
+            difficultyLevel = FormulaDifficulty.INTERMEDIATE,
+            curriculumTracks = setOf(CurriculumTrack.NCTB, CurriculumTrack.BDMO, CurriculumTrack.BCS)
         )
     )
 
@@ -1739,7 +1893,8 @@ object FormulaLibraryProvider {
         onlyRecent: Boolean = false,
         recentIds: Collection<String> = emptyList(),
         onlyBookmarkedIds: Set<String>? = null,
-        onlyRecentIds: Collection<String>? = null
+        onlyRecentIds: Collection<String>? = null,
+        curriculumTrack: CurriculumTrack = CurriculumTrack.ALL
     ): List<LibraryFormula> {
         val q = query.trim().lowercase()
         val effectiveOnlyRecent = onlyRecent || (onlyRecentIds != null)
@@ -1757,6 +1912,7 @@ object FormulaLibraryProvider {
             val matchesSubject = subject == null || f.subject == subject
             val matchesSubCat = subCategory == null || f.subCategory == subCategory
             val matchesDifficulty = difficulty == null || f.difficultyLevel == difficulty
+            val matchesTrack = curriculumTrack == CurriculumTrack.ALL || f.curriculumTracks.contains(curriculumTrack)
             val matchesBookmark = !effectiveOnlyBookmarked || (f.id in effectiveBookmarkedIds)
             val matchesQuery = q.isEmpty() ||
                 f.titleBn.lowercase().contains(q) ||
@@ -1766,7 +1922,7 @@ object FormulaLibraryProvider {
                 f.subCategory.lowercase().contains(q) ||
                 f.explanationBn.lowercase().contains(q) ||
                 f.tags.any { it.lowercase().contains(q) }
-            matchesSubject && matchesSubCat && matchesDifficulty && matchesBookmark && matchesQuery
+            matchesSubject && matchesSubCat && matchesDifficulty && matchesTrack && matchesBookmark && matchesQuery
         }
     }
 
@@ -1784,6 +1940,7 @@ object FormulaLibraryProvider {
             if (f.variables.isEmpty()) return false
             if (f.exampleProblemBn.isBlank() || f.exampleSolutionBn.isBlank()) return false
             if (f.tags.isEmpty()) return false
+            if (f.curriculumTracks.isEmpty()) return false
         }
         return true
     }

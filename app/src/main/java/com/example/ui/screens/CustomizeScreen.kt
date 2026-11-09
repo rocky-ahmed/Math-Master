@@ -58,12 +58,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,9 +95,9 @@ fun CustomizeScreen(
         viewModel.navigateBack()
     }
 
-    val previewState by viewModel.previewCustomizationState.collectAsState()
-    val savedState by viewModel.customizationState.collectAsState()
-    val currentThemeMode by viewModel.themeMode.collectAsState()
+    val previewState by viewModel.previewCustomizationState.collectAsStateWithLifecycle()
+    val savedState by viewModel.customizationState.collectAsStateWithLifecycle()
+    val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var selectedSectionKey by remember { mutableStateOf(SectionKey.TABLES) }
@@ -1053,7 +1053,7 @@ fun LivePreviewSection(
             titleBn = "গুণ ও নামতা (১ থেকে ৪০)",
             subtitleBn = "৪টি রেঞ্জে বিভক্ত: ১-১০, ১১-২০, ২১-৩০, ৩১-৪০",
             badgeBn = "৪০ টি নামতা",
-            defaultIcon = AvailableIcon.MENU_BOOK.toImageVector(),
+            defaultIcon = SectionKey.TABLES.defaultIcon.toImageVector(),
             defaultGradient = listOf(Color(0xFF2563EB), Color(0xFF1D4ED8)),
             testTag = "preview_module_tables",
             onClick = {}
@@ -1063,7 +1063,7 @@ fun LivePreviewSection(
             titleBn = "মৌলিক সংখ্যা (১ থেকে ২০০)",
             subtitleBn = "১-১০০ (২৫টি) ও ১০১-২০০ (২১টি) বিশ্লেষণ",
             badgeBn = "৪৬ টি মৌলিক",
-            defaultIcon = AvailableIcon.LOOKS_ONE.toImageVector(),
+            defaultIcon = SectionKey.PRIMES.defaultIcon.toImageVector(),
             defaultGradient = listOf(Color(0xFF0D9488), Color(0xFF0F766E)),
             testTag = "preview_module_primes",
             onClick = {}
@@ -1073,7 +1073,7 @@ fun LivePreviewSection(
             titleBn = "বীজগণিতীয় সূত্রাবলী",
             subtitleBn = "বর্গ ও ঘনের সূত্র, প্রতিপাদন ও অনুসিদ্ধান্ত",
             badgeBn = "ব্যাখ্যা ও সমাধান",
-            defaultIcon = AvailableIcon.FUNCTIONS.toImageVector(),
+            defaultIcon = SectionKey.FORMULAS.defaultIcon.toImageVector(),
             defaultGradient = listOf(Color(0xFF7C3AED), Color(0xFF6D28D9)),
             testTag = "preview_module_formulas",
             onClick = {}

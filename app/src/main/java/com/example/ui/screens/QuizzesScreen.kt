@@ -416,6 +416,25 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                             )
                                         }
                                     }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.navigateTo(Screen.PracticeLab) },
+                                            modifier = Modifier.weight(1f).testTag("btn_quiz_to_practice_lab")
+                                        ) {
+                                            Text("প্র্যাকটিস ল্যাব", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.navigateTo(Screen.Dashboard) },
+                                            modifier = Modifier.weight(1f).testTag("btn_quiz_to_dashboard")
+                                        ) {
+                                            Text("দক্ষতা বিশ্লেষণ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -957,7 +976,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     // Pre-Submit Confirmation Modal
     if (session.showSubmitConfirmDialog && !session.isFinished) {
         val totalQ = session.questions.size
-        val answeredCount = session.userAnswers.count { it.value >= 0 }
+        val answeredCount = session.userAnswers.count { ExamScoringEngine.isOptionAnswered(it.value) }
         val unansweredCount = (totalQ - answeredCount).coerceAtLeast(0)
         val markedCount = session.markedForReviewIndices.size
 
@@ -1022,10 +1041,14 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     }
                 },
                 actions = {
-                    if (!session.isFinished && (session.mode == QuizMode.TIMED || session.configuredDurationSeconds > 0)) {
-                        val min = session.timeRemainingSeconds / 60
-                        val sec = session.timeRemainingSeconds % 60
-                        val isLow = session.timeRemainingSeconds <= 30
+                    if (!session.isFinished) {
+                        val isCountdown = session.configuredDurationSeconds > 0 &&
+                            !session.examConfig.immediateFeedback &&
+                            session.mode != QuizMode.PRACTICE
+                        val displaySeconds = if (isCountdown) session.timeRemainingSeconds else session.elapsedSeconds
+                        val min = displaySeconds / 60
+                        val sec = displaySeconds % 60
+                        val isLow = isCountdown && session.timeRemainingSeconds <= 30
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = if (isLow) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
@@ -1131,12 +1154,13 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             fontWeight = FontWeight.Bold
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            val paletteAnsweredCount = session.userAnswers.count { ExamScoringEngine.isOptionAnswered(it.value) }
                             TextButton(
                                 onClick = { showPaletteSheet = !showPaletteSheet },
                                 modifier = Modifier.testTag("btn_toggle_question_palette")
                             ) {
                                 Text(
-                                    text = if (showPaletteSheet) "প্যালেট লুকান" else "প্রশ্ন প্যালেট (${session.userAnswers.size.toBengaliDigits()}/${total.toBengaliDigits()})",
+                                    text = if (showPaletteSheet) "প্যালেট লুকান" else "প্রশ্ন প্যালেট (${paletteAnsweredCount.toBengaliDigits()}/${total.toBengaliDigits()})",
                                     fontWeight = FontWeight.Bold
                                 )
                             }
@@ -1277,7 +1301,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                         )
                                     }
 
-                                    if (session.selectedOptionIndex != null || session.userAnswers.containsKey(session.currentIndex)) {
+                                    if (session.selectedOptionIndex != null || session.typedAnswer.isNotBlank() || session.userAnswers.containsKey(session.currentIndex)) {
                                         if (session.isFullExamMode || !session.isAnswerSubmitted) {
                                             TextButton(
                                                 onClick = { viewModel.clearCurrentQuizAnswer() },
@@ -1764,11 +1788,13 @@ private fun QuizCompletedContent(
             }
             itemsIndexed(session.questions) { index, q ->
                 val userChoice = session.userAnswers[index]
+                val userTyped = session.userTypedAnswers[index]
                 val isCorrect = userChoice == q.correctIndex
                 QuizAnswerReviewCard(
                     index = index,
                     question = q,
                     userChoice = userChoice,
+                    userTyped = userTyped,
                     isCorrect = isCorrect
                 )
             }
@@ -1781,16 +1807,18 @@ private fun QuizAnswerReviewCard(
     index: Int,
     question: QuizQuestion,
     userChoice: Int?,
+    userTyped: String? = null,
     isCorrect: Boolean
 ) {
+    val isUnanswered = com.example.math.ExamScoringEngine.isOptionUnanswered(userChoice) && userTyped.isNullOrBlank()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCorrect) {
-                Color(0xFF2E7D32).copy(alpha = 0.08f)
-            } else {
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
+            containerColor = when {
+                isCorrect -> Color(0xFF2E7D32).copy(alpha = 0.08f)
+                isUnanswered -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f)
             }
         )
     ) {
@@ -1809,20 +1837,29 @@ private fun QuizAnswerReviewCard(
                 Icon(
                     imageVector = if (isCorrect) Icons.Default.CheckCircle else Icons.Default.Close,
                     contentDescription = null,
-                    tint = if (isCorrect) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                    tint = when {
+                        isCorrect -> Color(0xFF2E7D32)
+                        isUnanswered -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.error
+                    }
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
-            val userAnsText = if (userChoice != null && userChoice in question.optionsBn.indices) {
-                question.optionsBn[userChoice]
-            } else {
-                "উত্তর দেওয়া হয়নি"
+            val userAnsText = when {
+                !userTyped.isNullOrBlank() -> userTyped
+                userChoice != null && userChoice in question.optionsBn.indices -> question.optionsBn[userChoice]
+                userChoice == -2 -> "ভুল সংখ্যা ইনপুট"
+                else -> "উত্তর দেওয়া হয়নি"
             }
             val correctAnsText = question.optionsBn.getOrElse(question.correctIndex) { question.correctAnswerText }
             Text(
                 text = "আপনার উত্তর: $userAnsText",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (isCorrect) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                color = when {
+                    isCorrect -> Color(0xFF2E7D32)
+                    isUnanswered -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.error
+                },
                 fontWeight = FontWeight.SemiBold
             )
             if (!isCorrect) {

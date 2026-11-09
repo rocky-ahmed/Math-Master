@@ -27,11 +27,11 @@ import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,7 +53,7 @@ fun SquaresCubesScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = বর্গ তালিকা (241713.jpg), 1 = ঘন তালিকা (241715.jpg)
 
     val squareItems = SquareCubeProvider.squareTableList

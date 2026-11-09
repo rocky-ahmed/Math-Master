@@ -66,12 +66,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,7 +106,7 @@ fun NumberSystemScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
     // Tabs: 0 -> বাস্তব সংখ্যা শ্রেণিবিভাগ, 1 -> বিভাজ্যতার নিয়ম (২-১১), 2 -> গ.সা.গু ও ল.সা.গু ক্যালকুলেটর, 3 -> অনুশীলন ল্যাব
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -419,7 +419,7 @@ fun NumberClassificationTab(
                             ),
                             keyboardActions = KeyboardActions(
                                 onDone = {
-                                    val n = testNumberInput.toLongOrNull()
+                                    val n = BengaliNumberFormatter.toEnglishDigits(testNumberInput.trim()).toLongOrNull()
                                     if (n != null) {
                                         classificationResult = NumberSystemProvider.classifyNumber(n)
                                     }
@@ -432,7 +432,7 @@ fun NumberClassificationTab(
 
                         Button(
                             onClick = {
-                                val n = testNumberInput.toLongOrNull()
+                                val n = BengaliNumberFormatter.toEnglishDigits(testNumberInput.trim()).toLongOrNull()
                                 if (n != null) {
                                     classificationResult = NumberSystemProvider.classifyNumber(n)
                                 }
@@ -634,7 +634,7 @@ fun DivisibilityRulesTab(
     var userTestNumber by remember { mutableStateOf("4872") }
 
     val activeRule = rules.find { it.divisor == selectedDivisor } ?: rules.first()
-    val testNumberLong = userTestNumber.toLongOrNull() ?: activeRule.testExampleNumber
+    val testNumberLong = BengaliNumberFormatter.toEnglishDigits(userTestNumber.trim()).toLongOrNull() ?: activeRule.testExampleNumber
     val (isDivisible, dynamicExplanation) = NumberSystemProvider.checkDivisibility(testNumberLong, activeRule.divisor)
 
     LazyColumn(
@@ -836,8 +836,8 @@ fun GcdLcmCalculatorTab(
 
     // Auto-calculate default on first load
     if (calculatedResult == null) {
-        val a = inputA.toLongOrNull() ?: 24L
-        val b = inputB.toLongOrNull() ?: 36L
+        val a = BengaliNumberFormatter.toEnglishDigits(inputA.trim()).toLongOrNull() ?: 24L
+        val b = BengaliNumberFormatter.toEnglishDigits(inputB.trim()).toLongOrNull() ?: 36L
         calculatedResult = NumberSystemProvider.calculateGcdLcm(a, b)
     }
 
@@ -901,8 +901,8 @@ fun GcdLcmCalculatorTab(
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            val a = inputA.toLongOrNull() ?: 1L
-                            val b = inputB.toLongOrNull() ?: 1L
+                            val a = BengaliNumberFormatter.toEnglishDigits(inputA.trim()).toLongOrNull() ?: 1L
+                            val b = BengaliNumberFormatter.toEnglishDigits(inputB.trim()).toLongOrNull() ?: 1L
                             calculatedResult = NumberSystemProvider.calculateGcdLcm(a, b)
                         },
                         modifier = Modifier
@@ -1110,12 +1110,65 @@ fun GcdLcmCalculatorTab(
                     }
                 }
             }
+
+            // BdMO & BCS Upgrade: Divisor Count/Sum d(N), σ(N), φ(N) & Modular Exponentiation a^b mod m
+            item {
+                val divAnalysis = remember(res.a) {
+                    com.example.math.SharedMathEngine.analyzeDivisorsAndTotient(res.a.coerceAtLeast(1L))
+                }
+                val modResult = remember(res.a, res.b) {
+                    com.example.math.SharedMathEngine.modPowStepsBn(
+                        base = res.a.coerceAtLeast(2L),
+                        exponent = (res.b % 20L).coerceAtLeast(2L),
+                        modulus = res.b.coerceAtLeast(3L)
+                    )
+                }
+                ElevatedCard(
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                    ),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("bdmo_divisor_modular_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "অলিম্পিয়াড ও বিসিএস সংখ্যাতত্ত্ব ল্যাব (d(N), σ(N), φ(N) ও Mod)",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "১ম সংখ্যা N = ${BengaliNumberFormatter.toBn(divAnalysis.number)} = ${divAnalysis.primePowerBn}\n" +
+                                "• মোট ভাজক সংখ্যা d(N) = ${BengaliNumberFormatter.toBn(divAnalysis.divisorCount)}টি\n" +
+                                "• ভাজকগুলোর সমষ্টি σ(N) = ${BengaliNumberFormatter.toBn(divAnalysis.divisorSum)}\n" +
+                                "• অয়লার টোশেন্ট φ(N) = ${BengaliNumberFormatter.toBn(divAnalysis.eulerTotient)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            lineHeight = 19.sp
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Text(
+                            text = "মডুলার সূচক (Modular Remainder): ${modResult.congruenceNotationBn}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Text(
+                            text = modResult.theoremNoteBn,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * Tab 4: Practice Hub with Difficulty Selection (Easy, Medium, Hard) and Subtopics
+ * Tab 4: Practice Hub with Difficulty Selection (Easy, Medium, Hard), Curriculum Tracks, and Subtopics
  */
 @Composable
 fun NumberSystemPracticeHubTab(
@@ -1123,6 +1176,8 @@ fun NumberSystemPracticeHubTab(
 ) {
     var selectedDifficulty by remember { mutableStateOf(NumberSystemDifficulty.EASY) }
     var selectedTopic by remember { mutableStateOf(NumberSystemTopic.ALL) }
+    var selectedTrack by remember { mutableStateOf(com.example.math.CurriculumTrack.ALL) }
+    var selectedInputFormat by remember { mutableStateOf(com.example.math.QuestionInputFormat.MCQ) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1153,6 +1208,33 @@ fun NumberSystemPracticeHubTab(
             }
         }
 
+        // Curriculum Track Selection (NCTB, BdMO Olympiad, BCS)
+        item {
+            Text(
+                text = "পাঠ্যক্রম ও প্রতিযোগিতা ট্র্যাক:",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("ns_track_chip_row")
+            ) {
+                items(com.example.math.CurriculumTrack.entries) { track ->
+                    FilterChip(
+                        selected = selectedTrack == track,
+                        onClick = {
+                            selectedTrack = track
+                            if (track == com.example.math.CurriculumTrack.BDMO || track == com.example.math.CurriculumTrack.BCS) {
+                                selectedDifficulty = NumberSystemDifficulty.HARD
+                            }
+                        },
+                        label = { Text(track.titleBn) },
+                        modifier = Modifier.testTag("ns_track_chip_${track.id}")
+                    )
+                }
+            }
+        }
+
         // Difficulty Selection
         item {
             Text(
@@ -1170,6 +1252,25 @@ fun NumberSystemPracticeHubTab(
                         onClick = { selectedDifficulty = diff },
                         label = { Text(diff.titleBn) },
                         modifier = Modifier.testTag("practice_diff_${diff.id}")
+                    )
+                }
+            }
+        }
+
+        // Input Format Selection
+        item {
+            Text(
+                text = "প্রশ্নের ধরন নির্বাচন করুন:",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(com.example.math.QuestionInputFormat.entries) { format ->
+                    FilterChip(
+                        selected = selectedInputFormat == format,
+                        onClick = { selectedInputFormat = format },
+                        label = { Text(format.titleBn) },
+                        modifier = Modifier.testTag("practice_format_${format.id}")
                     )
                 }
             }
@@ -1198,7 +1299,7 @@ fun NumberSystemPracticeHubTab(
         item {
             Button(
                 onClick = {
-                    viewModel.startNumberSystemPractice(selectedTopic, selectedDifficulty)
+                    viewModel.startNumberSystemPractice(selectedTopic, selectedDifficulty, selectedInputFormat)
                 },
                 modifier = Modifier
                     .fillMaxWidth()

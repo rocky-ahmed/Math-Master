@@ -54,11 +54,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,7 +84,7 @@ fun PracticeLabPlayScreen(
     viewModel: MathViewModel,
     modifier: Modifier = Modifier
 ) {
-    val session by viewModel.practiceSession.collectAsState()
+    val session by viewModel.practiceSession.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.exitPracticeToCategories()
@@ -649,6 +649,16 @@ fun PracticeLabPlayScreen(
                                                     color = Color(0xFF991B1B)
                                                 )
                                             )
+                                            if (currentQ.diagnosticFeedbackBn.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = currentQ.diagnosticFeedbackBn,
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        color = Color(0xFF7F1D1D)
+                                                    ),
+                                                    modifier = Modifier.testTag("practice_diagnostic_banner")
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -696,7 +706,7 @@ fun PracticeLabPlayScreen(
                             }
                         }
 
-                        // Helpful Shortcut Tip
+                        // Helpful Shortcut Tip & Cross-Module Action Links
                         if (!currentQ.tipBn.isNullOrEmpty()) {
                             item {
                                 Surface(
@@ -705,21 +715,42 @@ fun PracticeLabPlayScreen(
                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.3f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Lightbulb,
-                                            contentDescription = null,
-                                            tint = Color(0xFFD97706),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Text(
-                                            text = currentQ.tipBn,
-                                            style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF78350F))
-                                        )
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Lightbulb,
+                                                contentDescription = null,
+                                                tint = Color(0xFFD97706),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = currentQ.tipBn,
+                                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF78350F))
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = { viewModel.navigateTo(com.example.ui.Screen.FormulaLibrary) },
+                                                modifier = Modifier.weight(1f).testTag("btn_practice_to_formula_lib"),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text("সংশ্লিষ্ট সূত্র", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                            OutlinedButton(
+                                                onClick = { viewModel.navigateTo(com.example.ui.Screen.ProblemSolver) },
+                                                modifier = Modifier.weight(1f).testTag("btn_practice_to_solver"),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                            ) {
+                                                Text("সমস্যা সমাধানকারী", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
                                     }
                                 }
                             }

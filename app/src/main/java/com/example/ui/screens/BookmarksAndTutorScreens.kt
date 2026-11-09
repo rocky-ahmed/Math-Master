@@ -43,7 +43,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +53,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.math.BengaliNumberFormatter
+import com.example.math.BookCurriculumRepository
+import com.example.math.BookId
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathTopAppBar
@@ -66,7 +68,7 @@ fun BookmarksScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val bookmarks by viewModel.bookmarks.collectAsState()
+    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -121,12 +123,33 @@ fun BookmarksScreen(
                                         val num = bm.id.removePrefix("table_").toIntOrNull() ?: 1
                                         viewModel.openTable(num)
                                     }
-                                    "FORMULA" -> viewModel.openFormula(bm.id)
-                                    "FORMULA_LIBRARY" -> viewModel.navigateTo(Screen.FormulaLibrary)
+                                    "FORMULA" -> {
+                                        if (bm.id.startsWith("book_formula_")) {
+                                            val rawFormulaId = bm.id.removePrefix("book_formula_")
+                                            val matchingChapter = BookCurriculumRepository.getAllChapters().firstOrNull { ch ->
+                                                ch.formulas.any { it.id == rawFormulaId }
+                                            }
+                                            if (matchingChapter != null) {
+                                                viewModel.openBookChapter(matchingChapter.bookId, matchingChapter.chapterNumber)
+                                            } else {
+                                                viewModel.openBookHub()
+                                            }
+                                        } else {
+                                            viewModel.openFormula(bm.id)
+                                        }
+                                    }
+                                    "FORMULA_LIBRARY" -> viewModel.openLibraryFormulaFromBookmark(bm.id)
                                     "PRIME" -> viewModel.navigateTo(Screen.Primes)
                                     "SQUARE_CUBE" -> viewModel.navigateTo(Screen.SquaresCubes)
                                     "NUMBER_SYSTEM" -> viewModel.navigateTo(Screen.NumberSystem)
                                     "SOLVER", "PROBLEM_SOLVER" -> viewModel.navigateTo(Screen.ProblemSolver)
+                                    "BOOK_PAGE" -> {
+                                        val suffix = bm.id.removePrefix("book_page_")
+                                        val bookIdStr = suffix.substringBeforeLast("_", "class_6")
+                                        val printedPage = suffix.substringAfterLast("_", "1").toIntOrNull() ?: 1
+                                        viewModel.openBookPdfReader(BookId.fromId(bookIdStr), printedPage)
+                                    }
+                                    "BCS_PREP" -> viewModel.navigateTo(Screen.BcsPreparation)
                                 }
                             }
                             .testTag("bookmark_item_${bm.id}"),
@@ -154,6 +177,8 @@ fun BookmarksScreen(
                                         "FORMULA_LIBRARY" -> Icons.Default.School
                                         "NUMBER_SYSTEM" -> Icons.Default.Functions
                                         "SOLVER", "PROBLEM_SOLVER" -> Icons.Default.Calculate
+                                        "BOOK_PAGE" -> Icons.AutoMirrored.Filled.MenuBook
+                                        "BCS_PREP" -> Icons.Default.School
                                         else -> Icons.Default.Functions
                                     }
                                     Icon(
@@ -211,11 +236,11 @@ fun PracticeTutorScreen(
 ) {
     BackHandler { viewModel.navigateBack() }
 
-    val number by viewModel.tutorNumber.collectAsState()
-    val step by viewModel.tutorStep.collectAsState()
-    val userAnswer by viewModel.tutorUserAnswer.collectAsState()
-    val feedback by viewModel.tutorFeedback.collectAsState()
-    val tutorCompleted by viewModel.tutorCompleted.collectAsState()
+    val number by viewModel.tutorNumber.collectAsStateWithLifecycle()
+    val step by viewModel.tutorStep.collectAsStateWithLifecycle()
+    val userAnswer by viewModel.tutorUserAnswer.collectAsStateWithLifecycle()
+    val feedback by viewModel.tutorFeedback.collectAsStateWithLifecycle()
+    val tutorCompleted by viewModel.tutorCompleted.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -306,6 +331,7 @@ fun PracticeTutorScreen(
                         OutlinedTextField(
                             value = userAnswer,
                             onValueChange = { viewModel.setTutorAnswerInput(it) },
+                            enabled = !tutorCompleted,
                             label = { Text("উত্তর লিখুন (যেমন: ${number * step})") },
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Number,

@@ -1,21 +1,41 @@
+# IDE & Gradle Build Artifacts
 *.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.gradle/
+.kotlin/
+.idea/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+/build/
+**/build/
+/.build-outputs/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Local Configuration & Environment Secrets
+/local.properties
 local.properties
 .env
+.env.*
+!.env.example
+
+# APK & AAB Release/Debug Binaries (Keep local cloud workspace copies untracked)
+/RELEASE_APK/*.apk
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystores & Signing Credentials (Never commit private signing keys)
 debug.keystore
-# *.jks
-# *.keystore
-# keystore.properties
+debug.keystore.base64
+*.jks
+*.keystore
+keystore.properties
+keystore_credentials.txt
+my_upload_key_base64.txt
+/finalapp/
+
+# Platform Ephemeral Metadata & Temporary Staging Assets
+/.aistudio/
+/public/assets/aistudio/
+

@@ -269,6 +269,7 @@ object LearningAnalyticsEngine {
         val standaloneLegacyQuizzes = filteredLegacyQuizScores.filter { legacy ->
             !legacy.topicId.startsWith("PRACTICE_") &&
                 !legacy.topicId.startsWith("MENTAL_MATH_") &&
+                !legacy.topicId.startsWith("BOOK_") &&
                 legacy.topicId != "NUMBER_SYSTEM" &&
                 examTimestamps.none { kotlin.math.abs(it - legacy.timestamp) <= 2500L }
         }
