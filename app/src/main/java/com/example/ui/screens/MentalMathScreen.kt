@@ -74,12 +74,12 @@ fun MentalMathScreen(
         quizScores.filter { it.topicId.startsWith("MENTAL_MATH_") }
     }
 
-    var selectedCategory by remember { mutableStateOf(MentalMathCategory.ADDITION) }
-    var selectedDifficulty by remember { mutableStateOf(MentalMathDifficulty.EASY) }
-    var selectedMode by remember { mutableStateOf(MentalMathMode.TIMED_SPRINT) }
-    var sprintDurationSec by remember { mutableIntStateOf(60) }
-    var fixedQuestionCount by remember { mutableIntStateOf(10) }
-    var selectedInputFormat by remember { mutableStateOf(QuestionInputFormat.MCQ) }
+    var selectedCategory by com.example.ui.rememberManagedUiState(viewModel, "mental_math:selectedCategory", MentalMathCategory.ADDITION)
+    var selectedDifficulty by com.example.ui.rememberManagedUiState(viewModel, "mental_math:selectedDifficulty", MentalMathDifficulty.EASY)
+    var selectedMode by com.example.ui.rememberManagedUiState(viewModel, "mental_math:selectedMode", MentalMathMode.TIMED_SPRINT)
+    var sprintDurationSec by com.example.ui.rememberManagedUiState(viewModel, "mental_math:sprintDurationSec", 60)
+    var fixedQuestionCount by com.example.ui.rememberManagedUiState(viewModel, "mental_math:fixedQuestionCount", 10)
+    var selectedInputFormat by com.example.ui.rememberManagedUiState(viewModel, "mental_math:selectedInputFormat", QuestionInputFormat.MCQ)
 
     Column(
         modifier = modifier
@@ -92,8 +92,16 @@ fun MentalMathScreen(
             onBackClick = { viewModel.navigateBack() }
         )
 
+        val mainListState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "mental_math:main"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = mainListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("mental_math_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -206,7 +214,9 @@ fun MentalMathScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val modeRowState = com.example.ui.rememberManagedLazyListState(viewModel, "mental_math:mode_row")
                     LazyRow(
+                        state = modeRowState,
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -261,7 +271,9 @@ fun MentalMathScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    val timerRowState = com.example.ui.rememberManagedLazyListState(viewModel, "mental_math:timer_row")
                     LazyRow(
+                        state = timerRowState,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {

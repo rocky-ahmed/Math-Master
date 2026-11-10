@@ -40,12 +40,16 @@
 
 ---
 
-## 3. Summary of All 21 Resolved Engineering Defects (`BUG-01` through `BUG-21`)
+## 3. Summary of All 21 Resolved Phase 1 Engineering Defects (`BUG-01` through `BUG-21`)
 
-All 21 defects have been resolved at their root causes and verified via automated unit & Robolectric tests:
-- **`BUG-01`..`BUG-04` (Exam Scoring, Stem Deduplication, Session Resume Serialization, Monotonic Timer):** Unanswered (`null`/`-1`) vs. wrong distinction with zero negative penalty on skipped items; full `v2` JSON question/answer payload serialization for exact session resume; monotonic `SystemClock.elapsedRealtime()` timer deadline tracking.
+All 21 Phase 1 defects have been resolved at their root causes and verified via automated unit & Robolectric tests:
+- **`BUG-01` (Numerical Keypad Scoring and Negative Marking):** Unanswered (`null`/`-1`) vs. wrong non-distractor numerical keypad (`-2`) sentinel distinction with zero negative penalty on skipped items and standard negative marking on wrong numerical inputs.
+- **`BUG-02`..`BUG-04` (Stem Deduplication, Session Resume Serialization, Monotonic Timer):** `ExamQuestionBank` stem deduplication & seeded shuffle; full `v2` JSON question/answer payload serialization for exact session resume; monotonic `SystemClock.elapsedRealtime()` timer deadline tracking.
 - **`BUG-05`..`BUG-06`, `BUG-13`, `BUG-21` (BCS Profiles, Provenance, Multi-Profile Isolation & Mistake Resolution):** Official 50th BCS 20-mark math + 15-mark mental ability default syllabus; 6 BPSC exam profiles; profile-scoped topic progress and mistake resolution (`markBcsMistakeResolved` / `deleteBcsMistake` supporting both raw and scoped IDs, auto-resolution on correct BCS exam answer, and `rawTopicId` lesson count deduplication).
 - **`BUG-07`..`BUG-08` (SharedMathEngine & ProblemSolver):** Exact `BigInteger` `Rational` equivalence, Bengali numeral normalization, and arithmetic overflow/division-by-zero protection.
 - **`BUG-09`..`BUG-10` (NCTB PDF Offset & Room v9 Schema):** Exact `+5` printed-to-PDF page offset across all 4 NCTB books (894 pages) and complete non-destructive Room v1->v9 migrations across all **20 `@Entity` tables**.
 - **`BUG-11`..`BUG-12`, `BUG-18` (UI Layout, Backstack & Lifecycle Collection):** Font-scale-aware grid cards, `BackHandler` coverage across all secondary screens, and 100% `collectAsStateWithLifecycle()` adoption.
 - **`BUG-14`..`BUG-17`, `BUG-19`..`BUG-20` (Untimed/Practice Timers, Review Incorrect Filtering, Strict `NUMERICAL`/`TRUE_FALSE` Enforcement, Number System `KEYPAD`/`TRUE_FALSE`, Bookmark Deep-Linking, Dashboard Analytics):** Verified by dedicated regression tests in `EcosystemUpgradeV7UnitTest.kt`.
+
+> **Forward Traceability (`BUG-22` – `BUG-36`)**: See [`FINAL_PROJECT_AUDIT_REPORT.md`](FINAL_PROJECT_AUDIT_REPORT.md) and [`FINAL_ROOT_CAUSE_DEFECT_REGISTER.md`](FINAL_ROOT_CAUSE_DEFECT_REGISTER.md) for Phase 2 (`BUG-22`..`BUG-28`), Phase 3 (`BUG-29`..`BUG-35`, including **`BUG-35`: Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization**), and Phase 4 (**`BUG-36`: Home Screen Scroll Position Restoration**).
+

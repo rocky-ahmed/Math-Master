@@ -1,19 +1,24 @@
 # Math Master — Final Bug Fix and Refinement Report
 
-**Phase**: Final Independent Adversarial Bug Hunt, Real-Device UX Stabilization & Pre-Freeze Pass  
-**Scope**: Complete traceability for `BUG-01` through `BUG-36` (referencing [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md) for historical `BUG-01`–`BUG-21` and detailing all root-cause fixes for `BUG-22`–`BUG-36` across Domain Engines, ViewModel State Management, Home Screen Scroll Restoration, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization).
+**Phase**: Final Independent Adversarial Bug Hunt, Application-Wide Navigation & Scroll State Restoration & Pre-Freeze Pass  
+**Scope**: Complete traceability for `BUG-01` through `BUG-39` (referencing [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md) for historical `BUG-01`–`BUG-21` and detailing all root-cause fixes for `BUG-22`–`BUG-39` across Domain Engines, ViewModel State Management, Home & Application-Wide Scroll/Context Restoration, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization).
 
 ---
 
 ## 1. Engineering Principles & Traceability
 
-1. **Preserved Historical Bug IDs (`BUG-01` – `BUG-35`)**:
-   - `BUG-01` through `BUG-21` preserve their exact historical definitions documented in [`../audits/ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/ROOT_CAUSE_DEFECT_REGISTER.md) and [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md).
-   - `BUG-22` through `BUG-28` preserve their exact pre-freeze stabilization definitions.
-   - `BUG-29` through `BUG-35` represent the 7 defects from the independent adversarial bug hunt (with `BUG-35` exclusively tracking `BookPdfRenderCache` `Mutex` + `LruCache(12)` + `RGB_565` + synchronized PDF extraction).
-   - `BUG-36` tracks the real-device Home Screen scroll position restoration fix (`Home Screen Scroll Position Loss After Module Navigation`).
+1. **Preserved Historical Bug IDs (`BUG-01` – `BUG-39`)**:
+   - **`BUG-01` (Numerical Keypad Scoring and Negative Marking)**: Preserves its exact historical identity in `ExamEngineModels.kt`, `MathViewModel.kt`, and `QuizzesScreen.kt` (`UNANSWERED_OPTION_INDEX = -1` vs. `-2` wrong numerical keypad input sentinel so unanswered questions incur `0.0` penalty while wrong numerical inputs incur standard negative marking).
+   - **`BUG-02` through `BUG-21`**: Preserve their exact Phase 1 definitions documented in [`../audits/ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/ROOT_CAUSE_DEFECT_REGISTER.md) and [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md).
+   - **`BUG-22` through `BUG-28`**: Preserve their exact Phase 2 pre-freeze stabilization definitions.
+   - **`BUG-29` through `BUG-34`**: Preserve their exact Phase 3 adversarial bug hunt definitions across `SharedMathEngine`, `MathRepository`, `MathViewModel`, and `ExamScoringEngine`.
+   - **`BUG-35` (Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization)**: Exclusively tracks `BookPdfRenderCache` (`Mutex` serialization + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` bitmap memory management + OOM cache-eviction fallback + synchronized atomic PDF extraction in `BookReaderAndLabsScreens.kt`).
+   - **`BUG-36` (Home Screen Scroll Position Restoration)**: Exclusively tracks the real-device Home Screen scroll position and pixel offset restoration fix across module navigation (`MainActivity.kt`, `HomeScreen.kt`, `MathViewModel.kt`).
+   - **`BUG-37` (Application-Wide Nested Navigation Scroll State Loss)**: Tracks the reusable managed scroll state architecture (`NavigationStateRestoration.kt`), argument-scoped destination keys (`getDestinationStateKey`), parent-child argument snapshot stack (`_navigationContextStack`), and scroll state wiring across all 19 screen files.
+   - **`BUG-38` (Internal Tab, Subsection, and Filter Context Reset on Re-Entry)**: Tracks `rememberManagedUiState` and per-tab scroll state keys across all multi-tab and filter-driven module screens.
+   - **`BUG-39` (Bottom-Navigation Tab State Eviction on Tab Switch)**: Tracks persistent `SaveableStateHolder` retention across all 5 core Bottom-Navigation tabs (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`).
 2. **Strict Module & Data Preservation**: Protected Modules 01–04 (`Tables`, `Primes`, `Squares`, `Formulas`), Room Database `v9` (`20` tables, `MIGRATION_1_2`..`MIGRATION_8_9`), and all 4 bundled NCTB PDFs (`894` pages: `161 + 181 + 190 + 362`, `31,193,087` bytes) remain 100% untouched.
-3. **Deterministic State & Scoring**: All session counters (`correctCount`, `wrongCount`, `currentStreak`, `highestStreak`, `elapsedSeconds`, `pendingOptionSelections`, `pendingTypedAnswers`, `homeScrollPosition`) are derived deterministically from authoritative session state.
+3. **Deterministic State & Scoring**: All session counters (`correctCount`, `wrongCount`, `currentStreak`, `highestStreak`, `elapsedSeconds`, `pendingOptionSelections`, `pendingTypedAnswers`, `homeScrollPosition`, `scrollPositions`) are derived deterministically from authoritative session state.
 
 ---
 
@@ -125,14 +130,14 @@
 - **Fix**:
   - Added `it.attemptedCount > 0` to the `weakTopics` filter in `ExamScoringEngine.evaluateExam()`.
 
-### 2.14 `BUG-35` — Book PDF Reader `Mutex` + `LruCache(12)` + `RGB_565` & Synchronized Extraction
+### 2.14 `BUG-35` — Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization
 - **File Modified**: `app/src/main/java/com/example/ui/screens/BookReaderAndLabsScreens.kt`
 - **Problem**:
-  - `BookPdfReaderScreen` rendered `ARGB_8888` bitmaps without `Mutex` serialization or `LruCache(12)`, and `resolveOfflinePdfFile()` wrote to a shared `cached_${bookId.id}.pdf.tmp` without synchronization.
+  - `BookPdfReaderScreen` rendered `ARGB_8888` bitmaps without `Mutex` serialization or `LruCache(12)` reuse, and `resolveOfflinePdfFile()` wrote to a shared `cached_${bookId.id}.pdf.tmp` without synchronization.
 - **Fix**:
-  - Added `BookPdfRenderCache` (`Mutex` + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` + OOM cache-eviction fallback) and synchronized atomic temp-file extraction (`cached_${bookId.id}_${System.nanoTime()}.pdf.tmp`) in `resolveOfflinePdfFile()`.
+  - Added `BookPdfRenderCache` (`Mutex` serialization + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` bitmap memory management + OOM cache-eviction fallback) and synchronized atomic temp-file extraction (`cached_${bookId.id}_${System.nanoTime()}.pdf.tmp`) in `resolveOfflinePdfFile()`.
 
-### 2.15 `BUG-36` — Home Screen Scroll Position Loss After Module Navigation
+### 2.15 `BUG-36` — Home Screen Scroll Position Restoration
 - **Files Modified**:
   - `app/src/main/java/com/example/MainActivity.kt`
   - `app/src/main/java/com/example/ui/MathViewModel.kt`
@@ -146,5 +151,29 @@
   - **Backstack-Scoped `SaveableStateHolder` (`MainActivity.kt`)**: Wrapped `MainAppContent`'s `when (currentScreen)` block in `saveableStateHolder.SaveableStateProvider(key = currentScreen.route)` and cleaned up popped non-Home routes via `DisposableEffect(activeRoutes)` while always preserving `Screen.Home.route`.
   - **Synchronous First-Frame `LazyGridState` Restoration (`HomeScreen.kt`)**: Initialized `gridState` via `rememberSaveable(initialScrollPosition.firstVisibleItemIndex, initialScrollPosition.firstVisibleItemScrollOffset, saver = LazyGridState.Saver)` seeded with `viewModel.homeScrollPosition.value`, and synchronized scroll updates via `snapshotFlow` (`LaunchedEffect`) and `DisposableEffect` (`onDispose`) without `scrollToItem()` delays or visual flicker.
 - **Regression Verification**:
-  - Verified by `testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` and `testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` in `HomeNavigationAndOrderingUnitTest.kt`, and `bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` in `EcosystemUpgradeV7UnitTest.kt` (`175 / 175` total tests passing).
+  - Verified by `testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` and `testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` in `HomeNavigationAndOrderingUnitTest.kt`, and `bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` in `EcosystemUpgradeV7UnitTest.kt`.
+
+### 2.16 `BUG-37` — Application-Wide Nested Navigation Scroll State Loss
+- **Files Modified**:
+  - `app/src/main/java/com/example/ui/NavigationStateRestoration.kt` (New)
+  - `app/src/main/java/com/example/ui/MathViewModel.kt`
+  - `app/src/main/java/com/example/MainActivity.kt`
+  - All 19 screen files in `app/src/main/java/com/example/ui/screens/`
+- **Root Cause**:
+  - Non-Home screens omitted explicit `state = ...` on `LazyColumn` / `LazyRow` / `LazyVerticalGrid` or used unmanaged `rememberScrollState()`, and parameterized destinations (`BookDetail`, `BookChapterOverview`, `BookLesson`, `BookPdfReader`, `BookInteractiveLab`, `TableDetail`, `FormulaDetail`) used static `SaveableStateProvider` route keys without a parent-child argument snapshot stack.
+- **Fix**:
+  - Created `rememberManagedLazyListState`, `rememberManagedLazyGridState`, and `rememberManagedScrollState` in `NavigationStateRestoration.kt` backed by bounded LRU `_scrollPositions` in `MathViewModel.kt`.
+  - Added `getDestinationStateKey(screen)` and `_navigationContextStack` (`NavigationContextSnapshot` push/pop) in `MathViewModel.kt` so parameterized screens scope state per argument ID and restore parent arguments on `navigateBack()`.
+
+### 2.17 `BUG-38` — Internal Tab, Subsection, and Filter Context Reset on Re-Entry
+- **Files Modified**: `NavigationStateRestoration.kt`, `MathViewModel.kt`, and all multi-tab screen files (`BcsPreparationScreen.kt`, `NumberSystemScreen.kt`, `QuizzesScreen.kt`, `VisualExplorerScreen.kt`, `ProblemSolverScreen.kt`, `CustomizeScreen.kt`, `BookHubAndDetailScreens.kt`, `BookPracticeAndRevisionScreens.kt`, `TablesScreen.kt`, `PrimesScreen.kt`, `SquaresCubesScreen.kt`, `FormulasScreen.kt`, `DashboardScreen.kt`).
+- **Fix**:
+  - Added `rememberManagedUiState<T>(viewModel, stateKey, defaultValue)` backed by `MathViewModel`'s bounded `_uiContextStates` map and scoped internal tab scroll keys (`tab_$selectedTab`) so active tabs, filters, search queries, and expanded cards survive child navigation and return at their exact scroll offset.
+
+### 2.18 `BUG-39` — Bottom-Navigation Tab State Eviction on Tab Switch
+- **File Modified**: `app/src/main/java/com/example/MainActivity.kt`
+- **Fix**:
+  - Updated `DisposableEffect(activeKeys)` in `MainAppContent` to retain all 5 core Bottom-Navigation tab keys (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`) alongside active backstack keys when switching tabs via `navigateToTab()`.
+
+
 

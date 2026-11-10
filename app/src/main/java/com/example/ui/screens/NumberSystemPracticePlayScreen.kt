@@ -56,6 +56,7 @@ import com.example.math.BengaliNumberFormatter
 import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.rememberManagedLazyListState
 
 @Composable
 fun NumberSystemPracticePlayScreen(
@@ -129,10 +130,14 @@ fun NumberSystemPracticePlayScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val playListState = rememberManagedLazyListState(viewModel, "number_system_practice:question_${state.currentIndex}")
+
                 LazyColumn(
+                    state = playListState,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth(),
+                        .fillMaxWidth()
+                        .testTag("number_system_practice_list"),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // Question Card

@@ -92,20 +92,57 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainAppContent(viewModel: MathViewModel) {
     val screenStack by viewModel.screenStack.collectAsStateWithLifecycle()
+    val selectedTableNumber by viewModel.selectedTableNumber.collectAsStateWithLifecycle()
+    val selectedFormulaId by viewModel.selectedFormulaId.collectAsStateWithLifecycle()
+    val tutorNumber by viewModel.tutorNumber.collectAsStateWithLifecycle()
+    val selectedBcsProfile by viewModel.selectedBcsExamProfile.collectAsStateWithLifecycle()
+    val selectedBookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+    val selectedBookChapter by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
+    val selectedBookLessonId by viewModel.selectedBookLessonId.collectAsStateWithLifecycle()
+    val selectedBookPrintedPage by viewModel.selectedBookPrintedPage.collectAsStateWithLifecycle()
+    val selectedBookLabType by viewModel.selectedBookLabType.collectAsStateWithLifecycle()
+
     val currentScreen = screenStack.lastOrNull() ?: Screen.Home
     val saveableStateHolder = rememberSaveableStateHolder()
-    val activeRoutes = remember(screenStack) { screenStack.map { it.route }.toSet() }
-    val previousRoutes = remember { mutableSetOf<String>() }
 
-    DisposableEffect(activeRoutes) {
-        val removedRoutes = previousRoutes - activeRoutes
-        removedRoutes.forEach { route ->
-            if (route != Screen.Home.route) {
-                saveableStateHolder.removeState(route)
-            }
+    val currentDestinationKey = remember(
+        currentScreen,
+        selectedTableNumber,
+        selectedFormulaId,
+        tutorNumber,
+        selectedBcsProfile,
+        selectedBookId,
+        selectedBookChapter,
+        selectedBookLessonId,
+        selectedBookPrintedPage,
+        selectedBookLabType
+    ) {
+        viewModel.getDestinationStateKey(currentScreen)
+    }
+
+    val transientPlayRoutes = remember {
+        setOf(
+            Screen.PracticeLabPlay.route,
+            Screen.MentalMathPlay.route,
+            Screen.NumberSystemPractice.route,
+            Screen.QuizPlay.route,
+            Screen.BookPractice.route,
+            Screen.Customize.route
+        )
+    }
+    val activeRoutes = remember(screenStack) { screenStack.map { it.route }.toSet() }
+    val previousKeys = remember { mutableSetOf<String>() }
+
+    DisposableEffect(activeRoutes, currentDestinationKey) {
+        val removedKeys = previousKeys.filter { key ->
+            val baseRoute = key.substringBefore(':')
+            baseRoute !in activeRoutes && baseRoute in transientPlayRoutes
         }
-        previousRoutes.clear()
-        previousRoutes.addAll(activeRoutes)
+        removedKeys.forEach { key ->
+            saveableStateHolder.removeState(key)
+            previousKeys.remove(key)
+        }
+        previousKeys.add(currentDestinationKey)
         onDispose { }
     }
 
@@ -167,7 +204,7 @@ fun MainAppContent(viewModel: MathViewModel) {
         }
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
-        saveableStateHolder.SaveableStateProvider(key = currentScreen.route) {
+        saveableStateHolder.SaveableStateProvider(key = currentDestinationKey) {
             when (currentScreen) {
                 is Screen.Home -> HomeScreen(viewModel = viewModel, modifier = modifier)
                 is Screen.Tables -> TablesScreen(viewModel = viewModel, modifier = modifier)

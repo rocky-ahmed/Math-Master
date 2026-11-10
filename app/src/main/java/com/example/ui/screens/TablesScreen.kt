@@ -93,10 +93,18 @@ fun TablesScreen(
 
         // Grid of 10 tables for the selected range
         val tables = MultiplicationProvider.getTablesForRange(selectedRange)
+        val gridState = com.example.ui.rememberManagedLazyGridState(
+            viewModel = viewModel,
+            stateKey = "tables:${selectedRange.name}"
+        )
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+            state = gridState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("tables_grid"),
             contentPadding = PaddingValues(bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -239,8 +247,17 @@ fun TableDetailScreen(
             }
         )
 
+        val detailListState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "table_detail:$tableNumber"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            state = detailListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .testTag("table_detail_list"),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {

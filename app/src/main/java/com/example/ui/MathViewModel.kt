@@ -139,6 +139,31 @@ data class HomeScrollPosition(
 )
 
 /**
+ * Application-wide scroll position state (firstVisibleItemIndex and exact pixel offset)
+ * keyed by destination / subsection / tab stateKey (BUG-37 / BUG-38 / BUG-39).
+ */
+data class ScrollPositionState(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0
+)
+
+/**
+ * Snapshot of active parameterized arguments for a backstack entry so returning via
+ * navigateBack() restores the parent screen's exact book/chapter/lesson/table/formula context.
+ */
+data class NavigationContextSnapshot(
+    val screen: Screen,
+    val tableNumber: Int,
+    val formulaId: String,
+    val tutorNumber: Int,
+    val bookId: BookId,
+    val bookChapterNumber: Int,
+    val bookLessonId: String,
+    val bookPrintedPage: Int,
+    val bookLabType: BookInteractiveLabType
+)
+
+/**
  * Persistent state for the Home Screen 'Study Session' learning timer component.
  */
 data class StudySessionTimerState(
@@ -264,6 +289,23 @@ class MathViewModel @JvmOverloads constructor(
     private val _homeScrollPosition = MutableStateFlow(HomeScrollPosition())
     val homeScrollPosition: StateFlow<HomeScrollPosition> = _homeScrollPosition.asStateFlow()
 
+    // Application-Wide Scroll Position & UI Context Registries (BUG-37 / BUG-38 / BUG-39)
+    private val _scrollPositions = MutableStateFlow<Map<String, ScrollPositionState>>(emptyMap())
+    val scrollPositions: StateFlow<Map<String, ScrollPositionState>> = _scrollPositions.asStateFlow()
+
+    private val _uiContextStates = MutableStateFlow<Map<String, Any?>>(emptyMap())
+    val uiContextStates: StateFlow<Map<String, Any?>> = _uiContextStates.asStateFlow()
+
+    private val _navigationContextStack = mutableListOf<NavigationContextSnapshot>()
+
+    companion object {
+        private const val MAX_SAVED_STATE_ENTRIES = 256
+    }
+
+    private fun isHomeScrollKey(stateKey: String): Boolean {
+        return stateKey == Screen.Home.route || stateKey == "${Screen.Home.route}:grid"
+    }
+
     fun updateHomeScrollPosition(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int) {
         val safeIndex = firstVisibleItemIndex.coerceAtLeast(0)
         val safeOffset = firstVisibleItemScrollOffset.coerceAtLeast(0)
@@ -274,10 +316,176 @@ class MathViewModel @JvmOverloads constructor(
                 firstVisibleItemScrollOffset = safeOffset
             )
         }
+        val existing = _scrollPositions.value[Screen.Home.route]
+        if (existing?.firstVisibleItemIndex != safeIndex || existing.firstVisibleItemScrollOffset != safeOffset) {
+            val nextMap = LinkedHashMap(_scrollPositions.value)
+            val pos = ScrollPositionState(safeIndex, safeOffset)
+            nextMap[Screen.Home.route] = pos
+            nextMap["${Screen.Home.route}:grid"] = pos
+            _scrollPositions.value = nextMap
+        }
     }
 
     fun resetHomeScrollPosition() {
         _homeScrollPosition.value = HomeScrollPosition(0, 0)
+        val nextMap = LinkedHashMap(_scrollPositions.value)
+        val zero = ScrollPositionState(0, 0)
+        nextMap[Screen.Home.route] = zero
+        nextMap["${Screen.Home.route}:grid"] = zero
+        _scrollPositions.value = nextMap
+    }
+
+    fun getScrollPosition(stateKey: String): ScrollPositionState {
+        if (isHomeScrollKey(stateKey)) {
+            val home = _homeScrollPosition.value
+            return ScrollPositionState(home.firstVisibleItemIndex, home.firstVisibleItemScrollOffset)
+        }
+        return _scrollPositions.value[stateKey] ?: ScrollPositionState()
+    }
+
+    fun updateScrollPosition(
+        stateKey: String,
+        firstVisibleItemIndex: Int,
+        firstVisibleItemScrollOffset: Int
+    ) {
+        val safeIndex = firstVisibleItemIndex.coerceAtLeast(0)
+        val safeOffset = firstVisibleItemScrollOffset.coerceAtLeast(0)
+        if (isHomeScrollKey(stateKey)) {
+            updateHomeScrollPosition(safeIndex, safeOffset)
+            return
+        }
+        val currentMap = _scrollPositions.value
+        val existing = currentMap[stateKey]
+        if (existing?.firstVisibleItemIndex == safeIndex && existing.firstVisibleItemScrollOffset == safeOffset) {
+            return
+        }
+        val nextMap = LinkedHashMap<String, ScrollPositionState>(currentMap.size + 1)
+        nextMap.putAll(currentMap)
+        nextMap.remove(stateKey)
+        nextMap[stateKey] = ScrollPositionState(safeIndex, safeOffset)
+        while (nextMap.size > MAX_SAVED_STATE_ENTRIES && nextMap.isNotEmpty()) {
+            val eldestKey = nextMap.keys.firstOrNull { !isHomeScrollKey(it) } ?: break
+            nextMap.remove(eldestKey)
+        }
+        _scrollPositions.value = nextMap
+    }
+
+    fun resetScrollPosition(stateKey: String) {
+        if (isHomeScrollKey(stateKey)) {
+            resetHomeScrollPosition()
+            return
+        }
+        val nextMap = LinkedHashMap(_scrollPositions.value)
+        nextMap[stateKey] = ScrollPositionState(0, 0)
+        _scrollPositions.value = nextMap
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T> getUiContextState(stateKey: String, defaultValue: T): T {
+        if (!_uiContextStates.value.containsKey(stateKey)) {
+            return defaultValue
+        }
+        val raw = _uiContextStates.value[stateKey]
+        return try {
+            raw as T
+        } catch (_: ClassCastException) {
+            defaultValue
+        }
+    }
+
+    fun <T> updateUiContextState(stateKey: String, value: T) {
+        val currentMap = _uiContextStates.value
+        if (currentMap.containsKey(stateKey) && currentMap[stateKey] == value) {
+            return
+        }
+        val nextMap = LinkedHashMap<String, Any?>(currentMap.size + 1)
+        nextMap.putAll(currentMap)
+        nextMap.remove(stateKey)
+        nextMap[stateKey] = value
+        while (nextMap.size > MAX_SAVED_STATE_ENTRIES && nextMap.isNotEmpty()) {
+            val eldestKey = nextMap.keys.firstOrNull() ?: break
+            nextMap.remove(eldestKey)
+        }
+        _uiContextStates.value = nextMap
+    }
+
+    fun resetUiContextState(stateKey: String) {
+        val nextMap = LinkedHashMap(_uiContextStates.value)
+        nextMap.remove(stateKey)
+        _uiContextStates.value = nextMap
+    }
+
+    fun getDestinationStateKey(screen: Screen = currentScreen): String {
+        return when (screen) {
+            is Screen.Home -> Screen.Home.route
+            is Screen.Tables -> Screen.Tables.route
+            is Screen.TableDetail -> "${Screen.TableDetail.route}:${_selectedTableNumber.value}"
+            is Screen.FormulaDetail -> "${Screen.FormulaDetail.route}:${_selectedFormulaId.value}"
+            is Screen.PracticeTutor -> "${Screen.PracticeTutor.route}:${_tutorNumber.value}"
+            is Screen.BcsPreparation -> "${Screen.BcsPreparation.route}:${_selectedBcsExamProfile.value.id}"
+            is Screen.BookDetail -> "${Screen.BookDetail.route}:${_selectedBookId.value.id}"
+            is Screen.BookChapterOverview -> "${Screen.BookChapterOverview.route}:${_selectedBookId.value.id}:${_selectedBookChapterNumber.value}"
+            is Screen.BookLesson -> "${Screen.BookLesson.route}:${_selectedBookId.value.id}:${_selectedBookChapterNumber.value}:${_selectedBookLessonId.value}"
+            is Screen.BookPdfReader -> "${Screen.BookPdfReader.route}:${_selectedBookId.value.id}:${_selectedBookPrintedPage.value}"
+            is Screen.BookInteractiveLab -> "${Screen.BookInteractiveLab.route}:${_selectedBookId.value.id}:${_selectedBookChapterNumber.value}:${_selectedBookLabType.value.id}"
+            is Screen.BookRevision -> "${Screen.BookRevision.route}:${_selectedBookId.value.id}"
+            else -> screen.route
+        }
+    }
+
+    private fun captureCurrentNavigationSnapshot(screen: Screen): NavigationContextSnapshot {
+        return NavigationContextSnapshot(
+            screen = screen,
+            tableNumber = _selectedTableNumber.value,
+            formulaId = _selectedFormulaId.value,
+            tutorNumber = _tutorNumber.value,
+            bookId = _selectedBookId.value,
+            bookChapterNumber = _selectedBookChapterNumber.value,
+            bookLessonId = _selectedBookLessonId.value,
+            bookPrintedPage = _selectedBookPrintedPage.value,
+            bookLabType = _selectedBookLabType.value
+        )
+    }
+
+    private fun syncTopNavigationSnapshot() {
+        val currentTop = currentScreen
+        val snapshot = captureCurrentNavigationSnapshot(currentTop)
+        if (_navigationContextStack.isEmpty()) {
+            _navigationContextStack.add(snapshot)
+        } else {
+            _navigationContextStack[_navigationContextStack.lastIndex] = snapshot
+        }
+    }
+
+    private fun restoreNavigationSnapshot(snapshot: NavigationContextSnapshot) {
+        when (snapshot.screen) {
+            is Screen.TableDetail -> _selectedTableNumber.value = snapshot.tableNumber
+            is Screen.FormulaDetail -> _selectedFormulaId.value = snapshot.formulaId
+            is Screen.PracticeTutor -> _tutorNumber.value = snapshot.tutorNumber
+            is Screen.BookDetail -> _selectedBookId.value = snapshot.bookId
+            is Screen.BookChapterOverview -> {
+                _selectedBookId.value = snapshot.bookId
+                _selectedBookChapterNumber.value = snapshot.bookChapterNumber
+            }
+            is Screen.BookLesson -> {
+                _selectedBookId.value = snapshot.bookId
+                _selectedBookChapterNumber.value = snapshot.bookChapterNumber
+                _selectedBookLessonId.value = snapshot.bookLessonId
+            }
+            is Screen.BookPdfReader -> {
+                _selectedBookId.value = snapshot.bookId
+                _selectedBookPrintedPage.value = snapshot.bookPrintedPage
+            }
+            is Screen.BookInteractiveLab -> {
+                _selectedBookId.value = snapshot.bookId
+                _selectedBookChapterNumber.value = snapshot.bookChapterNumber
+                _selectedBookLabType.value = snapshot.bookLabType
+            }
+            is Screen.BookRevision -> {
+                _selectedBookId.value = snapshot.bookId
+            }
+            else -> {}
+        }
     }
 
     // Active Selection State
@@ -436,18 +644,32 @@ class MathViewModel @JvmOverloads constructor(
 
     fun navigateTo(screen: Screen) {
         val current = _screenStack.value
+        if (_navigationContextStack.size != current.size) {
+            _navigationContextStack.clear()
+            current.forEach { s -> _navigationContextStack.add(captureCurrentNavigationSnapshot(s)) }
+        }
         if (current.lastOrNull() != screen) {
             _screenStack.value = current + screen
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(screen))
+        } else {
+            syncTopNavigationSnapshot()
         }
     }
 
     fun navigateBack(): Boolean {
         val current = _screenStack.value
         if (current.size > 1) {
-            _screenStack.value = current.dropLast(1)
+            val nextStack = current.dropLast(1)
+            if (_navigationContextStack.size == current.size && _navigationContextStack.isNotEmpty()) {
+                _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
+                _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
+            }
+            _screenStack.value = nextStack
             return true
         } else if (current.firstOrNull() != Screen.Home) {
             _screenStack.value = listOf(Screen.Home)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             return true
         }
         return false
@@ -455,13 +677,20 @@ class MathViewModel @JvmOverloads constructor(
 
     fun navigateToHome() {
         _screenStack.value = listOf(Screen.Home)
+        _navigationContextStack.clear()
+        _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
     }
 
     fun navigateToTab(screen: Screen) {
         if (screen == Screen.Home) {
             _screenStack.value = listOf(Screen.Home)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
         } else {
             _screenStack.value = listOf(Screen.Home, screen)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(screen))
         }
     }
 
@@ -2193,6 +2422,7 @@ class MathViewModel @JvmOverloads constructor(
         _tutorUserAnswer.value = ""
         _tutorFeedback.value = null
         _tutorCompleted.value = false
+        syncTopNavigationSnapshot()
     }
 
     fun setTutorAnswerInput(input: String) {
@@ -3090,6 +3320,9 @@ class MathViewModel @JvmOverloads constructor(
         val existingIdx = current.indexOf(Screen.BookHub)
         if (existingIdx != -1) {
             _screenStack.value = current.take(existingIdx + 1)
+            while (_navigationContextStack.size > existingIdx + 1) {
+                _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
+            }
         } else {
             navigateTo(Screen.BookHub)
         }
@@ -3097,6 +3330,7 @@ class MathViewModel @JvmOverloads constructor(
 
     fun selectBook(bookId: BookId) {
         _selectedBookId.value = bookId
+        syncTopNavigationSnapshot()
     }
 
     fun openBookDetail(bookId: BookId) {
@@ -3176,6 +3410,7 @@ class MathViewModel @JvmOverloads constructor(
             ?: BookCurriculumRepository.getChapterForPrintedPage(bookId, clampedPrinted).chapterNumber
         _selectedBookPrintedPage.value = clampedPrinted
         _selectedBookChapterNumber.value = chNum
+        syncTopNavigationSnapshot()
         viewModelScope.launch {
             repository.updateBookReadingState(
                 bookId = bookId.id,

@@ -106,6 +106,8 @@ import com.example.math.VisualMathEngine
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedUiState
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -132,7 +134,7 @@ fun VisualExplorerScreen(
         viewModel.navigateBack()
     }
 
-    var selectedSection by remember { mutableStateOf(VisualExplorerSection.GEOMETRY) }
+    var selectedSection by rememberManagedUiState(viewModel, "visual_explorer:selectedSection", VisualExplorerSection.GEOMETRY)
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -172,10 +174,10 @@ fun VisualExplorerScreen(
         // Main Tab Content
         Box(modifier = Modifier.weight(1f)) {
             when (selectedSection) {
-                VisualExplorerSection.GEOMETRY -> GeometryExplorerTab()
-                VisualExplorerSection.ALGEBRA -> VisualAlgebraTab()
-                VisualExplorerSection.NUMBER_LINE -> NumberLineTab()
-                VisualExplorerSection.FORMULAS -> VisualFormulaTab()
+                VisualExplorerSection.GEOMETRY -> GeometryExplorerTab(viewModel = viewModel)
+                VisualExplorerSection.ALGEBRA -> VisualAlgebraTab(viewModel = viewModel)
+                VisualExplorerSection.NUMBER_LINE -> NumberLineTab(viewModel = viewModel)
+                VisualExplorerSection.FORMULAS -> VisualFormulaTab(viewModel = viewModel)
             }
         }
 
@@ -193,8 +195,8 @@ private fun VisualKnowledgeCheckAndLinksBar(
     viewModel: MathViewModel
 ) {
     val questions = remember(tabIndex) { VisualKnowledgeCheckProvider.getKnowledgeChecksForTab(tabIndex) }
-    var expanded by remember { mutableStateOf(false) }
-    var qIdx by remember(tabIndex) { mutableIntStateOf(0) }
+    var expanded by rememberManagedUiState(viewModel, "visual_explorer:kc_expanded:$tabIndex", false)
+    var qIdx by rememberManagedUiState(viewModel, "visual_explorer:kc_qIdx:$tabIndex", 0)
     var chosenOpt by remember(tabIndex, qIdx) { mutableStateOf<Int?>(null) }
 
     val currentQ = questions.getOrNull(qIdx.coerceIn(0, (questions.size - 1).coerceAtLeast(0)))
@@ -333,13 +335,15 @@ private fun VisualKnowledgeCheckAndLinksBar(
 // =============================================================================
 
 @Composable
-fun GeometryExplorerTab() {
-    var selectedShape by remember { mutableStateOf(GeoShapeType.RECTANGLE) }
+fun GeometryExplorerTab(viewModel: MathViewModel) {
+    var selectedShape by rememberManagedUiState(viewModel, "visual_explorer:tab_0:selectedShape", GeoShapeType.RECTANGLE)
 
     // Sliders / Parameters State
-    var baseParam by remember { mutableDoubleStateOf(10.0) } // base or length or side or radius or angleDeg
-    var heightParam by remember { mutableDoubleStateOf(6.0) } // height or width
-    var zoomScale by remember { mutableFloatStateOf(1.0f) }
+    var baseParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:baseParam", 10.0) // base or length or side or radius or angleDeg
+    var heightParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:heightParam", 6.0) // height or width
+    var zoomScale by rememberManagedUiState(viewModel, "visual_explorer:tab_0:zoomScale", 1.0f)
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_0")
+    val shapeRowState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_0:shape_row")
 
     val calcResult = remember(selectedShape, baseParam, heightParam) {
         when (selectedShape) {
@@ -363,13 +367,18 @@ fun GeometryExplorerTab() {
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("visual_explorer_tab_0_list"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
             // Shape selector chips
             androidx.compose.foundation.lazy.LazyRow(
+                state = shapeRowState,
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -868,18 +877,23 @@ fun GeometryExplorerTab() {
 // =============================================================================
 
 @Composable
-fun VisualAlgebraTab() {
-    var aParam by remember { mutableDoubleStateOf(2.0) } // coeff of x
-    var bParam by remember { mutableDoubleStateOf(4.0) } // constant b
-    var cParam by remember { mutableDoubleStateOf(14.0) } // RHS c
-    var activeStepIdx by remember { mutableIntStateOf(0) }
+fun VisualAlgebraTab(viewModel: MathViewModel) {
+    var aParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:aParam", 2.0) // coeff of x
+    var bParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:bParam", 4.0) // constant b
+    var cParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:cParam", 14.0) // RHS c
+    var activeStepIdx by rememberManagedUiState(viewModel, "visual_explorer:tab_1:activeStepIdx", 0)
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_1")
 
     val algebraResult = remember(aParam, bParam, cParam) {
         VisualMathEngine.solveVisualAlgebra(aParam, bParam, cParam)
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("visual_explorer_tab_1_list"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -1259,17 +1273,22 @@ fun LinearGraphExplorerCard() {
 // =============================================================================
 
 @Composable
-fun NumberLineTab() {
-    var numerator by remember { mutableIntStateOf(3) }
-    var denominator by remember { mutableIntStateOf(4) }
-    var activeValue by remember { mutableFloatStateOf(0.75f) } // decimal point on number line (-5 to +5)
+fun NumberLineTab(viewModel: MathViewModel) {
+    var numerator by rememberManagedUiState(viewModel, "visual_explorer:tab_2:numerator", 3)
+    var denominator by rememberManagedUiState(viewModel, "visual_explorer:tab_2:denominator", 4)
+    var activeValue by rememberManagedUiState(viewModel, "visual_explorer:tab_2:activeValue", 0.75f) // decimal point on number line (-5 to +5)
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_2")
 
     val fractionInfo = remember(numerator, denominator) {
         VisualMathEngine.analyzeFraction(numerator, denominator)
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("visual_explorer_tab_2_list"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
@@ -1660,21 +1679,26 @@ fun NumberLineTab() {
 // =============================================================================
 
 @Composable
-fun VisualFormulaTab() {
+fun VisualFormulaTab(viewModel: MathViewModel) {
     val formulas = VisualMathEngine.formulaVisualizerList
-    var selectedFormulaId by remember { mutableStateOf(formulas.first().id) }
+    var selectedFormulaId by rememberManagedUiState(viewModel, "visual_explorer:tab_3:selectedFormulaId", formulas.first().id)
     val currentFormula = formulas.find { it.id == selectedFormulaId } ?: formulas.first()
 
-    var p1 by remember(currentFormula) { mutableDoubleStateOf(currentFormula.param1Default) }
-    var p2 by remember(currentFormula) { mutableDoubleStateOf(currentFormula.param2Default) }
-    var p3 by remember(currentFormula) { mutableDoubleStateOf(currentFormula.param3Default) }
+    var p1 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p1", currentFormula.param1Default)
+    var p2 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p2", currentFormula.param2Default)
+    var p3 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p3", currentFormula.param3Default)
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_3")
 
     val result = remember(currentFormula, p1, p2, p3) {
         currentFormula.calculate(p1, p2, p3)
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .testTag("visual_explorer_tab_3_list"),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {

@@ -54,7 +54,7 @@ fun SquaresCubesScreen(
     BackHandler { viewModel.navigateBack() }
 
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = বর্গ তালিকা (241713.jpg), 1 = ঘন তালিকা (241715.jpg)
+    var selectedTab by com.example.ui.rememberManagedUiState(viewModel, "squares_cubes:selectedTab", 0) // 0 = বর্গ তালিকা (241713.jpg), 1 = ঘন তালিকা (241715.jpg)
 
     val squareItems = SquareCubeProvider.squareTableList
     val cubeItems = SquareCubeProvider.cubeTableList
@@ -97,8 +97,16 @@ fun SquaresCubesScreen(
             )
         }
 
+        val listState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "squares_cubes:tab_$selectedTab"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("squares_cubes_list"),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {

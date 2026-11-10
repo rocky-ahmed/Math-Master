@@ -2,34 +2,36 @@
 
 **Validation Command**: `gradle :app:testDebugUnitTest`  
 **Execution Policy**: Strictly local JVM & Robolectric unit testing (`0` APK/AAB builds executed during audit).  
-**Latest Verified Result**: **`175 / 175` Passed** (`0` Failures, `0` Errors, `0` Skipped)
+**Latest Verified Result**: **`185 / 185` Passed** (`0` Failures, `0` Errors, `0` Skipped)
 
 ---
 
 ## 1. Historical Baseline vs. Latest Regression Test Progression
 
-| Audit Phase | Defects Covered | `EcosystemUpgradeV7UnitTest` Count | `HomeNavigationAndOrderingUnitTest` Count | Total Automated Tests Across 8 Suites | Pass Rate | Evidence Reference |
-| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `17` | `7` | **`165 / 165`** | `100%` | [`FINAL_DEFECT_REGISTER.md`](FINAL_DEFECT_REGISTER.md), [`../release/FINAL_RELEASE_CANDIDATE_REPORT.md`](../release/FINAL_RELEASE_CANDIDATE_REPORT.md) |
-| **Phase 2: Pre-Freeze Stabilization Baseline** | `BUG-22` – `BUG-28` (`+2` tests) | `19` | `7` | **`167 / 167`** | `100%` | `auditRegression_bug22_*` & `auditRegression_bug23_bug25_bug26_*` |
-| **Phase 3: Independent Adversarial Bug Hunt** | `BUG-29` – `BUG-35` (`+5` tests) | `24` | `7` | **`172 / 172`** | `100%` | `adversarialAudit_bug29_*` through `adversarialAudit_bug35_*` |
-| **Phase 4: Real-Device UX & Scroll Restoration (Latest)** | `BUG-36` (`+3` tests) | `25` | `9` | **`175 / 175`** | `100%` | `bug36_homeScreenScrollPosition*` & `testHomeScreen*Scroll*` |
+| Audit Phase | Defects Covered | `EcosystemUpgradeV7UnitTest` Count | `HomeNavigationAndOrderingUnitTest` Count | `ApplicationWideScrollRestorationUnitTest` Count | Total Automated Tests Across 9 Suites | Pass Rate | Evidence Reference |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `17` | `7` | `0` | **`165 / 165`** | `100%` | [`FINAL_DEFECT_REGISTER.md`](FINAL_DEFECT_REGISTER.md), [`../release/FINAL_RELEASE_CANDIDATE_REPORT.md`](../release/FINAL_RELEASE_CANDIDATE_REPORT.md) |
+| **Phase 2: Pre-Freeze Stabilization Baseline** | `BUG-22` – `BUG-28` (`+2` tests) | `19` | `7` | `0` | **`167 / 167`** | `100%` | `auditRegression_bug22_*` & `auditRegression_bug23_bug25_bug26_*` |
+| **Phase 3: Independent Adversarial Bug Hunt** | `BUG-29` – `BUG-35` (`+5` tests) | `24` | `7` | `0` | **`172 / 172`** | `100%` | `adversarialAudit_bug29_*` through `adversarialAudit_bug35_*` |
+| **Phase 4A: Home Screen Scroll Restoration** | `BUG-36` (`+3` tests) | `25` | `9` | `0` | **`175 / 175`** | `100%` | `bug36_homeScreenScrollPosition*` & `testHomeScreen*Scroll*` |
+| **Phase 4B: Application-Wide Scroll & Context Restoration (Latest)** | `BUG-37` – `BUG-39` (`+10` tests) | `25` | `9` | `10` | **`185 / 185`** | `100%` | `ApplicationWideScrollRestorationUnitTest` (`testScenarioA_*`..`testScenarioJ_*`) |
 
 ---
 
 ## 2. Automated Test Suite Inventory (`app/src/test/java/com/example/`)
 
-| # | Test Suite File | Runner | Historical Baseline (`165`) | Adversarial Baseline (`172`) | Latest Verified (`175`) | Focus Area | Status |
+| # | Test Suite File | Runner | Historical Baseline (`165`) | BUG-36 Baseline (`175`) | Latest Verified (`184`) | Focus Area | Status |
 | :- | :--- | :--- | :-: | :-: | :-: | :--- | :--- |
 | 01 | `ExampleRobolectricTest.kt` | Robolectric (`sdk = [36]`) | `53` | `53` | **`53`** | Core Modules 01–14, Room `v1 -> v9` migrations, Book PDF/curriculum/labs, early module regressions | **PASS** |
 | 02 | `MathProblemSolverUnitTest.kt` | JUnit4 | `41` | `41` | **`41`** | 14 Solver Topics (`LEARNING`, `SHORTCUT`, `BCS`), domain validation (`BUG-08`), non-linear & linear systems | **PASS** |
-| 03 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `24` | **`25`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-36` regressions | **PASS** |
+| 03 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `25` | **`25`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-36` regressions | **PASS** |
 | 04 | `NumberSystemUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | Base Converter, Divisibility (`2..19`), Euclidean GCD/LCM, Modular Arithmetic, `MCQ`/`KEYPAD`/`TRUE_FALSE` (`BUG-17`) | **PASS** |
 | 05 | `VisualMathExplorerUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | 14 Interactive Visual Labs, Geometry/Trig/Coordinate/Venn/Chart calculations | **PASS** |
 | 06 | `BcsPreparationCenterUnitTest.kt` | Robolectric (`sdk = [36]`) | `12` | `12` | **`12`** | 6 BCS Exam Profiles (`BUG-05`), 1,060+ BCS Questions, 50 Topic Guides, Provenance (`BUG-06`) & Profile Isolation (`BUG-13`) | **PASS** |
-| 07 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `7` | **`9`** | 14 Home Modules ordering (`BUG-11`), customization persistence, backstack navigation (`BUG-12`), and Home Screen scroll position & pixel offset restoration (`BUG-36`) | **PASS** |
-| 08 | `ExampleUnitTest.kt` | JUnit4 | `1` | `1` | **`1`** | Baseline JUnit sanity check | **PASS** |
-| **Total** | **8 Test Suites** | **JVM + Robolectric** | **`165`** | **`172`** | **`175`** | **100% Pass Rate (`0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
+| 07 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `9` | **`9`** | 14 Home Modules ordering (`BUG-11`), customization persistence, backstack navigation (`BUG-12`), and Home Screen scroll position & pixel offset restoration (`BUG-36`) | **PASS** |
+| 08 | `ApplicationWideScrollRestorationUnitTest.kt` | Robolectric (`sdk = [36]`) | `0` | `0` | **`10`** | Complete application-wide scroll, sub-tab, filter, parameterized argument isolation, 6-level deep navigation chain, bottom-nav tab persistence, live Activity recreation, and 14-module/31-destination live `MainActivity` acceptance (`BUG-36`–`BUG-39`) | **PASS** |
+| 09 | `ExampleUnitTest.kt` | JUnit4 | `1` | `1` | **`1`** | Baseline JUnit sanity check | **PASS** |
+| **Total** | **9 Test Suites** | **JVM + Robolectric** | **`165`** | **`175`** | **`185`** | **100% Pass Rate (`0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
 
 ---
 
@@ -55,14 +57,31 @@
    - Verifies Book mistakes sync across `book_mistakes`, `book_spaced_revision`, and `unified_mistake_notebook` without double-prefixing or leaving orphaned rows on deletion (`BUG-31`), and verifies BCS mistakes canonicalize mode-prefixed IDs (`"bcs_exam_3_bcs_hist_45_arith_99"` vs `"bcs_mistake_retry_1_bcs_hist_45_arith_99"`) and auto-resolve across `bcs_mistake_notebook` and `unified_mistake_notebook` (`BUG-32`).
 6. **`adversarialAudit_bug33_and_bug34_unsubmittedDraftPreservationAndSkippedWeakTopics`**:
    - Verifies unsubmitted draft selections in non-`isFullExamMode` quizzes are preserved across `jumpToQuizQuestion()` and `previousQuizQuestion()` and scored on timer expiry (`BUG-33`), and verifies `ExamScoringEngine.evaluateExam()` excludes skipped zero-attempt topics (`attemptedCount == 0`) from `weakTopicTitlesBn` (`BUG-34`).
-7. **`adversarialAudit_bug35_pdfRenderCacheAndSynchronizedOfflinePdfExtraction`**:
-   - Verifies `BookPdfRenderCache` bounded `LruCache(12)` put/get/evictAll lifecycle and synchronized atomic extraction of bundled NCTB PDFs via `resolveOfflinePdfFile()` (`BUG-35`).
+7. **`adversarialAudit_bug35_pdfRenderCacheAndSynchronizedOfflinePdfExtraction` (`BUG-35` — Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization)**:
+   - Verifies `BookPdfRenderCache` bounded `LruCache(12)` put/get/evictAll lifecycle, `Mutex`-serialized `PdfRenderer` access, `RGB_565` bitmap memory management, and synchronized atomic extraction of bundled NCTB PDFs via `resolveOfflinePdfFile()` (`BUG-35`).
 
-### 3.3 Phase 4 Home Screen Scroll Position Restoration Regression Tests (`172 -> 175`)
-8. **`testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` (`HomeNavigationAndOrderingUnitTest.kt`)**:
+### 3.3 Phase 4 Home Screen Scroll Position Restoration Regression Tests (`BUG-36`, `172 -> 175`)
+8. **`testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` (`HomeNavigationAndOrderingUnitTest.kt`, `BUG-36`)**:
    - Verifies fresh launch starts at `(0, 0)` (Scenario G), scrolls to `(firstVisibleItemIndex = 9, firstVisibleItemScrollOffset = 128)`, navigates to all 14 Home Screen modules (`Tables`, `Primes`, `SquaresCubes`, `Formulas`, `FormulaLibrary`, `PracticeLab`, `MentalMath`, `NumberSystem`, `ProblemSolver`, `VisualExplorer`, `Quizzes`, `Dashboard`, `BcsPreparation`, and `BookHub`), returns via `navigateBack()` (Scenarios A, B, C), and traverses a 5-level deep stack (`Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> Back to Home`, Scenario D), confirming `(9, 128)` is preserved across every transition.
-9. **`testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` (`HomeNavigationAndOrderingUnitTest.kt`)**:
+9. **`testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` (`HomeNavigationAndOrderingUnitTest.kt`, `BUG-36`)**:
    - Launches `MainActivity` under Robolectric (`sdk = [36]`), verifies `HomeScreen` leaves the live Compose composition tree during module navigation (`VisualExplorer` and `ProblemSolver`) and re-enters composition upon `navigateBack()` with both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 116` intact, and verifies normal recompositions (timer ticks, theme switches, Scenario E) do not reset the scroll state.
-10. **`bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` (`EcosystemUpgradeV7UnitTest.kt`)**:
+10. **`bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` (`EcosystemUpgradeV7UnitTest.kt`, `BUG-36`)**:
     - Verifies `LazyGridState.Saver` serialization/restoration (used by `SaveableStateHolder` in `MainAppContent`) and `MathViewModel.homeScrollPosition` restoration of both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 94` across module disposal and multi-screen BCS exam navigation.
+
+### 3.4 Phase 4B Application-Wide Navigation & Scroll Restoration Regression Tests (`BUG-37` – `BUG-39`, `175 -> 185`)
+11. **`ApplicationWideScrollRestorationUnitTest.kt` (`10` comprehensive tests, `BUG-36` – `BUG-39`)**:
+    - `testScenarioA_FirstLaunchStartsAllDestinationsAtTopZeroOffset`: Verifies fresh launch initializes all destinations at `(0, 0)`.
+    - `testScenarioB_HomeToModuleToBackPreservesExactScrollAcrossAll14Modules`: Verifies `Home -> Module -> Back` across all 14 modules preserves exact index and pixel offset.
+    - `testScenarioC_ParentModuleToChildDestinationAndBackRestoresScrollAndContext`: Verifies `Tables -> TableDetail`, `FormulaLibrary -> FormulaDetail`, `PracticeLab -> PracticeLabPlay`, `MentalMath -> MentalMathPlay`, `NumberSystem -> NumberSystemPracticePlay`, and `Bookmarks -> PracticeTutor` parent-child scroll & filter restoration.
+    - `testScenarioD_MultiLevelGrandchildNavigationChainRestoresEveryLevelOnBack`: Verifies a 6-level deep navigation chain (`Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> BookPdfReader -> Back`) restores exact scroll and parent arguments (`BookId`, `chapterNumber`, `lessonId`, `selectedTab`) at every level.
+    - `testScenarioE_ParameterizedDestinationsMaintainIndependentScrollStatePerArgumentId`: Verifies `BookDetail(CLASS_6)` vs `BookDetail(CLASS_9_10)` and `TableDetail(7)` vs `TableDetail(19)` maintain isolated scroll states.
+    - `testScenarioF_BottomNavigationTabsPreserveScrollAndSubTabStateAcrossSwitches`: Verifies switching across all 5 Bottom-Navigation tabs (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`) preserves each tab's scroll and active sub-tab state (`BUG-39`).
+    - `testScenarioG_InternalModuleTabsPreserveIndependentScrollAndFilters`: Verifies `BcsPreparation` Tabs `0..4` and `VisualExplorer` preserve per-tab scroll and filter state across child navigation (`BUG-38`).
+    - `testScenarioH_RepeatedNavigationCyclesAndBoundedLruCacheStability`: Verifies 5 repeated navigation cycles without drift and bounded LRU cache (`<= 300` entries).
+    - `testScenarioI_LiveActivityMultiLevelNavigationTabSwitchingAndRecreation`: Launches `MainActivity` under Robolectric (`sdk = [36]`), exercises multi-level navigation, timer ticks, theme switches, bottom-nav tab switches, and `controller.recreate()`, confirming all scroll states survive.
+    - `testScenarioJ_Full14ModulesAnd31DestinationsLiveMainActivityInteractiveAcceptance`: Mounts and interactively traverses all **14 modules** and all **31 production screen destinations** in a live `MainActivity` (`sdk = [36]`), exercising both toolbar Back (`viewModel.navigateBack()`) and Android system Back (`activity.onBackPressedDispatcher.onBackPressed()`), including `BookPdfReader` in-place page turns (`40 -> 45`) and child-to-reader Back restoration.
+
+> **Canonical Traceability Verification**: Across all 9 test suites (`185 / 185` passing), **`BUG-01`** exclusively tests **Numerical Keypad Scoring and Negative Marking**, **`BUG-35`** exclusively tests **Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization**, **`BUG-36`** exclusively tests **Home Screen Scroll Position Restoration**, and **`BUG-37`–`BUG-39`** test **Application-Wide Nested Navigation, Internal Tab/Filter Context, and Bottom-Navigation Tab State Restoration**.
+
+
 

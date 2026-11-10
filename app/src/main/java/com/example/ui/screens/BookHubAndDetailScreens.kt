@@ -85,6 +85,9 @@ import com.example.math.BookPracticeMode
 import com.example.math.BookSearchFilterType
 import com.example.math.BookSearchResult
 import com.example.ui.MathViewModel
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -151,10 +154,20 @@ fun BookHubScreen(
             )
         }
     ) { innerPadding ->
+        val hubListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_hub:main"
+        )
+        val searchFilterScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_hub:search_filter"
+        )
         LazyColumn(
+            state = hubListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_hub_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -196,7 +209,7 @@ fun BookHubScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                                .horizontalScroll(searchFilterScrollState),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             BookSearchFilterType.entries.forEach { filter ->
@@ -617,10 +630,16 @@ fun BookDetailScreen(
             )
         }
     ) { innerPadding ->
+        val detailListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_detail:${bookId.id}:chapters"
+        )
         LazyColumn(
+            state = detailListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_detail_chapter_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -869,7 +888,11 @@ fun BookChapterOverviewScreen(
             ?: BookCurriculumRepository.getChapters(bookId).first()
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: পাঠ ও শিখনফল, 1: সূত্র ও উদাহরণ, 2: অনুশীলন ও ল্যাব
+    var selectedTab by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_chapter_overview:${bookId.id}:${chapter.chapterNumber}:selectedTab",
+        defaultValue = 0
+    ) // 0: পাঠ ও শিখনফল, 1: সূত্র ও উদাহরণ, 2: অনুশীলন ও ল্যাব
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -916,10 +939,20 @@ fun BookChapterOverviewScreen(
             )
         }
     ) { innerPadding ->
+        val overviewListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_chapter_overview:${bookId.id}:${chapter.chapterNumber}:tab_$selectedTab"
+        )
+        val chapterTabScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_chapter_overview:${bookId.id}:${chapter.chapterNumber}:tab_bar"
+        )
         LazyColumn(
+            state = overviewListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_chapter_overview_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -1016,7 +1049,7 @@ fun BookChapterOverviewScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(chapterTabScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(
@@ -1440,9 +1473,21 @@ fun BookLessonScreen(
     }
     val isCompleted = lessonProgress.any { it.bookId == bookId.id && it.lessonId == lesson.id && it.isCompleted }
 
-    var selectedMiniOption by remember(lesson.id) { mutableIntStateOf(-1) }
-    var miniSubmitted by remember(lesson.id) { mutableStateOf(false) }
-    var quickNoteText by remember(lesson.id) { mutableStateOf("") }
+    var selectedMiniOption by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_lesson:${bookId.id}:${chapter.chapterNumber}:${lesson.id}:selectedMiniOption",
+        defaultValue = -1
+    )
+    var miniSubmitted by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_lesson:${bookId.id}:${chapter.chapterNumber}:${lesson.id}:miniSubmitted",
+        defaultValue = false
+    )
+    var quickNoteText by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_lesson:${bookId.id}:${chapter.chapterNumber}:${lesson.id}:quickNoteText",
+        defaultValue = ""
+    )
     var noteSavedFeedback by remember(lesson.id) { mutableStateOf(false) }
 
     Scaffold(
@@ -1490,10 +1535,16 @@ fun BookLessonScreen(
             )
         }
     ) { innerPadding ->
+        val lessonListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_lesson:${bookId.id}:${chapter.chapterNumber}:${lesson.id}"
+        )
         LazyColumn(
+            state = lessonListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_lesson_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {

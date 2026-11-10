@@ -54,9 +54,9 @@ Math-Master/
 │       │   │   ├── MainActivity.kt
 │       │   │   ├── data/              # Room Database v9 (20 @Entity tables, MIGRATION_1_2..8_9, MathDao, MathRepository)
 │       │   │   ├── math/              # SharedMathEngine, ProblemSolver, ExamEngine, BCS & Book Curriculum Engines
-│       │   │   └── ui/                # MathViewModel, 14 Module Screens, Custom Components & Material 3 Theme
+│       │   │   └── ui/                # MathViewModel, NavigationStateRestoration, 14 Module Screens & Material 3 Theme
 │       │   └── res/                   # Adaptive Launcher Icons, Drawables, Strings & XML Resources
-│       └── test/java/com/example/     # 8 Unit & Robolectric Test Suites (172 automated tests)
+│       └── test/java/com/example/     # 9 Unit & Robolectric Test Suites (184 automated tests)
 ├── gradle/
 │   └── libs.versions.toml
 ├── docs/                              # Complete Engineering, Audit, QA, Database, Book, BCS & Release Documentation
@@ -87,8 +87,8 @@ Math-Master/
   ```bash
   gradle :app:testDebugUnitTest
   ```
-  - **Latest Verified Status:** **`172 / 172` tests passing (`0` failures, `0` errors, `0` skipped)** across 8 test suites (`ExampleRobolectricTest`: `53`, `MathProblemSolverUnitTest`: `41`, `EcosystemUpgradeV7UnitTest`: `24`, `NumberSystemUnitTest`: `17`, `VisualMathExplorerUnitTest`: `17`, `BcsPreparationCenterUnitTest`: `12`, `HomeNavigationAndOrderingUnitTest`: `7`, `ExampleUnitTest`: `1`).
-  - **Baseline Progression:** `165 / 165` (Phase 1 Core Engineering Audit, `BUG-01`..`BUG-21`) $\rightarrow$ `167 / 167` (Phase 2 Pre-Freeze Stabilization, `BUG-22`..`BUG-28`) $\rightarrow$ **`172 / 172`** (Phase 3 Independent Adversarial Bug Hunt, `BUG-29`..`BUG-35`).
+  - **Latest Verified Status:** **`184 / 184` tests passing (`0` failures, `0` errors, `0` skipped)** across 9 test suites (`ExampleRobolectricTest`: `53`, `MathProblemSolverUnitTest`: `41`, `EcosystemUpgradeV7UnitTest`: `25`, `NumberSystemUnitTest`: `17`, `VisualMathExplorerUnitTest`: `17`, `BcsPreparationCenterUnitTest`: `12`, `HomeNavigationAndOrderingUnitTest`: `9`, `ApplicationWideScrollRestorationUnitTest`: `9`, `ExampleUnitTest`: `1`).
+  - **Baseline Progression:** `165 / 165` (Phase 1 Core Engineering Audit, `BUG-01`..`BUG-21`) $\rightarrow$ `167 / 167` (Phase 2 Pre-Freeze Stabilization, `BUG-22`..`BUG-28`) $\rightarrow$ `172 / 172` (Phase 3 Independent Adversarial Bug Hunt, `BUG-29`..`BUG-35`) $\rightarrow$ `175 / 175` (Phase 4A Real-Device Home Screen Scroll Restoration, `BUG-36`) $\rightarrow$ **`184 / 184`** (Phase 4B Application-Wide Navigation, Scroll & Context State Restoration, `BUG-37`..`BUG-39`).
 - **Debug APK Build:**
   ```bash
   gradle :app:assembleDebug
@@ -100,6 +100,12 @@ Math-Master/
 
 ---
 
-## 5. Engineering Documentation
+## 5. Engineering Documentation & Bug ID Traceability (`BUG-01` – `BUG-39`)
 
-See [`docs/README.md`](docs/README.md) for the complete index of all 10 final project stabilization reports (`FINAL_PROJECT_AUDIT_REPORT.md`, `FINAL_ROOT_CAUSE_DEFECT_REGISTER.md` covering `BUG-01`..`BUG-35`, `FINAL_BUG_FIX_AND_REFINEMENT_REPORT.md`, `FINAL_MATHEMATICAL_ACCURACY_REPORT.md`, `FINAL_EXAM_AND_BCS_VALIDATION_REPORT.md`, `FINAL_DATABASE_INTEGRITY_REPORT.md`, `FINAL_BOOK_AND_PDF_VALIDATION_REPORT.md`, `FINAL_PERFORMANCE_AND_UX_REPORT.md`, `FINAL_REGRESSION_TEST_REPORT.md`, and `FINAL_SECURITY_AND_PROJECT_ORGANIZATION_REPORT.md`) alongside historical engineering reports.
+See [`docs/README.md`](docs/README.md) for the complete index of all 11 final project stabilization reports (`FINAL_PROJECT_AUDIT_REPORT.md`, `FINAL_ROOT_CAUSE_DEFECT_REGISTER.md` covering `BUG-01`..`BUG-39`, `FINAL_NAVIGATION_STATE_RESTORATION_AUDIT.md`, `FINAL_BUG_FIX_AND_REFINEMENT_REPORT.md`, `FINAL_MATHEMATICAL_ACCURACY_REPORT.md`, `FINAL_EXAM_AND_BCS_VALIDATION_REPORT.md`, `FINAL_DATABASE_INTEGRITY_REPORT.md`, `FINAL_BOOK_AND_PDF_VALIDATION_REPORT.md`, `FINAL_PERFORMANCE_AND_UX_REPORT.md`, `FINAL_REGRESSION_TEST_REPORT.md`, and `FINAL_SECURITY_AND_PROJECT_ORGANIZATION_REPORT.md`) alongside historical engineering reports:
+- **`BUG-01`**: Numerical Keypad Scoring and Negative Marking (`ExamScoringEngine` `-1` unanswered vs. `-2` wrong numerical sentinel).
+- **`BUG-35`**: Book PDF Reader concurrency, bitmap memory management (`RGB_565`), `Mutex` serialization, and `LruCache(12)` optimization (`BookPdfRenderCache`).
+- **`BUG-36`**: Home Screen Scroll Position Restoration (`HomeScrollPosition` + `SaveableStateHolder` + `LazyGridState.Saver`).
+- **`BUG-37` – `BUG-39`**: Application-Wide Nested Navigation Scroll Restoration (`BUG-37`), Internal Tab/Filter Context Restoration (`BUG-38`), and Bottom-Navigation Tab State Retention (`BUG-39`).
+
+

@@ -107,8 +107,16 @@ fun BookmarksScreen(
                 }
             }
         } else {
+            val bookmarksListState = com.example.ui.rememberManagedLazyListState(
+                viewModel = viewModel,
+                stateKey = "bookmarks:main"
+            )
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                state = bookmarksListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp)
+                    .testTag("bookmarks_list"),
                 contentPadding = PaddingValues(vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -254,10 +262,17 @@ fun PracticeTutorScreen(
             }
         )
 
+        val tutorListState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "practice_tutor:$number"
+        )
+
         LazyColumn(
+            state = tutorListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(16.dp)
+                .testTag("practice_tutor_list"),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Tutor Progress Step indicator

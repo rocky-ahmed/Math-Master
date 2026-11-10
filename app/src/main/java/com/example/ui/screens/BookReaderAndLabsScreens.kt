@@ -76,6 +76,9 @@ import com.example.math.BookCurriculumRepository
 import com.example.math.BookId
 import com.example.math.BookInteractiveLabType
 import com.example.ui.MathViewModel
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 import java.io.File
 import kotlin.math.PI
 import kotlin.math.cos
@@ -243,10 +246,20 @@ fun BookPdfReaderScreen(
             )
         }
     ) { innerPadding ->
+        val pdfReaderListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_pdf_reader:${bookId.id}:$printedPage"
+        )
+        val chapterStripScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_pdf_reader:${bookId.id}:chapter_strip"
+        )
         LazyColumn(
+            state = pdfReaderListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_pdf_reader_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -325,7 +338,7 @@ fun BookPdfReaderScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
+                                .horizontalScroll(chapterStripScrollState),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             chapters.forEach { ch ->
@@ -688,9 +701,21 @@ fun BookInteractiveLabScreen(
     val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
     val chapterNum by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
 
-    var paramA by remember(activeLab) { mutableFloatStateOf(4f) }
-    var paramB by remember(activeLab) { mutableFloatStateOf(3f) }
-    var paramC by remember(activeLab) { mutableFloatStateOf(45f) }
+    var paramA by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_interactive_lab:${bookId.id}:$chapterNum:${activeLab.id}:paramA",
+        defaultValue = 4f
+    )
+    var paramB by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_interactive_lab:${bookId.id}:$chapterNum:${activeLab.id}:paramB",
+        defaultValue = 3f
+    )
+    var paramC by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_interactive_lab:${bookId.id}:$chapterNum:${activeLab.id}:paramC",
+        defaultValue = 45f
+    )
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -721,10 +746,20 @@ fun BookInteractiveLabScreen(
             )
         }
     ) { innerPadding ->
+        val labListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_interactive_lab:${bookId.id}:$chapterNum:${activeLab.id}"
+        )
+        val labStripScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_interactive_lab:${bookId.id}:$chapterNum:lab_strip"
+        )
         LazyColumn(
+            state = labListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_interactive_lab_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -733,7 +768,7 @@ fun BookInteractiveLabScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(labStripScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     BookInteractiveLabType.entries.forEach { lab ->

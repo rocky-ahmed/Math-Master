@@ -81,6 +81,9 @@ import com.example.math.TopicMasteryStatus
 import com.example.math.toBengaliDigits
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -102,8 +105,11 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     val unifiedMistakes by viewModel.unifiedMistakes.collectAsStateWithLifecycle()
     val formulaMastery by viewModel.formulaMastery.collectAsStateWithLifecycle()
 
-    var selectedModuleFilter by remember { mutableStateOf("ALL") }
-    var showGoalConfigDialog by remember { mutableStateOf(false) }
+    var selectedModuleFilter by rememberManagedUiState(viewModel, "dashboard:selectedModuleFilter", "ALL")
+    var showGoalConfigDialog by rememberManagedUiState(viewModel, "dashboard:showGoalConfigDialog", false)
+    val mainListState = rememberManagedLazyListState(viewModel, "dashboard:main")
+    val timeFilterScrollState = rememberManagedScrollState(viewModel, "dashboard:time_filter_row")
+    val moduleFilterScrollState = rememberManagedScrollState(viewModel, "dashboard:module_filter_row")
 
     val analyticsData = remember(
         selectedTimeFilter,
@@ -223,9 +229,11 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
         }
     ) { padding ->
         LazyColumn(
+            state = mainListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .testTag("dashboard_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -241,7 +249,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                            .horizontalScroll(timeFilterScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AnalyticsTimeFilter.values().forEach { tf ->
@@ -777,7 +785,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
+                            .horizontalScroll(moduleFilterScrollState),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf(

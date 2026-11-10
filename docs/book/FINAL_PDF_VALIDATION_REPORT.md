@@ -23,14 +23,14 @@ All four textbook PDF assets in `app/src/main/assets/books/` were inspected dire
 
 ---
 
-## 2. Offline Extraction & `PdfRenderer` Verification (`BUG-09` & `BUG-35`)
+## 2. Offline Extraction & `PdfRenderer` Verification (`BUG-09` Printed-to-PDF Offset & `BUG-35` Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization)
 
 1. **Synchronized Atomic Offline Extraction (`resolveOfflinePdfFile` in `BookReaderAndLabsScreens.kt`, `BUG-35`)**:
    - Extracts `books/class_6.pdf`, `books/class_7.pdf`, `books/class_8.pdf`, and `books/class_9_10.pdf` from APK `AssetManager` to `File(context.cacheDir, "cached_${bookId.id}_${System.nanoTime()}.pdf.tmp")` under `pdfExtractionLock` and atomically renames to `cached_${bookId.id}.pdf`.
    - Subsequent page turns and zoom operations reuse the cached file in `context.cacheDir` with zero redundant asset stream copying.
 2. **Page Rendering, `BookPdfRenderCache` & Zoom Handling (`BookPdfReaderScreen`, `BUG-35`)**:
    - Uses `BookPdfRenderCache.renderMutex` (`Mutex`) and `ParcelFileDescriptor.open(pdfFile, MODE_READ_ONLY).use { pfd -> PdfRenderer(pfd).use { renderer -> ... } }` on `Dispatchers.IO` to prevent concurrent `PdfRenderer` access or file descriptor leaks.
-   - Caches rendered bitmaps in a bounded `LruCache<String, Bitmap>(12)` using `Bitmap.Config.RGB_565` with an `OutOfMemoryError` cache-eviction fallback, clamps bitmap dimensions (`width.coerceIn(300, 1600)`, `height.coerceIn(400, 2200)`), and debounces zoom slider re-renders by `100ms` (`delay(100L)`).
+   - Caches rendered bitmaps in a bounded `LruCache<String, Bitmap>(12)` using `Bitmap.Config.RGB_565` bitmap memory management with an `OutOfMemoryError` cache-eviction fallback, clamps bitmap dimensions (`width.coerceIn(300, 1600)`, `height.coerceIn(400, 2200)`), and debounces zoom slider re-renders by `100ms` (`delay(100L)`).
    - Includes `BackHandler { viewModel.navigateBack() }` in both `BookPdfReaderScreen` and `BookInteractiveLabScreen`.
 
 ---

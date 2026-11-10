@@ -68,6 +68,7 @@ import com.example.math.MentalMathQuestion
 import com.example.math.MentalMathSessionState
 import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
+import com.example.ui.rememberManagedLazyListState
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -95,6 +96,7 @@ fun MentalMathPlayScreen(
 
     if (session.isFinished) {
         MentalMathSummaryView(
+            viewModel = viewModel,
             session = session,
             onRetry = { viewModel.retryMentalMathChallenge() },
             onSelectAnother = { viewModel.exitMentalMathToSetup() },
@@ -103,6 +105,7 @@ fun MentalMathPlayScreen(
         )
     } else {
         val currentQ = session.questions.getOrNull(session.currentIndex)
+        val playListState = rememberManagedLazyListState(viewModel, "mental_math_play:question_${session.currentIndex}")
 
         Column(
             modifier = modifier
@@ -120,9 +123,11 @@ fun MentalMathPlayScreen(
 
             if (currentQ != null) {
                 LazyColumn(
+                    state = playListState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .weight(1f),
+                        .weight(1f)
+                        .testTag("mental_math_play_list"),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -649,6 +654,7 @@ fun MentalMathProgressBar(session: MentalMathSessionState) {
 
 @Composable
 fun MentalMathSummaryView(
+    viewModel: MathViewModel,
     session: MentalMathSessionState,
     onRetry: () -> Unit,
     onSelectAnother: () -> Unit,
@@ -657,8 +663,10 @@ fun MentalMathSummaryView(
 ) {
     val totalAttempted = session.correctCount + session.wrongCount
     val accuracy = if (totalAttempted > 0) (session.correctCount * 100) / totalAttempted else 0
+    val summaryListState = rememberManagedLazyListState(viewModel, "mental_math_play:summary")
 
     LazyColumn(
+        state = summaryListState,
         modifier = modifier
             .fillMaxSize()
             .testTag("mm_summary_view"),

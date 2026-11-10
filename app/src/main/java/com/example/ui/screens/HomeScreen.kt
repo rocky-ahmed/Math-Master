@@ -215,55 +215,10 @@ fun HomeScreen(
         } else {
             1
         }
-        val initialScrollPosition = remember(viewModel) { viewModel.homeScrollPosition.value }
-        val gridState = rememberSaveable(
-            initialScrollPosition.firstVisibleItemIndex,
-            initialScrollPosition.firstVisibleItemScrollOffset,
-            saver = LazyGridState.Saver
-        ) {
-            LazyGridState(
-                firstVisibleItemIndex = initialScrollPosition.firstVisibleItemIndex,
-                firstVisibleItemScrollOffset = initialScrollPosition.firstVisibleItemScrollOffset
-            )
-        }
-        val hasObservedNonZeroScroll = remember(gridState) {
-            mutableStateOf(
-                initialScrollPosition.firstVisibleItemIndex > 0 ||
-                    initialScrollPosition.firstVisibleItemScrollOffset > 0
-            )
-        }
-
-        LaunchedEffect(gridState, viewModel) {
-            snapshotFlow {
-                gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
-            }.collect { (index, offset) ->
-                if (index > 0 || offset > 0) {
-                    hasObservedNonZeroScroll.value = true
-                    viewModel.updateHomeScrollPosition(
-                        firstVisibleItemIndex = index,
-                        firstVisibleItemScrollOffset = offset
-                    )
-                } else if (hasObservedNonZeroScroll.value) {
-                    viewModel.updateHomeScrollPosition(
-                        firstVisibleItemIndex = 0,
-                        firstVisibleItemScrollOffset = 0
-                    )
-                }
-            }
-        }
-
-        DisposableEffect(gridState, viewModel) {
-            onDispose {
-                val index = gridState.firstVisibleItemIndex
-                val offset = gridState.firstVisibleItemScrollOffset
-                if (index > 0 || offset > 0 || hasObservedNonZeroScroll.value) {
-                    viewModel.updateHomeScrollPosition(
-                        firstVisibleItemIndex = index,
-                        firstVisibleItemScrollOffset = offset
-                    )
-                }
-            }
-        }
+        val gridState = com.example.ui.rememberManagedLazyGridState(
+            viewModel = viewModel,
+            stateKey = Screen.Home.route
+        )
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
@@ -370,7 +325,12 @@ fun HomeScreen(
                 }
 
                 item(span = { GridItemSpan(maxLineSpan) }, key = "home_quiz_list") {
+                    val recentQuizRowState = com.example.ui.rememberManagedLazyListState(
+                        viewModel = viewModel,
+                        stateKey = "home:recent_quizzes_row"
+                    )
                     LazyRow(
+                        state = recentQuizRowState,
                         contentPadding = PaddingValues(horizontal = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {

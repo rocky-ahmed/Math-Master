@@ -71,12 +71,12 @@ fun PracticeLabScreen(
         quizScores.filter { it.topicId.startsWith("PRACTICE_") }
     }
 
-    var selectedCategory by remember { mutableStateOf(PracticeCategory.ADDITION_SUBTRACTION) }
-    var selectedDifficulty by remember { mutableStateOf(PracticeDifficulty.EASY) }
-    var questionCount by remember { mutableIntStateOf(10) }
-    var isUnlimitedMode by remember { mutableStateOf(false) }
-    var selectedInputFormat by remember { mutableStateOf(QuestionInputFormat.MCQ) }
-    var selectedTrack by remember { mutableStateOf(com.example.math.CurriculumTrack.ALL) }
+    var selectedCategory by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:selectedCategory", PracticeCategory.ADDITION_SUBTRACTION)
+    var selectedDifficulty by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:selectedDifficulty", PracticeDifficulty.EASY)
+    var questionCount by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:questionCount", 10)
+    var isUnlimitedMode by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:isUnlimitedMode", false)
+    var selectedInputFormat by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:selectedInputFormat", QuestionInputFormat.MCQ)
+    var selectedTrack by com.example.ui.rememberManagedUiState(viewModel, "practice_lab:selectedTrack", com.example.math.CurriculumTrack.ALL)
 
     val filteredCategories = remember(selectedTrack) {
         PracticeCategory.values().filter {
@@ -95,14 +95,24 @@ fun PracticeLabScreen(
             onBackClick = { viewModel.navigateBack() }
         )
 
+        val mainListState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "practice_lab:main:${selectedTrack.name}"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = mainListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("practice_lab_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Curriculum Track Filter Chips (NCTB, BdMO, BCS)
             item {
+                val trackRowState = com.example.ui.rememberManagedLazyListState(viewModel, "practice_lab:track_row")
                 LazyRow(
+                    state = trackRowState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("practice_track_chip_row"),
@@ -495,7 +505,9 @@ fun PracticeLabScreen(
                 }
 
                 item {
+                    val historyRowState = com.example.ui.rememberManagedLazyListState(viewModel, "practice_lab:history_row")
                     LazyRow(
+                        state = historyRowState,
                         contentPadding = PaddingValues(bottom = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {

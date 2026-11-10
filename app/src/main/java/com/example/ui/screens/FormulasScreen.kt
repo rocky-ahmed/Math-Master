@@ -64,7 +64,7 @@ fun FormulasScreen(
     BackHandler { viewModel.navigateBack() }
 
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
-    var selectedCategoryIndex by remember { mutableIntStateOf(0) } // 0 = Square, 1 = Cube
+    var selectedCategoryIndex by com.example.ui.rememberManagedUiState(viewModel, "formulas:selectedCategoryIndex", 0) // 0 = Square, 1 = Cube
 
     val formulas = if (selectedCategoryIndex == 0) {
         AlgebraFormulaProvider.squareFormulas
@@ -105,8 +105,16 @@ fun FormulasScreen(
             )
         }
 
+        val listState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "formulas:tab_$selectedCategoryIndex"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("formulas_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -409,8 +417,17 @@ fun FormulaDetailScreen(
             }
         )
 
+        val detailListState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "formula_detail:$formulaId"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            state = detailListState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .testTag("formula_detail_list"),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {

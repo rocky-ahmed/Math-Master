@@ -102,6 +102,9 @@ import com.example.math.toBengaliDigits
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.BanglaNumericKeypad
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -119,24 +122,24 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     val historySort by viewModel.examHistorySort.collectAsStateWithLifecycle()
     val comparisonIds by viewModel.comparisonAttemptIds.collectAsStateWithLifecycle()
 
-    var activeCenterTab by remember { mutableIntStateOf(0) } // 0 = কুইজ ও পরীক্ষা, 1 = কাস্টম পরীক্ষা কেন্দ্র, 2 = পরীক্ষার ইতিহাস
+    var activeCenterTab by rememberManagedUiState(viewModel, "quizzes:activeCenterTab", 0) // 0 = কুইজ ও পরীক্ষা, 1 = কাস্টম পরীক্ষা কেন্দ্র, 2 = পরীক্ষার ইতিহাস
 
     // Legacy quick-quiz state (preserved for existing testTags and quick topic launch)
-    var selectedQuestionCount by remember { mutableIntStateOf(10) }
-    var selectedMode by remember { mutableStateOf(QuizMode.TOPIC) }
-    var selectedQuestionType by remember { mutableStateOf(QuizQuestionType.MCQ) }
-    var selectedDifficulty by remember { mutableStateOf(PracticeDifficulty.EASY) }
-    var selectedTimedSeconds by remember { mutableIntStateOf(120) }
+    var selectedQuestionCount by rememberManagedUiState(viewModel, "quizzes:selectedQuestionCount", 10)
+    var selectedMode by rememberManagedUiState(viewModel, "quizzes:selectedMode", QuizMode.TOPIC)
+    var selectedQuestionType by rememberManagedUiState(viewModel, "quizzes:selectedQuestionType", QuizQuestionType.MCQ)
+    var selectedDifficulty by rememberManagedUiState(viewModel, "quizzes:selectedDifficulty", PracticeDifficulty.EASY)
+    var selectedTimedSeconds by rememberManagedUiState(viewModel, "quizzes:selectedTimedSeconds", 120)
 
     // Custom / Preset Exam Builder state
-    var selectedPreset by remember { mutableStateOf(ExamPresetType.QUICK_TEST) }
-    var selectedExamTopics by remember { mutableStateOf(setOf(QuizTopic.MIXED_CHALLENGE)) }
-    var examQuestionCount by remember { mutableIntStateOf(10) }
-    var examDurationMinutes by remember { mutableIntStateOf(5) }
-    var examDifficulty by remember { mutableStateOf(PracticeDifficulty.MEDIUM) }
-    var examQuestionType by remember { mutableStateOf(QuizQuestionType.MCQ) }
-    var examNegativeMarking by remember { mutableStateOf(0.0) }
-    var examImmediateFeedback by remember { mutableStateOf(false) }
+    var selectedPreset by rememberManagedUiState(viewModel, "quizzes:selectedPreset", ExamPresetType.QUICK_TEST)
+    var selectedExamTopics by rememberManagedUiState(viewModel, "quizzes:selectedExamTopics", setOf(QuizTopic.MIXED_CHALLENGE))
+    var examQuestionCount by rememberManagedUiState(viewModel, "quizzes:examQuestionCount", 10)
+    var examDurationMinutes by rememberManagedUiState(viewModel, "quizzes:examDurationMinutes", 5)
+    var examDifficulty by rememberManagedUiState(viewModel, "quizzes:examDifficulty", PracticeDifficulty.MEDIUM)
+    var examQuestionType by rememberManagedUiState(viewModel, "quizzes:examQuestionType", QuizQuestionType.MCQ)
+    var examNegativeMarking by rememberManagedUiState(viewModel, "quizzes:examNegativeMarking", 0.0)
+    var examImmediateFeedback by rememberManagedUiState(viewModel, "quizzes:examImmediateFeedback", false)
 
     Scaffold(
         topBar = {
@@ -264,8 +267,15 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
             when (activeCenterTab) {
                 0 -> {
+                    val tab0ListState = rememberManagedLazyListState(viewModel, "quizzes:tab_0")
+                    val modeRowScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_0:mode_row")
+                    val qTypeRowScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_0:qtype_row")
+
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab0ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("quizzes_tab_0_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -287,7 +297,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
+                                            .horizontalScroll(modeRowScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         QuizMode.values().forEach { mode ->
@@ -317,7 +327,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
+                                            .horizontalScroll(qTypeRowScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         QuizQuestionType.values().forEach { qType ->
@@ -514,8 +524,16 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
                 1 -> {
                     // Tab 1: Professional Exam Center & Custom Builder
+                    val tab1ListState = rememberManagedLazyListState(viewModel, "quizzes:tab_1")
+                    val qCountScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_1:qcount_row")
+                    val durationScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_1:duration_row")
+                    val negScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_1:neg_row")
+
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab1ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("quizzes_tab_1_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -629,7 +647,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
                                     Text("প্রশ্ন সংখ্যা:", fontWeight = FontWeight.SemiBold)
                                     Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        modifier = Modifier.horizontalScroll(qCountScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         listOf(10, 15, 20, 25, 30, 40).forEach { qCount ->
@@ -644,7 +662,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
                                     Text("সময়সীমা (মিনিট):", fontWeight = FontWeight.SemiBold)
                                     Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        modifier = Modifier.horizontalScroll(durationScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         listOf(0 to "সময়সীমাহীন", 5 to "৫ মিনিট", 10 to "১০ মিনিট", 15 to "১৫ মিনিট", 25 to "২৫ মিনিট", 30 to "৩০ মিনিট").forEach { (min, label) ->
@@ -659,7 +677,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
                                     Text("নেগেটিভ মার্কিং (কাস্টম অনুশীলন ও ঐতিহাসিক রেফারেন্স):", fontWeight = FontWeight.SemiBold)
                                     Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        modifier = Modifier.horizontalScroll(negScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         listOf(
@@ -752,9 +770,15 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     }
 
                     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
+                    val tab2ListState = rememberManagedLazyListState(viewModel, "quizzes:tab_2")
+                    val histFilterScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_2:filter_row")
+                    val histSortScrollState = rememberManagedScrollState(viewModel, "quizzes:tab_2:sort_row")
 
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab2ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("quizzes_tab_2_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -762,7 +786,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
+                                    .horizontalScroll(histFilterScrollState),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 ExamHistoryFilter.values().forEach { filter ->
@@ -778,7 +802,7 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
+                                    .horizontalScroll(histSortScrollState),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 ExamHistorySort.values().forEach { sort ->
@@ -957,7 +981,7 @@ private fun ExamAttemptComparisonCard(first: ExamAttemptEntity, second: ExamAtte
 @Composable
 fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     val session by viewModel.quizSession.collectAsStateWithLifecycle()
-    var showPaletteSheet by remember { mutableStateOf(false) }
+    var showPaletteSheet by rememberManagedUiState(viewModel, "quiz_play:showPaletteSheet", false)
 
     BackHandler {
         viewModel.navigateBack()
@@ -1092,6 +1116,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     ) { padding ->
         if (session.isFinished) {
             QuizCompletedContent(
+                viewModel = viewModel,
                 session = session,
                 onRetake = {
                     if (session.isFullExamMode) {
@@ -1133,11 +1158,14 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
             val total = session.questions.size
             val progress = (session.currentIndex + 1).toFloat() / total.coerceAtLeast(1)
             val isMarkedForReview = session.markedForReviewIndices.contains(session.currentIndex)
+            val playListState = rememberManagedLazyListState(viewModel, "quiz_play:question_${session.currentIndex}")
 
             LazyColumn(
+                state = playListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(padding)
+                    .testTag("quiz_play_list"),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -1525,6 +1553,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
 @Composable
 private fun QuizCompletedContent(
+    viewModel: MathViewModel,
     session: com.example.ui.QuizSessionState,
     onRetake: () -> Unit,
     onReviewWrong: () -> Unit,
@@ -1540,9 +1569,13 @@ private fun QuizCompletedContent(
         ?: if (total > 0) (session.correctCount * 100) / total else 0
     val wrongCount = detailed?.wrongCount ?: session.incorrectQuestions.size
     val unansweredCount = detailed?.unansweredCount ?: 0
+    val completedListState = rememberManagedLazyListState(viewModel, "quiz_play:completed")
 
     LazyColumn(
-        modifier = modifier.padding(horizontal = 16.dp),
+        state = completedListState,
+        modifier = modifier
+            .padding(horizontal = 16.dp)
+            .testTag("quiz_completed_list"),
         contentPadding = PaddingValues(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {

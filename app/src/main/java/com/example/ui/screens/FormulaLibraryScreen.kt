@@ -111,19 +111,19 @@ fun FormulaLibraryScreen(
     val recentFormulas by viewModel.recentFormulas.collectAsStateWithLifecycle()
     val selectedLibraryFormulaId by viewModel.selectedLibraryFormulaId.collectAsStateWithLifecycle()
 
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedSubject by remember { mutableStateOf<FormulaSubject?>(null) } // null = All
-    var selectedSubCategory by remember { mutableStateOf<String?>(null) }
-    var selectedDifficulty by remember { mutableStateOf<FormulaDifficulty?>(null) }
-    var selectedTrack by remember { mutableStateOf(CurriculumTrack.ALL) }
-    var showOnlyBookmarked by remember { mutableStateOf(false) }
-    var showOnlyRecent by remember { mutableStateOf(false) }
+    var searchQuery by com.example.ui.rememberManagedUiState(viewModel, "formula_library:searchQuery", "")
+    var selectedSubject by com.example.ui.rememberManagedUiState<FormulaSubject?>(viewModel, "formula_library:selectedSubject", null) // null = All
+    var selectedSubCategory by com.example.ui.rememberManagedUiState<String?>(viewModel, "formula_library:selectedSubCategory", null)
+    var selectedDifficulty by com.example.ui.rememberManagedUiState<FormulaDifficulty?>(viewModel, "formula_library:selectedDifficulty", null)
+    var selectedTrack by com.example.ui.rememberManagedUiState(viewModel, "formula_library:selectedTrack", CurriculumTrack.ALL)
+    var showOnlyBookmarked by com.example.ui.rememberManagedUiState(viewModel, "formula_library:showOnlyBookmarked", false)
+    var showOnlyRecent by com.example.ui.rememberManagedUiState(viewModel, "formula_library:showOnlyRecent", false)
     var showCheatSheetDialog by remember { mutableStateOf(false) }
     // 0 = Unicode, 1 = LaTeX, 2 = Plain Text
-    var notationMode by remember { mutableIntStateOf(0) }
+    var notationMode by com.example.ui.rememberManagedUiState(viewModel, "formula_library:notationMode", 0)
 
     // Expanded formula cards set
-    var expandedFormulaIds by remember { mutableStateOf(setOf<String>()) }
+    var expandedFormulaIds by com.example.ui.rememberManagedUiState(viewModel, "formula_library:expandedFormulaIds", setOf<String>())
 
     LaunchedEffect(selectedLibraryFormulaId) {
         val targetId = selectedLibraryFormulaId
@@ -311,7 +311,9 @@ fun FormulaLibraryScreen(
         }
 
         // Curriculum Track Filter Chips (NCTB, BdMO Olympiad, BCS)
+        val trackRowState = com.example.ui.rememberManagedLazyListState(viewModel, "formula_library:track_row")
         LazyRow(
+            state = trackRowState,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 6.dp)
@@ -335,7 +337,9 @@ fun FormulaLibraryScreen(
         }
 
         // Full 12-Category Horizontal Filter Row
+        val subjectRowState = com.example.ui.rememberManagedLazyListState(viewModel, "formula_library:subject_row")
         LazyRow(
+            state = subjectRowState,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp)
@@ -376,7 +380,9 @@ fun FormulaLibraryScreen(
         }
 
         // Subcategory + Difficulty + Notation Mode Filter Chips Row
+        val subCatRowState = com.example.ui.rememberManagedLazyListState(viewModel, "formula_library:subcat_row:${selectedSubject?.name ?: "ALL"}")
         LazyRow(
+            state = subCatRowState,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 4.dp)
@@ -536,7 +542,12 @@ fun FormulaLibraryScreen(
                 }
             }
         } else {
+            val formulaListState = com.example.ui.rememberManagedLazyListState(
+                viewModel = viewModel,
+                stateKey = "formula_library:list:${selectedSubject?.name ?: "ALL"}"
+            )
             LazyColumn(
+                state = formulaListState,
                 modifier = Modifier
                     .fillMaxSize()
                     .testTag("formula_list"),

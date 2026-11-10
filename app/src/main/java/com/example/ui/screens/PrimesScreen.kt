@@ -88,10 +88,13 @@ fun PrimesScreen(
 
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by com.example.ui.rememberManagedUiState(viewModel, "primes:selectedTabIndex", 0)
     var selectedPrimeInfo by remember { mutableStateOf<PrimeNumberInfo?>(null) }
-    var searchInput by remember { mutableStateOf("") }
-    var searchedNumberInfo by remember { mutableStateOf<PrimeNumberInfo?>(null) }
+    var searchInput by com.example.ui.rememberManagedUiState(viewModel, "primes:searchInput", "")
+    var searchedNumberInfo by remember(searchInput) {
+        val num = BengaliNumberFormatter.toEnglishDigits(searchInput).toIntOrNull()
+        mutableStateOf(if (num != null && num > 0) PrimeNumberProvider.getPrimeInfo(num) else null)
+    }
 
     // Range Selection
     val ranges = listOf(PrimeRange.RANGE_1_100, PrimeRange.RANGE_101_200)
@@ -105,9 +108,9 @@ fun PrimesScreen(
     }
 
     // Quick range calculator states
-    var calcStartDecadeIdx by remember(selectedTabIndex) { mutableIntStateOf(0) }
-    var calcEndDecadeIdx by remember(selectedTabIndex) { mutableIntStateOf(magicCodeInfo.decadeGroups.lastIndex) }
-    var showCalculator by remember { mutableStateOf(false) }
+    var calcStartDecadeIdx by com.example.ui.rememberManagedUiState(viewModel, "primes:tab_${selectedTabIndex}:calcStart", 0)
+    var calcEndDecadeIdx by com.example.ui.rememberManagedUiState(viewModel, "primes:tab_${selectedTabIndex}:calcEnd", magicCodeInfo.decadeGroups.lastIndex)
+    var showCalculator by com.example.ui.rememberManagedUiState(viewModel, "primes:showCalculator", false)
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -142,8 +145,16 @@ fun PrimesScreen(
             }
         }
 
+        val listState = com.example.ui.rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "primes:tab_$selectedTabIndex"
+        )
+
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("primes_list"),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {

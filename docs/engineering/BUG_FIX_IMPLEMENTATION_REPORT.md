@@ -1,7 +1,9 @@
 # Math Master — Bug Fix Implementation Report (`BUG-01` through `BUG-21`)
 
 ## 1. Executive Summary
-All **21 confirmed engineering defects (`BUG-01` through `BUG-21`)** across the Exam Engine, BCS Preparation System, Mathematical Engines, NCTB Book & PDF Reader, Number System Practice, Bookmarks Deep-Linking, Dashboard Analytics, and Room v9 Multi-Profile Persistence have been fixed at their root causes without breaking existing user data or module functionality.
+All **21 confirmed Phase 1 engineering defects (`BUG-01` through `BUG-21`)** across the Exam Engine (`BUG-01`: **Numerical Keypad Scoring and Negative Marking**; `BUG-02`–`BUG-04`), BCS Preparation System (`BUG-05`, `BUG-06`, `BUG-13`, `BUG-21`), Mathematical Engines (`BUG-07`, `BUG-08`), NCTB Book & PDF Reader (`BUG-09` `+5` page offset), Room v9 Migrations (`BUG-10`), Home Grid & Backstack (`BUG-11`, `BUG-12`), Untimed/Review/Question-Type Quizzes (`BUG-14`–`BUG-16`), Number System Practice (`BUG-17`), Lifecycle State Collection (`BUG-18`), Bookmarks Deep-Linking (`BUG-19`), and Dashboard Analytics (`BUG-20`) have been fixed at their root causes without breaking existing user data or module functionality.
+
+> **Forward Traceability Note (`BUG-22` – `BUG-36`)**: For Phase 2 (`BUG-22`–`BUG-28`), Phase 3 (`BUG-29`–`BUG-35`, including **`BUG-35`: Book PDF Reader concurrency, bitmap memory management, `Mutex` serialization and `LruCache` optimization**), and Phase 4 (**`BUG-36`: Home Screen Scroll Position Restoration**), see [`FINAL_BUG_FIX_AND_REFINEMENT_REPORT.md`](FINAL_BUG_FIX_AND_REFINEMENT_REPORT.md) and [`../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md).
 
 ---
 

@@ -82,6 +82,8 @@ import com.example.ui.customization.CustomModuleRenderer
 import com.example.ui.customization.CustomFontWeight
 import com.example.ui.customization.HomeModuleItem
 import com.example.ui.customization.SectionKey
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedUiState
 import com.example.ui.theme.AppThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,10 +101,11 @@ fun CustomizeScreen(
     val savedState by viewModel.customizationState.collectAsStateWithLifecycle()
     val currentThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
-    var selectedSectionKey by remember { mutableStateOf(SectionKey.TABLES) }
+    var selectedTabIndex by rememberManagedUiState(viewModel, "customize:selectedTabIndex", 0)
+    var selectedSectionKey by rememberManagedUiState(viewModel, "customize:selectedSectionKey", SectionKey.TABLES)
     var showResetAllDialog by remember { mutableStateOf(false) }
     var showSavedSnackbar by remember { mutableStateOf(false) }
+    val tabListState = rememberManagedLazyListState(viewModel, "customize:tab_$selectedTabIndex")
 
     val tabs = listOf(
         "লেআউট",
@@ -227,10 +230,12 @@ fun CustomizeScreen(
 
         // Tab Content
         LazyColumn(
+            state = tabListState,
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp)
+                .testTag("customize_list"),
             contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {

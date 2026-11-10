@@ -27,11 +27,12 @@ All four bundled PDF files in `app/src/main/assets/books/` were inspected direct
 ## 2. Hybrid Reader (`BookReaderAndLabsScreens.kt`)
 
 ### 2.1 Native `PdfRenderer` Mode (`PreferredReaderViewMode.PDF_CANVAS`, `BUG-09` & `BUG-35`)
-- **Synchronized Atomic Asset Extraction (`resolveOfflinePdfFile`, `BUG-35`)**:
-  - Copies the bundled PDF from `context.assets.open("books/${bookId.id}.pdf")` to a unique temporary file `cached_${bookId.id}_${System.nanoTime()}.pdf.tmp` in `context.cacheDir` under `pdfExtractionLock` synchronization and atomically renames to `cached_${bookId.id}.pdf`.
-- **Serialized Rendering & Bounded Cache (`BookPdfRenderCache`, `BUG-35`)**:
-  - Serializes `PdfRenderer.openPage` operations using a coroutine `Mutex` (`renderMutex`).
-  - Caches rendered page bitmaps in a bounded `LruCache<String, Bitmap>(12)` using `Bitmap.Config.RGB_565` (50% lower memory footprint than `ARGB_8888`) with an automatic `OutOfMemoryError` cache-eviction fallback.
+- **Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization (`BUG-35`)**:
+  - **Synchronized Atomic Asset Extraction (`resolveOfflinePdfFile`, `BUG-35`)**:
+    - Copies the bundled PDF from `context.assets.open("books/${bookId.id}.pdf")` to a unique temporary file `cached_${bookId.id}_${System.nanoTime()}.pdf.tmp` in `context.cacheDir` under `pdfExtractionLock` synchronization and atomically renames to `cached_${bookId.id}.pdf`.
+  - **Serialized Rendering & Bounded Cache (`BookPdfRenderCache`, `BUG-35`)**:
+    - Serializes `PdfRenderer.openPage` operations using a coroutine `Mutex` (`renderMutex`).
+    - Caches rendered page bitmaps in a bounded `LruCache<String, Bitmap>(12)` using `Bitmap.Config.RGB_565` (50% lower memory footprint than `ARGB_8888`) with an automatic `OutOfMemoryError` cache-eviction fallback.
 - **Zoom & Page Controls**:
   - Supports `1.0x`, `1.25x`, `1.5x`, `2.0x`, `2.5x`, and `3.0x` zoom chips, direct printed-page and PDF-page jump (`BUG-09`), and 1-tap page bookmarking (`toggleBookPageBookmark`).
 

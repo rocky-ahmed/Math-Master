@@ -95,6 +95,9 @@ import com.example.math.toBengaliDigits
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.BcsDiagramView
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -132,29 +135,69 @@ fun BcsPreparationScreen(
         )
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: ড্যাশবোর্ড, 1: গাণিতিক যুক্তি, 2: মানসিক দক্ষতা, 3: বিগত প্রশ্ন, 4: মক টেস্ট ও রিভিশন
+    var selectedTab by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedTab",
+        defaultValue = 0
+    ) // 0: ড্যাশবোর্ড, 1: গাণিতিক যুক্তি, 2: মানসিক দক্ষতা, 3: বিগত প্রশ্ন, 4: মক টেস্ট ও রিভিশন
     var showProfileDialog by remember { mutableStateOf(false) }
-    var selectedLessonForDetails by remember { mutableStateOf<BcsTopicGuideLesson?>(null) }
+    var selectedLessonForDetails by rememberManagedUiState<BcsTopicGuideLesson?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedLessonForDetails",
+        defaultValue = null
+    )
 
     // First-launch Onboarding Trigger
     val isFirstLaunch = userProfile == null || !userProfile!!.onboardingCompleted
 
     // Unit, Domain & Source filters
-    var selectedUnitFilter by remember { mutableStateOf<BcsSyllabusUnit?>(null) }
-    var selectedMathDomainFilter by remember { mutableStateOf<com.example.math.BcsMathDomain?>(null) }
-    var selectedSourceFilter by remember { mutableStateOf<BcsQuestionSourceType?>(null) }
-    var selectedMentalCategory by remember { mutableStateOf<BcsMentalAbilityCategory?>(null) }
-    var selectedPracticeMode by remember { mutableStateOf(com.example.math.BcsPracticeMode.BCS_50TH_PRELIM_35_MOCK) }
+    var selectedUnitFilter by rememberManagedUiState<BcsSyllabusUnit?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedUnitFilter",
+        defaultValue = null
+    )
+    var selectedMathDomainFilter by rememberManagedUiState<com.example.math.BcsMathDomain?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedMathDomainFilter",
+        defaultValue = null
+    )
+    var selectedSourceFilter by rememberManagedUiState<BcsQuestionSourceType?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedSourceFilter",
+        defaultValue = null
+    )
+    var selectedMentalCategory by rememberManagedUiState<BcsMentalAbilityCategory?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedMentalCategory",
+        defaultValue = null
+    )
+    var selectedPracticeMode by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:selectedPracticeMode",
+        defaultValue = com.example.math.BcsPracticeMode.BCS_50TH_PRELIM_35_MOCK
+    )
 
     // Mock Exam Configuration
-    var mockQuestionCount by remember(selectedSyllabusVersion) {
-        mutableIntStateOf(selectedSyllabusVersion.totalMarks)
-    }
-    var mockDurationMinutes by remember(selectedSyllabusVersion) {
-        mutableIntStateOf(selectedSyllabusVersion.totalMarks)
-    }
-    var mockNegativeMark by remember { mutableStateOf(0.0) }
-    var mockTargetUnit by remember { mutableStateOf<BcsSyllabusUnit?>(null) }
+    var mockQuestionCount by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:${selectedSyllabusVersion.name}:mockQuestionCount",
+        defaultValue = selectedSyllabusVersion.totalMarks
+    )
+    var mockDurationMinutes by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:${selectedSyllabusVersion.name}:mockDurationMinutes",
+        defaultValue = selectedSyllabusVersion.totalMarks
+    )
+    var mockNegativeMark by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:mockNegativeMark",
+        defaultValue = 0.0
+    )
+    var mockTargetUnit by rememberManagedUiState<BcsSyllabusUnit?>(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${selectedExamProfile.id}:mockTargetUnit",
+        defaultValue = null
+    )
 
     // First-Launch or Manual Profile Onboarding Dialog
     if (isFirstLaunch || showProfileDialog) {
@@ -291,6 +334,7 @@ fun BcsPreparationScreen(
                 // ==========================================
                 0 -> {
                     BcsDashboardView(
+                        viewModel = viewModel,
                         profile = selectedExamProfile,
                         currentStage = BcsPreparationStage.fromNumber(userProfile?.currentStageIndex ?: 1),
                         weakUnits = weakUnitAnalysis,
@@ -317,8 +361,23 @@ fun BcsPreparationScreen(
                 // TAB 1: MATHEMATICAL REASONING GUIDE & UNITS
                 // ==========================================
                 1 -> {
+                    val tab1ListState = rememberManagedLazyListState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_1"
+                    )
+                    val tab1VersionScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_1:version_row"
+                    )
+                    val tab1DomainScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_1:domain_row"
+                    )
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab1ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("bcs_tab_1_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -337,7 +396,7 @@ fun BcsPreparationScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
+                                        .horizontalScroll(tab1VersionScrollState),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     FilterChip(
@@ -406,7 +465,7 @@ fun BcsPreparationScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
+                                        .horizontalScroll(tab1DomainScrollState),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     FilterChip(
@@ -633,6 +692,8 @@ fun BcsPreparationScreen(
                 // ==========================================
                 2 -> {
                     BcsMentalAbilityTrackView(
+                        viewModel = viewModel,
+                        profileId = selectedExamProfile.id,
                         selectedCategory = selectedMentalCategory,
                         onSelectCategory = { selectedMentalCategory = it },
                         onRecordMistake = { q, userAns ->
@@ -660,9 +721,24 @@ fun BcsPreparationScreen(
                     }
                     val verifiedCount = BcsPreparationRepository.verifiedPreviousBcsQuestions.size
                     val practiceCount = BcsPreparationRepository.syllabusAlignedPracticeQuestions.size
+                    val tab3ListState = rememberManagedLazyListState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_3"
+                    )
+                    val tab3UnitScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_3:unit_row"
+                    )
+                    val tab3SourceScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_3:source_row"
+                    )
 
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab3ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("bcs_tab_3_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -672,7 +748,7 @@ fun BcsPreparationScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
+                                        .horizontalScroll(tab3UnitScrollState),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     FilterChip(
@@ -695,7 +771,7 @@ fun BcsPreparationScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
+                                        .horizontalScroll(tab3SourceScrollState),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     FilterChip(
@@ -745,8 +821,27 @@ fun BcsPreparationScreen(
                 // TAB 4: MOCK TEST SIMULATOR & MISTAKE NOTEBOOK
                 // ==========================================
                 4 -> {
+                    val tab4ListState = rememberManagedLazyListState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_4"
+                    )
+                    val tab4VersionScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_4:version_row"
+                    )
+                    val tab4NegScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_4:neg_row"
+                    )
+                    val tab4ModeScrollState = rememberManagedScrollState(
+                        viewModel = viewModel,
+                        stateKey = "bcs_preparation:${selectedExamProfile.id}:tab_4:mode_row"
+                    )
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        state = tab4ListState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("bcs_tab_4_list"),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
@@ -794,7 +889,7 @@ fun BcsPreparationScreen(
 
                                     Text("সিলেবাস সংস্করণ:", fontWeight = FontWeight.SemiBold)
                                     Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        modifier = Modifier.horizontalScroll(tab4VersionScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         FilterChip(
@@ -833,7 +928,7 @@ fun BcsPreparationScreen(
 
                                     Text("নেগেটিভ মার্কিং:", fontWeight = FontWeight.SemiBold)
                                     Row(
-                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        modifier = Modifier.horizontalScroll(tab4NegScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         BcsPreparationRepository.negativeMarkingOptions.forEach { option ->
@@ -895,7 +990,7 @@ fun BcsPreparationScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState()),
+                                            .horizontalScroll(tab4ModeScrollState),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         com.example.math.BcsPracticeMode.entries.forEach { mode ->
@@ -1028,6 +1123,7 @@ fun BcsPreparationScreen(
  */
 @Composable
 private fun BcsDashboardView(
+    viewModel: MathViewModel,
     profile: BcsExamProfile,
     currentStage: BcsPreparationStage,
     weakUnits: List<com.example.math.BcsWeakUnitAnalysis>,
@@ -1046,9 +1142,20 @@ private fun BcsDashboardView(
 ) {
     val progressPct = if (totalLessons > 0) (completedLessonsCount * 100) / totalLessons else 0
     val latestGoal = studyGoals.firstOrNull { it.examProfileId == profile.id }
+    val tab0ListState = rememberManagedLazyListState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${profile.id}:tab_0"
+    )
+    val stageRowState = rememberManagedLazyListState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:${profile.id}:tab_0:stage_row"
+    )
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = tab0ListState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("bcs_tab_0_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1126,6 +1233,7 @@ private fun BcsDashboardView(
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(text = "আপনার প্রস্তুতি পর্যায় (৮টি ধাপের অগ্রযাত্রা):", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                     LazyRow(
+                        state = stageRowState,
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -1299,6 +1407,8 @@ private fun BcsDashboardView(
  */
 @Composable
 private fun BcsMentalAbilityTrackView(
+    viewModel: MathViewModel,
+    profileId: String,
     selectedCategory: BcsMentalAbilityCategory?,
     onSelectCategory: (BcsMentalAbilityCategory?) -> Unit,
     onRecordMistake: (BcsMentalAbilityQuestion, String) -> Unit
@@ -1306,9 +1416,20 @@ private fun BcsMentalAbilityTrackView(
     val questions = remember(selectedCategory) {
         BcsCurriculumAndGuideRepository.getMentalAbilityQuestionsForCategory(selectedCategory)
     }
+    val tab2ListState = rememberManagedLazyListState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:$profileId:tab_2"
+    )
+    val tab2CategoryScrollState = rememberManagedScrollState(
+        viewModel = viewModel,
+        stateKey = "bcs_preparation:$profileId:tab_2:category_row"
+    )
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = tab2ListState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("bcs_tab_2_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1322,7 +1443,7 @@ private fun BcsMentalAbilityTrackView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(tab2CategoryScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(

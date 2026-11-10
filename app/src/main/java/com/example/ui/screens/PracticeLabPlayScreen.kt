@@ -76,6 +76,7 @@ import com.example.math.PracticeDifficulty
 import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.rememberManagedLazyListState
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -102,6 +103,7 @@ fun PracticeLabPlayScreen(
 
     if (session.isFinished) {
         PracticeSessionSummary(
+            viewModel = viewModel,
             session = session,
             onRetry = { viewModel.retryPracticeSession() },
             onRetryIncorrect = { viewModel.retryIncorrectPracticeQuestions() },
@@ -228,7 +230,12 @@ fun PracticeLabPlayScreen(
             }
 
             if (currentQ != null) {
+                val playListState = rememberManagedLazyListState(
+                    viewModel = viewModel,
+                    stateKey = "practice_lab_play:question_${session.currentIndex}"
+                )
                 LazyColumn(
+                    state = playListState,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
@@ -812,6 +819,7 @@ fun PracticeLabPlayScreen(
 
 @Composable
 private fun PracticeSessionSummary(
+    viewModel: MathViewModel,
     session: com.example.math.PracticeSessionState,
     onRetry: () -> Unit,
     onRetryIncorrect: () -> Unit,
@@ -830,6 +838,11 @@ private fun PracticeSessionSummary(
         "${BengaliNumberFormatter.toBn(secs.toInt())} সেকেন্ড"
     }
 
+    val summaryListState = rememberManagedLazyListState(
+        viewModel = viewModel,
+        stateKey = "practice_lab_play:summary"
+    )
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -842,6 +855,7 @@ private fun PracticeSessionSummary(
         )
 
         LazyColumn(
+            state = summaryListState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 16.dp),

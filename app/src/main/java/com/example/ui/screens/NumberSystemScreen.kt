@@ -97,6 +97,8 @@ import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathSectionHeader
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,7 +111,7 @@ fun NumberSystemScreen(
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
     // Tabs: 0 -> বাস্তব সংখ্যা শ্রেণিবিভাগ, 1 -> বিভাজ্যতার নিয়ম (২-১১), 2 -> গ.সা.গু ও ল.সা.গু ক্যালকুলেটর, 3 -> অনুশীলন ল্যাব
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberManagedUiState(viewModel, "number_system:selectedTab", 0)
     val tabTitles = listOf("সংখ্যার শ্রেণিবিভাগ", "বিভাজ্যতার নিয়ম", "গ.সা.গু ও ল.সা.গু", "বিসিএস প্র্যাকটিস")
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -172,15 +174,23 @@ fun NumberClassificationTab(
     viewModel: MathViewModel,
     bookmarks: List<BookmarkEntity>
 ) {
-    var testNumberInput by remember { mutableStateOf("") }
-    var classificationResult by remember { mutableStateOf<String?>(null) }
-    var expandedCategory by remember { mutableStateOf<String?>(null) }
-    var activeGuidedStepIdx by remember { mutableIntStateOf(0) }
-    var currentExerciseIdx by remember { mutableIntStateOf(0) }
+    var testNumberInput by rememberManagedUiState(viewModel, "number_system:tab_0:testNumberInput", "")
+    var classificationResult by remember(testNumberInput) {
+        val n = BengaliNumberFormatter.toEnglishDigits(testNumberInput.trim()).toLongOrNull()
+        mutableStateOf(if (n != null && testNumberInput.isNotBlank()) NumberSystemProvider.classifyNumber(n) else null)
+    }
+    var expandedCategory by rememberManagedUiState<String?>(viewModel, "number_system:tab_0:expandedCategory", null)
+    var activeGuidedStepIdx by rememberManagedUiState(viewModel, "number_system:tab_0:activeGuidedStepIdx", 0)
+    var currentExerciseIdx by rememberManagedUiState(viewModel, "number_system:tab_0:currentExerciseIdx", 0)
     var selectedExerciseOption by remember(currentExerciseIdx) { mutableStateOf<Int?>(null) }
+    val listState = rememberManagedLazyListState(viewModel, "number_system:tab_0")
+    val guidedRowState = rememberManagedLazyListState(viewModel, "number_system:tab_0:guided_row")
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("number_system_tab_0_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -208,7 +218,10 @@ fun NumberClassificationTab(
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(
+                        state = guidedRowState,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         items(steps.size) { idx ->
                             val st = steps[idx]
                             FilterChip(
@@ -630,15 +643,20 @@ fun DivisibilityRulesTab(
     viewModel: MathViewModel
 ) {
     val rules = NumberSystemProvider.divisibilityRules
-    var selectedDivisor by remember { mutableIntStateOf(2) }
-    var userTestNumber by remember { mutableStateOf("4872") }
+    var selectedDivisor by rememberManagedUiState(viewModel, "number_system:tab_1:selectedDivisor", 2)
+    var userTestNumber by rememberManagedUiState(viewModel, "number_system:tab_1:userTestNumber", "4872")
+    val listState = rememberManagedLazyListState(viewModel, "number_system:tab_1")
+    val divisorRowState = rememberManagedLazyListState(viewModel, "number_system:tab_1:divisor_row")
 
     val activeRule = rules.find { it.divisor == selectedDivisor } ?: rules.first()
     val testNumberLong = BengaliNumberFormatter.toEnglishDigits(userTestNumber.trim()).toLongOrNull() ?: activeRule.testExampleNumber
     val (isDivisible, dynamicExplanation) = NumberSystemProvider.checkDivisibility(testNumberLong, activeRule.divisor)
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("number_system_tab_1_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -650,6 +668,7 @@ fun DivisibilityRulesTab(
             )
             Spacer(modifier = Modifier.height(6.dp))
             LazyRow(
+                state = divisorRowState,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -830,19 +849,20 @@ fun DivisibilityRulesTab(
 fun GcdLcmCalculatorTab(
     viewModel: MathViewModel
 ) {
-    var inputA by remember { mutableStateOf("24") }
-    var inputB by remember { mutableStateOf("36") }
-    var calculatedResult by remember { mutableStateOf<GcdLcmResult?>(null) }
-
-    // Auto-calculate default on first load
-    if (calculatedResult == null) {
+    var inputA by rememberManagedUiState(viewModel, "number_system:tab_2:inputA", "24")
+    var inputB by rememberManagedUiState(viewModel, "number_system:tab_2:inputB", "36")
+    var calculatedResult by remember(inputA, inputB) {
         val a = BengaliNumberFormatter.toEnglishDigits(inputA.trim()).toLongOrNull() ?: 24L
         val b = BengaliNumberFormatter.toEnglishDigits(inputB.trim()).toLongOrNull() ?: 36L
-        calculatedResult = NumberSystemProvider.calculateGcdLcm(a, b)
+        mutableStateOf<GcdLcmResult?>(NumberSystemProvider.calculateGcdLcm(a, b))
     }
+    val listState = rememberManagedLazyListState(viewModel, "number_system:tab_2")
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("number_system_tab_2_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -1174,13 +1194,20 @@ fun GcdLcmCalculatorTab(
 fun NumberSystemPracticeHubTab(
     viewModel: MathViewModel
 ) {
-    var selectedDifficulty by remember { mutableStateOf(NumberSystemDifficulty.EASY) }
-    var selectedTopic by remember { mutableStateOf(NumberSystemTopic.ALL) }
-    var selectedTrack by remember { mutableStateOf(com.example.math.CurriculumTrack.ALL) }
-    var selectedInputFormat by remember { mutableStateOf(com.example.math.QuestionInputFormat.MCQ) }
+    var selectedDifficulty by rememberManagedUiState(viewModel, "number_system:tab_3:selectedDifficulty", NumberSystemDifficulty.EASY)
+    var selectedTopic by rememberManagedUiState(viewModel, "number_system:tab_3:selectedTopic", NumberSystemTopic.ALL)
+    var selectedTrack by rememberManagedUiState(viewModel, "number_system:tab_3:selectedTrack", com.example.math.CurriculumTrack.ALL)
+    var selectedInputFormat by rememberManagedUiState(viewModel, "number_system:tab_3:selectedInputFormat", com.example.math.QuestionInputFormat.MCQ)
+    val listState = rememberManagedLazyListState(viewModel, "number_system:tab_3")
+    val trackRowState = rememberManagedLazyListState(viewModel, "number_system:tab_3:track_row")
+    val formatRowState = rememberManagedLazyListState(viewModel, "number_system:tab_3:format_row")
+    val topicRowState = rememberManagedLazyListState(viewModel, "number_system:tab_3:topic_row")
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("number_system_tab_3_list"),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -1216,6 +1243,7 @@ fun NumberSystemPracticeHubTab(
             )
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(
+                state = trackRowState,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.testTag("ns_track_chip_row")
             ) {
@@ -1264,7 +1292,10 @@ fun NumberSystemPracticeHubTab(
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
             )
             Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                state = formatRowState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 items(com.example.math.QuestionInputFormat.entries) { format ->
                     FilterChip(
                         selected = selectedInputFormat == format,
@@ -1283,7 +1314,10 @@ fun NumberSystemPracticeHubTab(
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
             )
             Spacer(modifier = Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                state = topicRowState,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 items(NumberSystemTopic.entries) { topic ->
                     FilterChip(
                         selected = selectedTopic == topic,

@@ -71,6 +71,9 @@ import com.example.math.BookId
 import com.example.math.BookPracticeMode
 import com.example.math.BookQuestionFormat
 import com.example.ui.MathViewModel
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedScrollState
+import com.example.ui.rememberManagedUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,10 +124,20 @@ fun BookPracticeScreen(
             return@Scaffold
         }
 
+        val practiceListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_practice:${session.bookId.id}:${session.currentIndex}"
+        )
+        val modeStripScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_practice:${session.bookId.id}:mode_strip"
+        )
         LazyColumn(
+            state = practiceListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_practice_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -133,7 +146,7 @@ fun BookPracticeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(modeStripScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     BookPracticeMode.entries.forEach { mode ->
@@ -531,10 +544,26 @@ fun BookRevisionScreen(
     val spacedRevisions by viewModel.bookSpacedRevisions.collectAsStateWithLifecycle()
     val readingStates by viewModel.bookReadingStates.collectAsStateWithLifecycle()
 
-    var activeTab by remember { mutableIntStateOf(0) } // 0: Spaced Revision (1,3,7,14d), 1: Mistake Notebook, 2: Personal Notes, 3: Bookmarked Pages
-    var filterBookId by remember { mutableStateOf<BookId?>(null) } // null = All Books
-    var newNoteTitle by remember { mutableStateOf("") }
-    var newNoteBody by remember { mutableStateOf("") }
+    var activeTab by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_revision:activeTab",
+        defaultValue = 0
+    ) // 0: Spaced Revision (1,3,7,14d), 1: Mistake Notebook, 2: Personal Notes, 3: Bookmarked Pages
+    var filterBookId by rememberManagedUiState<BookId?>(
+        viewModel = viewModel,
+        stateKey = "book_revision:filterBookId",
+        defaultValue = null
+    ) // null = All Books
+    var newNoteTitle by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_revision:newNoteTitle",
+        defaultValue = ""
+    )
+    var newNoteBody by rememberManagedUiState(
+        viewModel = viewModel,
+        stateKey = "book_revision:newNoteBody",
+        defaultValue = ""
+    )
 
     val filteredSpacedRevisions = remember(spacedRevisions, filterBookId) {
         if (filterBookId == null) spacedRevisions else spacedRevisions.filter { it.bookId == filterBookId!!.id }
@@ -575,10 +604,24 @@ fun BookRevisionScreen(
             )
         }
     ) { innerPadding ->
+        val revisionListState = rememberManagedLazyListState(
+            viewModel = viewModel,
+            stateKey = "book_revision:tab_$activeTab"
+        )
+        val bookFilterScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_revision:book_filter_row"
+        )
+        val tabRowScrollState = rememberManagedScrollState(
+            viewModel = viewModel,
+            stateKey = "book_revision:tab_row"
+        )
         LazyColumn(
+            state = revisionListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .testTag("book_revision_list"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -587,7 +630,7 @@ fun BookRevisionScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(bookFilterScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
@@ -615,7 +658,7 @@ fun BookRevisionScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                        .horizontalScroll(tabRowScrollState),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(

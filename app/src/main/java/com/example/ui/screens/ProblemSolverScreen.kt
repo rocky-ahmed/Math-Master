@@ -96,6 +96,8 @@ import com.example.math.SolverResult
 import com.example.math.SolverTopic
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.rememberManagedLazyListState
+import com.example.ui.rememberManagedUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,83 +113,83 @@ fun ProblemSolverScreen(
         viewModel.navigateBack()
     }
 
-    var selectedTopic by remember { mutableStateOf(SolverTopic.BASIC_ARITHMETIC) }
-    var selectedMode by remember { mutableStateOf(SolverMode.LEARNING) }
+    var selectedTopic by rememberManagedUiState(viewModel, "problem_solver:selectedTopic", SolverTopic.BASIC_ARITHMETIC)
+    var selectedMode by rememberManagedUiState(viewModel, "problem_solver:selectedMode", SolverMode.LEARNING)
 
     // Dynamic Topic Inputs
     // Arithmetic
-    var arithmeticExpr by remember { mutableStateOf("(২৫ + ১৫) × ২ - ৩০ ÷ ৩") }
+    var arithmeticExpr by rememberManagedUiState(viewModel, "problem_solver:arithmeticExpr", "(২৫ + ১৫) × ২ - ৩০ ÷ ৩")
 
     // Fractions
-    var fractionNum1 by remember { mutableStateOf("৩") }
-    var fractionDen1 by remember { mutableStateOf("৪") }
-    var fractionOp by remember { mutableStateOf("+") }
-    var fractionNum2 by remember { mutableStateOf("২") }
-    var fractionDen2 by remember { mutableStateOf("৫") }
+    var fractionNum1 by rememberManagedUiState(viewModel, "problem_solver:fractionNum1", "৩")
+    var fractionDen1 by rememberManagedUiState(viewModel, "problem_solver:fractionDen1", "৪")
+    var fractionOp by rememberManagedUiState(viewModel, "problem_solver:fractionOp", "+")
+    var fractionNum2 by rememberManagedUiState(viewModel, "problem_solver:fractionNum2", "২")
+    var fractionDen2 by rememberManagedUiState(viewModel, "problem_solver:fractionDen2", "৫")
 
     // Percentage
-    var percentageSubType by remember { mutableIntStateOf(0) }
-    var percentVal1 by remember { mutableStateOf("১৫") }
-    var percentVal2 by remember { mutableStateOf("৫০০") }
+    var percentageSubType by rememberManagedUiState(viewModel, "problem_solver:percentageSubType", 0)
+    var percentVal1 by rememberManagedUiState(viewModel, "problem_solver:percentVal1", "১৫")
+    var percentVal2 by rememberManagedUiState(viewModel, "problem_solver:percentVal2", "৫০০")
 
     // Ratio & Proportion
-    var ratioSubType by remember { mutableIntStateOf(0) }
-    var ratioTotal by remember { mutableStateOf("১২০০") }
-    var ratioR1 by remember { mutableStateOf("৩") }
-    var ratioR2 by remember { mutableStateOf("৫") }
-    var ratioR3 by remember { mutableStateOf("") }
+    var ratioSubType by rememberManagedUiState(viewModel, "problem_solver:ratioSubType", 0)
+    var ratioTotal by rememberManagedUiState(viewModel, "problem_solver:ratioTotal", "১২০০")
+    var ratioR1 by rememberManagedUiState(viewModel, "problem_solver:ratioR1", "৩")
+    var ratioR2 by rememberManagedUiState(viewModel, "problem_solver:ratioR2", "৫")
+    var ratioR3 by rememberManagedUiState(viewModel, "problem_solver:ratioR3", "")
 
     // Profit & Loss
-    var profitLossSubType by remember { mutableIntStateOf(0) }
-    var plCp by remember { mutableStateOf("৫০০") }
-    var plSp by remember { mutableStateOf("৫৫০") }
-    var plPercent by remember { mutableStateOf("১০") }
-    var plMp by remember { mutableStateOf("৬০০") }
+    var profitLossSubType by rememberManagedUiState(viewModel, "problem_solver:profitLossSubType", 0)
+    var plCp by rememberManagedUiState(viewModel, "problem_solver:plCp", "৫০০")
+    var plSp by rememberManagedUiState(viewModel, "problem_solver:plSp", "৫৫০")
+    var plPercent by rememberManagedUiState(viewModel, "problem_solver:plPercent", "১০")
+    var plMp by rememberManagedUiState(viewModel, "problem_solver:plMp", "৬০০")
 
     // Average
-    var averageInput by remember { mutableStateOf("১০, ২০, ৩০, ৪০, ৫০") }
+    var averageInput by rememberManagedUiState(viewModel, "problem_solver:averageInput", "১০, ২০, ৩০, ৪০, ৫০")
 
     // Simple Interest
-    var siP by remember { mutableStateOf("৫০০০") }
-    var siR by remember { mutableStateOf("১০") }
-    var siT by remember { mutableStateOf("৩") }
-    var siI by remember { mutableStateOf("") }
+    var siP by rememberManagedUiState(viewModel, "problem_solver:siP", "৫০০০")
+    var siR by rememberManagedUiState(viewModel, "problem_solver:siR", "১০")
+    var siT by rememberManagedUiState(viewModel, "problem_solver:siT", "৩")
+    var siI by rememberManagedUiState(viewModel, "problem_solver:siI", "")
 
     // Time & Work
-    var workSubType by remember { mutableIntStateOf(0) }
-    var workTimeA by remember { mutableStateOf("১০") }
-    var workTimeB by remember { mutableStateOf("১৫") }
-    var workTimeC by remember { mutableStateOf("১২") }
+    var workSubType by rememberManagedUiState(viewModel, "problem_solver:workSubType", 0)
+    var workTimeA by rememberManagedUiState(viewModel, "problem_solver:workTimeA", "১০")
+    var workTimeB by rememberManagedUiState(viewModel, "problem_solver:workTimeB", "১৫")
+    var workTimeC by rememberManagedUiState(viewModel, "problem_solver:workTimeC", "১২")
 
     // Speed, Distance, Time
-    var sdtSpeed by remember { mutableStateOf("") }
-    var sdtDistance by remember { mutableStateOf("১০০") }
-    var sdtTime by remember { mutableStateOf("২") }
+    var sdtSpeed by rememberManagedUiState(viewModel, "problem_solver:sdtSpeed", "")
+    var sdtDistance by rememberManagedUiState(viewModel, "problem_solver:sdtDistance", "১০০")
+    var sdtTime by rememberManagedUiState(viewModel, "problem_solver:sdtTime", "২")
 
     // Number System & Divisibility
-    var divNumber by remember { mutableStateOf("৭৫২১") }
-    var divDivisor by remember { mutableIntStateOf(3) }
+    var divNumber by rememberManagedUiState(viewModel, "problem_solver:divNumber", "৭৫২১")
+    var divDivisor by rememberManagedUiState(viewModel, "problem_solver:divDivisor", 3)
 
     // HCF & LCM
-    var hcfLcmInput by remember { mutableStateOf("২৪, ৩৬") }
+    var hcfLcmInput by rememberManagedUiState(viewModel, "problem_solver:hcfLcmInput", "২৪, ৩৬")
 
     // Squares, Cubes, Roots
-    var sqCubeNumber by remember { mutableStateOf("১৪৪") }
-    var sqCubeOp by remember { mutableIntStateOf(1) } // 0: Square, 1: Sqrt, 2: Cube, 3: Cbrt
+    var sqCubeNumber by rememberManagedUiState(viewModel, "problem_solver:sqCubeNumber", "১৪৪")
+    var sqCubeOp by rememberManagedUiState(viewModel, "problem_solver:sqCubeOp", 1) // 0: Square, 1: Sqrt, 2: Cube, 3: Cbrt
 
     // Linear Equation
-    var linearEqInput by remember { mutableStateOf("৩x + ১২ = ৪৫") }
+    var linearEqInput by rememberManagedUiState(viewModel, "problem_solver:linearEqInput", "৩x + ১২ = ৪৫")
 
     // Quadratic Equation (ax² + bx + c = 0)
-    var quadA by remember { mutableStateOf("১") }
-    var quadB by remember { mutableStateOf("-৫") }
-    var quadC by remember { mutableStateOf("৬") }
+    var quadA by rememberManagedUiState(viewModel, "problem_solver:quadA", "১")
+    var quadB by rememberManagedUiState(viewModel, "problem_solver:quadB", "-৫")
+    var quadC by rememberManagedUiState(viewModel, "problem_solver:quadC", "৬")
 
     // Factorization
-    var factorInput by remember { mutableStateOf("x² - 5x + 6") }
+    var factorInput by rememberManagedUiState(viewModel, "problem_solver:factorInput", "x² - 5x + 6")
 
     // Simplification
-    var simplifyInput by remember { mutableStateOf("√72") }
+    var simplifyInput by rememberManagedUiState(viewModel, "problem_solver:simplifyInput", "√72")
 
     // Result State
     var solverResult by remember { mutableStateOf<SolverResult?>(null) }
@@ -329,7 +331,11 @@ fun ProblemSolverScreen(
             onBackClick = { viewModel.navigateBack() }
         )
 
+        val solverListState = rememberManagedLazyListState(viewModel, "problem_solver:main:${selectedTopic.name}")
+        val topicsRowState = rememberManagedLazyListState(viewModel, "problem_solver:topics_row")
+
         LazyColumn(
+            state = solverListState,
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("solver_content_list"),
@@ -351,6 +357,7 @@ fun ProblemSolverScreen(
             item {
                 TopicSelectorCarousel(
                     currentTopic = selectedTopic,
+                    listState = topicsRowState,
                     onTopicSelected = { topic ->
                         selectedTopic = topic
                         solveCurrentTopic()
@@ -945,6 +952,7 @@ fun ProblemSolverScreen(
 @Composable
 fun TopicSelectorCarousel(
     currentTopic: SolverTopic,
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     onTopicSelected: (SolverTopic) -> Unit
 ) {
     Column {
@@ -957,6 +965,7 @@ fun TopicSelectorCarousel(
         )
 
         LazyRow(
+            state = listState,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = PaddingValues(vertical = 4.dp),
             modifier = Modifier.testTag("solver_topics_row")
