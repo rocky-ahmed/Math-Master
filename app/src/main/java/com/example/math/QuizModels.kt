@@ -99,7 +99,7 @@ object QuizGenerator {
             }
         }
 
-        return rawQuestions.mapIndexed { index, q ->
+        val converted = rawQuestions.mapIndexed { index, q ->
             val rawAns = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
             val normalizedNumericAns = extractCleanNumericalAnswer(rawAns)
             val isNumericCapable = normalizedNumericAns != null
@@ -119,22 +119,27 @@ object QuizGenerator {
             }
 
             if (resolvedType == QuizQuestionType.TRUE_FALSE && q.optionsBn.size >= 2) {
-                val isTrue = Random.nextBoolean()
-                val shownOption = if (isTrue) {
-                    q.optionsBn[q.correctIndex]
-                } else {
-                    q.optionsBn.filterIndexed { i, _ -> i != q.correctIndex }.firstOrNull() ?: q.optionsBn[q.correctIndex]
+                val correctOptText = q.optionsBn.getOrElse(q.correctIndex) { rawAns }
+                val wrongOptions = q.optionsBn.filterIndexed { i, opt ->
+                    i != q.correctIndex && !SharedMathEngine.isAnswerCorrect(opt, correctOptText)
                 }
-                val tfStatement = "${q.questionBn} — উত্তর: $shownOption"
+                val wantTrue = Random.nextBoolean() || wrongOptions.isEmpty()
+                val shownOption = if (wantTrue) {
+                    correctOptText
+                } else {
+                    wrongOptions.random()
+                }
+                val actualIsTrue = SharedMathEngine.isAnswerCorrect(shownOption, correctOptText)
+                val tfStatement = formatTrueFalseStatementBn(q.questionBn, shownOption)
                 val tfOptions = listOf("সত্য (True)", "মিথ্যা (False)")
-                val tfCorrectIdx = if (isTrue) 0 else 1
+                val tfCorrectIdx = if (actualIsTrue) 0 else 1
                 q.copy(
                     questionType = QuizQuestionType.TRUE_FALSE,
                     optionsBn = tfOptions,
                     correctIndex = tfCorrectIdx,
                     correctAnswerText = tfOptions[tfCorrectIdx],
                     trueFalseStatementBn = tfStatement,
-                    isStatementTrue = isTrue,
+                    isStatementTrue = actualIsTrue,
                     difficulty = difficulty
                 )
             } else if (resolvedType == QuizQuestionType.NUMERICAL) {
@@ -161,6 +166,59 @@ object QuizGenerator {
                 )
             }
         }
+        val seenIds = mutableSetOf<String>()
+        return converted.mapIndexed { idx, q ->
+            val uniqueId = if (seenIds.add(q.id)) q.id else "${q.id}_v${idx}"
+            if (uniqueId == q.id) q else q.copy(id = uniqueId)
+        }
+    }
+
+    internal fun formatTrueFalseStatementBn(questionBn: String, shownOption: String): String {
+        val trimmed = questionBn.trim()
+        val rawDeclarative = when {
+            trimmed == "নিচের কোন সংখ্যাটি মৌলিক সংখ্যা?" || trimmed.contains("কোন সংখ্যাটি মৌলিক") ->
+                "বিবৃতি: $shownOption একটি মৌলিক সংখ্যা।"
+            trimmed.contains("মৌলিক সংখ্যা নয়") ->
+                "বিবৃতি: $shownOption একটি যৌগিক সংখ্যা (মৌলিক সংখ্যা নয়)।"
+            trimmed.endsWith("কি মৌলিক সংখ্যা?") -> {
+                val subj = trimmed.removeSuffix("কি মৌলিক সংখ্যা?").trim()
+                when {
+                    shownOption.startsWith("হ্যাঁ") -> "বিবৃতি: $subj একটি মৌলিক সংখ্যা।"
+                    shownOption.startsWith("না") -> "বিবৃতি: $subj একটি যৌগিক সংখ্যা (মৌলিক নয়)।"
+                    else -> "বিবৃতি: $subj সম্পর্কিত প্রদত্ত সিদ্ধান্ত হলো $shownOption।"
+                }
+            }
+            trimmed.endsWith("= কত?") ->
+                "বিবৃতি: ${trimmed.removeSuffix("= কত?").trim()} = $shownOption"
+            trimmed.endsWith("এর মান কত?") ->
+                "বিবৃতি: ${trimmed.removeSuffix("এর মান কত?").trim()} এর মান $shownOption।"
+            trimmed.endsWith("সমান কোনটি?") ->
+                "বিবৃতি: ${trimmed.removeSuffix("সমান কোনটি?").trim()} = $shownOption।"
+            trimmed.endsWith("কোনটি?") ->
+                "বিবৃতি: ${trimmed.removeSuffix("কোনটি?").trim()} হলো $shownOption।"
+            trimmed.endsWith("কত?") ->
+                "বিবৃতি: ${trimmed.removeSuffix("কত?").trim()} হলো $shownOption।"
+            else -> {
+                val deinterrogated = trimmed
+                    .removeSuffix("?")
+                    .replace("= কত", "= $shownOption")
+                    .replace("কত ডিগ্রি", "$shownOption ডিগ্রি")
+                    .replace("কতটি", "${shownOption}টি")
+                    .replace("কয়টি", "${shownOption}টি")
+                    .replace("কোনটি", shownOption)
+                    .replace("কত", shownOption)
+                    .replace("কী", shownOption)
+                    .replace("কি", "")
+                    .replace(Regex("""\s+"""), " ")
+                    .trim()
+                if (deinterrogated.contains(shownOption)) {
+                    "বিবৃতি: $deinterrogated।"
+                } else {
+                    "বিবৃতি: $deinterrogated — প্রদত্ত মান $shownOption।"
+                }
+            }
+        }
+        return rawDeclarative.replace("?", "").trim()
     }
 
     internal fun extractCleanNumericalAnswer(rawAnswer: String): String? {
@@ -187,17 +245,24 @@ object QuizGenerator {
 
     private fun generateMultiplicationQuestions(count: Int, difficulty: PracticeDifficulty = PracticeDifficulty.EASY): List<QuizQuestion> {
         val list = mutableListOf<QuizQuestion>()
-        repeat(count) { idx ->
-            val a = when (difficulty) {
-                PracticeDifficulty.EASY -> Random.nextInt(2, 21)
-                PracticeDifficulty.MEDIUM -> Random.nextInt(12, 35)
-                else -> Random.nextInt(18, 41)
-            }
-            val b = when (difficulty) {
-                PracticeDifficulty.EASY -> Random.nextInt(2, 11)
-                PracticeDifficulty.MEDIUM -> Random.nextInt(6, 16)
-                else -> Random.nextInt(11, 25)
-            }
+        val usedPairs = mutableSetOf<Pair<Int, Int>>()
+        repeat(count) {
+            var a = 2
+            var b = 2
+            var attempts = 0
+            do {
+                a = when (difficulty) {
+                    PracticeDifficulty.EASY -> Random.nextInt(2, 21)
+                    PracticeDifficulty.MEDIUM -> Random.nextInt(12, 35)
+                    else -> Random.nextInt(18, 41)
+                }
+                b = when (difficulty) {
+                    PracticeDifficulty.EASY -> Random.nextInt(2, 11)
+                    PracticeDifficulty.MEDIUM -> Random.nextInt(6, 16)
+                    else -> Random.nextInt(11, 25)
+                }
+                attempts++
+            } while (!usedPairs.add(a to b) && attempts < 50)
             val correctAns = a * b
             val questionBn = "${BengaliNumberFormatter.toBn(a)} × ${BengaliNumberFormatter.toBn(b)} এর মান কত?"
 
@@ -215,7 +280,7 @@ object QuizGenerator {
 
             list.add(
                 QuizQuestion(
-                    id = "mul_$idx",
+                    id = "mul_${a}x${b}",
                     questionBn = questionBn,
                     optionsBn = optsBn,
                     correctIndex = correctIdx,
@@ -253,7 +318,7 @@ object QuizGenerator {
 
                     list.add(
                         QuizQuestion(
-                            id = "prime_q_$idx",
+                            id = "prime_q_${primeNum}_${composites.sorted().joinToString("_")}",
                             questionBn = "নিচের কোন সংখ্যাটি মৌলিক সংখ্যা?",
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = correctIdx,
@@ -278,7 +343,7 @@ object QuizGenerator {
 
                     list.add(
                         QuizQuestion(
-                            id = "prime_comp_$idx",
+                            id = "prime_comp_${compositeNum}_${primes.sorted().joinToString("_")}",
                             questionBn = "নিচের কোনটি মৌলিক সংখ্যা নয় (যৌগিক সংখ্যা)?",
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = correctIdx,
@@ -297,7 +362,7 @@ object QuizGenerator {
 
                     list.add(
                         QuizQuestion(
-                            id = "prime_check_$idx",
+                            id = "prime_check_${num}",
                             questionBn = q,
                             optionsBn = options,
                             correctIndex = correctIdx,
@@ -313,17 +378,25 @@ object QuizGenerator {
 
     private fun generateSquareCubeQuestions(count: Int, difficulty: PracticeDifficulty = PracticeDifficulty.EASY): List<QuizQuestion> {
         val list = mutableListOf<QuizQuestion>()
-        repeat(count) { idx ->
+        val usedSpecs = mutableSetOf<String>()
+        repeat(count) {
             val maxN = when (difficulty) {
                 PracticeDifficulty.EASY -> 15
                 PracticeDifficulty.MEDIUM -> 22
                 else -> 30
             }
-            val n = Random.nextInt(2, maxN + 1)
-            val isSquare = Random.nextBoolean()
+            var n = Random.nextInt(2, maxN + 1)
+            var isSquare = Random.nextBoolean()
+            var isRoot = Random.nextBoolean()
+            var tries = 0
+            while (!usedSpecs.add("${n}_${isSquare}_${isRoot}") && tries < 40) {
+                n = Random.nextInt(2, maxN + 1)
+                isSquare = Random.nextBoolean()
+                isRoot = Random.nextBoolean()
+                tries++
+            }
 
             if (isSquare) {
-                val isRoot = Random.nextBoolean()
                 if (isRoot) {
                     val sq = n * n
                     val questionBn = "√${BengaliNumberFormatter.toBn(sq)} এর মান কত?"
@@ -336,7 +409,7 @@ object QuizGenerator {
                     val allOptions = (distractors.toList() + correctAns).shuffled()
                     list.add(
                         QuizQuestion(
-                            id = "sq_q_$idx",
+                            id = "sq_q_${sq}",
                             questionBn = questionBn,
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = allOptions.indexOf(correctAns),
@@ -357,7 +430,7 @@ object QuizGenerator {
                     val allOptions = (distractors.toList() + correctAns).shuffled()
                     list.add(
                         QuizQuestion(
-                            id = "sq_val_$idx",
+                            id = "sq_val_${n}",
                             questionBn = questionBn,
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = allOptions.indexOf(correctAns),
@@ -368,7 +441,6 @@ object QuizGenerator {
                 }
             } else {
                 val cbN = n.coerceAtMost(15)
-                val isRoot = Random.nextBoolean()
                 val cb = cbN * cbN * cbN
                 if (isRoot) {
                     val questionBn = "∛${BengaliNumberFormatter.toBn(cb)} এর মান কত?"
@@ -381,7 +453,7 @@ object QuizGenerator {
                     val allOptions = (distractors.toList() + correctAns).shuffled()
                     list.add(
                         QuizQuestion(
-                            id = "cb_root_$idx",
+                            id = "cb_root_${cb}",
                             questionBn = questionBn,
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = allOptions.indexOf(correctAns),
@@ -401,7 +473,7 @@ object QuizGenerator {
                     val allOptions = (distractors.toList() + correctAns).shuffled()
                     list.add(
                         QuizQuestion(
-                            id = "cb_val_$idx",
+                            id = "cb_val_${cbN}",
                             questionBn = questionBn,
                             optionsBn = allOptions.map { BengaliNumberFormatter.toBn(it) },
                             correctIndex = allOptions.indexOf(correctAns),
@@ -504,19 +576,22 @@ object QuizGenerator {
             )
         )
         val result = mutableListOf<QuizQuestion>()
+        var pass = 0
         while (result.size < count) {
             for (q in pool.shuffled()) {
                 if (result.size >= count) break
                 val correctOpt = q.optionsBn[q.correctIndex]
                 val shuffledOpts = q.optionsBn.shuffled()
+                val qId = if (pass == 0) q.id else "${q.id}_p$pass"
                 result.add(
                     q.copy(
-                        id = "${q.id}_${result.size}",
+                        id = qId,
                         optionsBn = shuffledOpts,
                         correctIndex = shuffledOpts.indexOf(correctOpt)
                     )
                 )
             }
+            pass++
         }
         return result
     }
@@ -526,14 +601,21 @@ object QuizGenerator {
         difficulty: PracticeDifficulty = PracticeDifficulty.EASY
     ): List<QuizQuestion> {
         val list = mutableListOf<QuizQuestion>()
+        val usedTriples = mutableSetOf<Triple<Int, Int, Int>>()
         repeat(count) { idx ->
-            val a = when (difficulty) {
-                PracticeDifficulty.EASY -> Random.nextInt(3, 8)
-                PracticeDifficulty.MEDIUM -> Random.nextInt(5, 11)
-                else -> Random.nextInt(7, 15)
-            }
-            val b = Random.nextInt(1, a)
             val pattern = idx % 4
+            var a = 4
+            var b = 2
+            var tries = 0
+            do {
+                a = when (difficulty) {
+                    PracticeDifficulty.EASY -> Random.nextInt(3, 8)
+                    PracticeDifficulty.MEDIUM -> Random.nextInt(5, 11)
+                    else -> Random.nextInt(7, 15)
+                }
+                b = Random.nextInt(1, a)
+                tries++
+            } while (!usedTriples.add(Triple(pattern, a, b)) && tries < 40)
             val (questionBn, correctAns, explanationBn) = when (pattern) {
                 0 -> {
                     val ans = (a + b) * (a + b)
@@ -586,7 +668,7 @@ object QuizGenerator {
             val correctIdx = allOpts.indexOf(correctAns).coerceAtLeast(0)
             list.add(
                 QuizQuestion(
-                    id = "alg_num_$idx",
+                    id = "alg_num_p${pattern}_${a}_${b}",
                     questionBn = questionBn,
                     optionsBn = optsBn,
                     correctIndex = correctIdx,
@@ -610,9 +692,10 @@ object QuizGenerator {
             difficulty = difficulty,
             count = count
         )
-        return practiceQs.mapIndexed { idx, pq ->
+        return practiceQs.map { pq ->
+            val contentKey = pq.questionTextBn.hashCode().toUInt().toString(16)
             QuizQuestion(
-                id = "quiz_arith_$idx",
+                id = "quiz_arith_$contentKey",
                 questionBn = pq.questionTextBn,
                 optionsBn = pq.optionsBn,
                 correctIndex = pq.correctOptionIndex,
@@ -632,9 +715,10 @@ object QuizGenerator {
             difficulty = difficulty,
             count = count
         )
-        return practiceQs.mapIndexed { idx, pq ->
+        return practiceQs.map { pq ->
+            val contentKey = pq.questionTextBn.hashCode().toUInt().toString(16)
             QuizQuestion(
-                id = "quiz_ns_$idx",
+                id = "quiz_ns_$contentKey",
                 questionBn = pq.questionTextBn,
                 optionsBn = pq.optionsBn,
                 correctIndex = pq.correctOptionIndex,
@@ -654,9 +738,10 @@ object QuizGenerator {
             difficulty = difficulty,
             count = count
         )
-        return practiceQs.mapIndexed { idx, pq ->
+        return practiceQs.map { pq ->
+            val contentKey = pq.questionTextBn.hashCode().toUInt().toString(16)
             QuizQuestion(
-                id = "quiz_geom_$idx",
+                id = "quiz_geom_$contentKey",
                 questionBn = pq.questionTextBn,
                 optionsBn = pq.optionsBn,
                 correctIndex = pq.correctOptionIndex,

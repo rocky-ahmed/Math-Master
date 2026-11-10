@@ -2,7 +2,6 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,65 +13,44 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Balance
-import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Functions
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LinearScale
-import androidx.compose.material.icons.filled.Numbers
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SquareFoot
 import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,19 +66,22 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
+import com.example.math.CameraPreset3D
 import com.example.math.GeoShapeType
-import com.example.math.VisualAlgebraResult
+import com.example.math.Math3DEngine
+import com.example.math.OrbitCameraState
+import com.example.math.ProjectedScene2D
+import com.example.math.Solid3DShapeType
+import com.example.math.SolidAnatomyHighlight
 import com.example.math.VisualKnowledgeCheckProvider
 import com.example.math.VisualMathEngine
 import com.example.ui.MathViewModel
@@ -110,6 +91,7 @@ import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -117,12 +99,15 @@ import kotlin.math.sin
 
 /**
  * Explorer Sections
+ * Note: Ordinals 0..3 are preserved for backward compatibility with navigation state restoration tests,
+ * and SOLID_3D is added as ordinal 4 (as well as embedded inside GeometryExplorerTab).
  */
 enum class VisualExplorerSection(val titleBn: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     GEOMETRY("জ্যামিতি এক্সপ্লোরার", Icons.Default.SquareFoot),
     ALGEBRA("ভিজ্যুয়াল বীজগণিত", Icons.Default.Balance),
     NUMBER_LINE("সংখ্যা রেখা ও ভগ্নাংশ", Icons.Default.LinearScale),
-    FORMULAS("সূত্র ভিজ্যুয়ালাইজার", Icons.Default.Functions)
+    FORMULAS("সূত্র ভিজ্যুয়ালাইজার", Icons.Default.Functions),
+    SOLID_3D("৩ডি ঘনবস্তু স্টুডিও", Icons.Default.Straighten)
 }
 
 @Composable
@@ -139,11 +124,11 @@ fun VisualExplorerScreen(
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
             title = "ভিজ্যুয়াল ম্যাথ এক্সপ্লোরার",
-            subtitle = "বাস্তব ডায়াগ্রাম, স্কেল এবং ইন্টারঅ্যাক্টিভ গণিত",
+            subtitle = "২ডি ও ৩ডি ইন্টারঅ্যাক্টিভ ডায়াগ্রাম, নেট আনফোল্ডিং এবং গণিত ল্যাব",
             onBackClick = { viewModel.navigateBack() }
         )
 
-        // Navigation Tabs for 4 Modules
+        // Navigation Tabs
         ScrollableTabRow(
             selectedTabIndex = selectedSection.ordinal,
             edgePadding = 16.dp,
@@ -178,12 +163,13 @@ fun VisualExplorerScreen(
                 VisualExplorerSection.ALGEBRA -> VisualAlgebraTab(viewModel = viewModel)
                 VisualExplorerSection.NUMBER_LINE -> NumberLineTab(viewModel = viewModel)
                 VisualExplorerSection.FORMULAS -> VisualFormulaTab(viewModel = viewModel)
+                VisualExplorerSection.SOLID_3D -> Solid3DExplorerTab(viewModel = viewModel)
             }
         }
 
-        // P1 UPGRADE: Interactive Mini Knowledge Check & Cross-Module Practice Links
+        // Interactive Mini Knowledge Check & Cross-Module Practice Links
         VisualKnowledgeCheckAndLinksBar(
-            tabIndex = selectedSection.ordinal,
+            tabIndex = selectedSection.ordinal.coerceAtMost(3),
             viewModel = viewModel
         )
     }
@@ -202,11 +188,18 @@ private fun VisualKnowledgeCheckAndLinksBar(
     val currentQ = questions.getOrNull(qIdx.coerceIn(0, (questions.size - 1).coerceAtLeast(0)))
     val invariantNoteBn = remember(tabIndex) {
         when (tabIndex) {
-            0 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): যেকোনো সদৃশ জ্যামিতিক আকৃতির বাহু k গুণ বৃদ্ধি পেলে পরিসীমা k গুণ এবং ক্ষেত্রফল সর্বদা k² গুণ বৃদ্ধি পায়।"
+            0 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): যেকোনো সদৃশ জ্যামিতিক আকৃতির বাহু k গুণ বৃদ্ধি পেলে পরিসীমা k গুণ, ক্ষেত্রফল k² গুণ এবং ৩ডি আয়তন k³ গুণ বৃদ্ধি পায়।"
             1 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সমীকরণের উভয় পক্ষে একই সংখ্যা যোগ, বিয়োগ বা অশূন্য সংখ্যা দ্বারা গুণ-ভাগ করলে সমতার ভারসাম্য অপরিবর্তিত থাকে।"
             2 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সংখ্যারেখায় যেকোনো দুটি মূলদ সংখ্যার মধ্যবিন্দু (a+b)/2 নিজেও একটি মূলদ সংখ্যা (অসীম ঘনত্ব ধর্ম)।"
             else -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): (a+b)² বর্গক্ষেত্রটি চারটি অংশে বিভক্ত: একটি a² বর্গ, একটি b² বর্গ এবং দুটি ab আয়তক্ষেত্র।"
         }
+    }
+
+    val topicIdForTab = when (tabIndex) {
+        0 -> "VISUAL_GEOMETRY"
+        1 -> "VISUAL_ALGEBRA"
+        2 -> "VISUAL_NUMBER_LINE"
+        else -> "VISUAL_FORMULAS"
     }
 
     Surface(
@@ -257,19 +250,57 @@ private fun VisualKnowledgeCheckAndLinksBar(
                         modifier = Modifier.padding(top = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = currentQ.questionBn,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = currentQ.questionBn,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (questions.size > 1) {
+                                OutlinedButton(
+                                    onClick = {
+                                        qIdx = (qIdx + 1) % questions.size
+                                        chosenOpt = null
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.testTag("btn_next_visual_kc")
+                                ) {
+                                    Text(
+                                        text = "পরবর্তী প্রশ্ন (${BengaliNumberFormatter.toBengaliDigits((qIdx + 1).toString())}/${BengaliNumberFormatter.toBengaliDigits(questions.size.toString())})",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
+                        LazyRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            currentQ.optionsBn.forEachIndexed { idx, opt ->
+                            items(currentQ.optionsBn.size) { idx ->
+                                val opt = currentQ.optionsBn[idx]
                                 FilterChip(
                                     selected = chosenOpt == idx,
-                                    onClick = { chosenOpt = idx },
+                                    onClick = {
+                                        chosenOpt = idx
+                                        // BUG-58 & BUG-44 FIX: Record Visual Math knowledge check completion with section title
+                                        val sectionTitleBn = when (tabIndex) {
+                                            0 -> "ভিজ্যুয়াল গণিত: জ্যামিতি ল্যাব"
+                                            1 -> "ভিজ্যুয়াল গণিত: বীজগণিত ভারসাম্য"
+                                            2 -> "ভিজ্যুয়াল গণিত: সংখ্যারেখা ও ভগ্নাংশ"
+                                            3 -> "ভিজ্যুয়াল গণিত: সূত্রের প্রমাণ"
+                                            else -> "ভিজ্যুয়াল গণিত: ৩ডি ঘনবস্তু স্টুডিও"
+                                        }
+                                        viewModel.recordVisualMathCheckpoint(
+                                            topicId = topicIdForTab,
+                                            topicTitleBn = sectionTitleBn,
+                                            isCorrect = (idx == currentQ.correctIndex)
+                                        )
+                                    },
                                     label = { Text(opt, style = MaterialTheme.typography.labelSmall) },
                                     modifier = Modifier.testTag("visual_kc_opt_$idx")
                                 )
@@ -331,7 +362,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
 }
 
 // =============================================================================
-// A. GEOMETRY EXPLORER TAB
+// A. GEOMETRY EXPLORER TAB (2D + 3D SOLID STUDIO + 2D TRANSFORMATIONS)
 // =============================================================================
 
 @Composable
@@ -339,1732 +370,2890 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
     var selectedShape by rememberManagedUiState(viewModel, "visual_explorer:tab_0:selectedShape", GeoShapeType.RECTANGLE)
 
     // Sliders / Parameters State
-    var baseParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:baseParam", 10.0) // base or length or side or radius or angleDeg
-    var heightParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:heightParam", 6.0) // height or width
+    var baseParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:baseParam", 10.0)
+    var heightParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:heightParam", 6.0)
+    var useExactTriangleSides by rememberManagedUiState(viewModel, "visual_explorer:tab_0:useExactTriangleSides", false)
+    var sideAParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:sideAParam", 7.0)
+    var sideCParam by rememberManagedUiState(viewModel, "visual_explorer:tab_0:sideCParam", 7.0)
     var zoomScale by rememberManagedUiState(viewModel, "visual_explorer:tab_0:zoomScale", 1.0f)
     val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_0")
     val shapeRowState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_0:shape_row")
 
-    val calcResult = remember(selectedShape, baseParam, heightParam) {
+    val calcResult = remember(selectedShape, baseParam, heightParam, useExactTriangleSides, sideAParam, sideCParam) {
         when (selectedShape) {
-            GeoShapeType.TRIANGLE -> VisualMathEngine.calculateTriangle(baseParam, heightParam)
+            GeoShapeType.TRIANGLE -> {
+                if (useExactTriangleSides) {
+                    VisualMathEngine.calculateTriangle(baseParam, heightParam, sideAParam, sideCParam)
+                } else {
+                    VisualMathEngine.calculateTriangle(baseParam, heightParam)
+                }
+            }
             GeoShapeType.RECTANGLE -> VisualMathEngine.calculateRectangle(baseParam, heightParam)
             GeoShapeType.SQUARE -> VisualMathEngine.calculateSquare(baseParam)
             GeoShapeType.CIRCLE -> VisualMathEngine.calculateCircle(baseParam)
             GeoShapeType.ANGLES -> {
                 val ang = VisualMathEngine.calculateAngle(baseParam)
-                com.example.math.GeoVisualCalculation(
+                com.example.math.GeometryCalculationResult(
                     shapeType = GeoShapeType.ANGLES,
                     primaryArea = ang.degrees,
                     primaryPerimeterOrCircumference = ang.complementDegrees ?: 0.0,
                     isPerimeterExact = true,
-                    SecondaryMetricLabelBn = "সম্পূরক কোণ",
-                    secondaryMetricValue = ang.supplementDegrees ?: 0.0,
+                    perimeterNoteBn = "সম্পূরক কোণ: ${ang.supplementDegrees?.let { VisualMathEngine.formatNumberBn(it, 1) } ?: "প্রযোজ্য নয়"}°",
+                    formulaExpressionBn = "${ang.angleTypeBn}: θ = ${VisualMathEngine.formatNumberBn(ang.degrees, 1)}°",
                     explanationStepsBn = ang.explanationStepsBn
                 )
             }
         }
     }
 
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+
     LazyColumn(
         state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("visual_explorer_tab_0_list"),
+        modifier = Modifier.fillMaxSize().testTag("geometry_explorer_list"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // 0. Interactive 3D Solid Geometry Studio Card
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            // Shape selector chips
-            androidx.compose.foundation.lazy.LazyRow(
-                state = shapeRowState,
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Interactive3DSolidStudioCard(
+                viewModel = viewModel,
+                statePrefix = "visual_explorer:tab_0:solid3d"
+            )
+        }
+
+        // 1. 2D Shape Selector Chips
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                items(GeoShapeType.entries) { shape ->
-                    FilterChip(
-                        selected = selectedShape == shape,
-                        onClick = {
-                            selectedShape = shape
-                            zoomScale = 1.0f
-                            when (shape) {
-                                GeoShapeType.SQUARE -> baseParam = 8.0
-                                GeoShapeType.CIRCLE -> baseParam = 7.0
-                                GeoShapeType.ANGLES -> baseParam = 60.0
-                                else -> {
-                                    baseParam = 10.0
-                                    heightParam = 6.0
-                                }
-                            }
-                        },
-                        label = { Text(shape.titleBn.split(" ")[0]) },
-                        leadingIcon = if (selectedShape == shape) {
-                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                        } else null,
-                        modifier = Modifier.testTag("shape_chip_${shape.id}")
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "২ডি জ্যামিতিক আকৃতি নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+                    LazyRow(
+                        state = shapeRowState,
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(GeoShapeType.entries) { shape ->
+                            FilterChip(
+                                selected = selectedShape == shape,
+                                onClick = {
+                                    selectedShape = shape
+                                    if (shape == GeoShapeType.ANGLES && baseParam < 20.0) {
+                                        baseParam = 60.0
+                                    } else if (shape != GeoShapeType.ANGLES && baseParam > 20.0) {
+                                        baseParam = 10.0
+                                    }
+                                },
+                                label = { Text(shape.titleBn, fontWeight = FontWeight.Medium) },
+                                leadingIcon = if (selectedShape == shape) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                modifier = Modifier.testTag("geo_shape_${shape.name.lowercase()}")
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Native Diagram Canvas
+        // 2. Interactive 2D Scaled Canvas Diagram
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("geometry_canvas_card")
+            ElevatedCard(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = selectedShape.titleBn,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = selectedShape.formulaSummaryBn,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    val primaryColor = MaterialTheme.colorScheme.primary
-                    val secondaryColor = MaterialTheme.colorScheme.secondary
-                    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
-
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .testTag("geometry_canvas")
-                    ) {
-                        val canvasWidth = size.width
-                        val canvasHeight = size.height
-                        val cx = canvasWidth / 2f
-                        val cy = canvasHeight / 2f
-
-                        when (selectedShape) {
-                            GeoShapeType.RECTANGLE -> {
-                                val maxDrawW = canvasWidth * 0.7f
-                                val maxDrawH = canvasHeight * 0.65f
-                                val normBase = (baseParam / 25.0).coerceIn(0.2, 1.0)
-                                val normHeight = (heightParam / 25.0).coerceIn(0.2, 1.0)
-                                val rectW = (maxDrawW * normBase).toFloat()
-                                val rectH = (maxDrawH * normHeight).toFloat()
-                                val topLeft = Offset(cx - rectW / 2f, cy - rectH / 2f)
-
-                                // Fill
-                                drawRect(
-                                    color = primaryColor.copy(alpha = 0.2f),
-                                    topLeft = topLeft,
-                                    size = Size(rectW, rectH)
-                                )
-                                // Stroke
-                                drawRect(
-                                    color = primaryColor,
-                                    topLeft = topLeft,
-                                    size = Size(rectW, rectH),
-                                    style = Stroke(width = 4.dp.toPx())
-                                )
-                                // Dimension text using native canvas
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 34f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    // Length top label
-                                    drawText(
-                                        "দৈর্ঘ্য a = ${VisualMathEngine.formatNumberBn(baseParam)}",
-                                        cx,
-                                        topLeft.y - 14f,
-                                        paint
-                                    )
-                                    // Width right label
-                                    val sidePaint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 32f
-                                        textAlign = android.graphics.Paint.Align.LEFT
-                                        isAntiAlias = true
-                                    }
-                                    drawText(
-                                        "b = ${VisualMathEngine.formatNumberBn(heightParam)}",
-                                        topLeft.x + rectW + 12f,
-                                        cy,
-                                        sidePaint
-                                    )
-                                }
-                            }
-                            GeoShapeType.SQUARE -> {
-                                val maxSidePx = min(canvasWidth * 0.6f, canvasHeight * 0.7f)
-                                val normSide = (baseParam / 25.0).coerceIn(0.25, 1.0)
-                                val sidePx = (maxSidePx * normSide).toFloat()
-                                val topLeft = Offset(cx - sidePx / 2f, cy - sidePx / 2f)
-
-                                drawRect(
-                                    color = secondaryColor.copy(alpha = 0.2f),
-                                    topLeft = topLeft,
-                                    size = Size(sidePx, sidePx)
-                                )
-                                drawRect(
-                                    color = secondaryColor,
-                                    topLeft = topLeft,
-                                    size = Size(sidePx, sidePx),
-                                    style = Stroke(width = 4.dp.toPx())
-                                )
-                                // Diagonal dash line
-                                drawLine(
-                                    color = primaryColor.copy(alpha = 0.6f),
-                                    start = topLeft,
-                                    end = Offset(topLeft.x + sidePx, topLeft.y + sidePx),
-                                    strokeWidth = 2.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                                )
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 34f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText("বাহু a = ${VisualMathEngine.formatNumberBn(baseParam)}", cx, topLeft.y - 14f, paint)
-                                }
-                            }
-                            GeoShapeType.TRIANGLE -> {
-                                val maxW = canvasWidth * 0.7f
-                                val maxH = canvasHeight * 0.7f
-                                val normB = (baseParam / 25.0).coerceIn(0.25, 1.0)
-                                val normH = (heightParam / 25.0).coerceIn(0.25, 1.0)
-                                val bPx = (maxW * normB).toFloat()
-                                val hPx = (maxH * normH).toFloat()
-
-                                val pBottomLeft = Offset(cx - bPx / 2f, cy + hPx / 2f)
-                                val pBottomRight = Offset(cx + bPx / 2f, cy + hPx / 2f)
-                                val pTop = Offset(cx, cy - hPx / 2f)
-
-                                val path = Path().apply {
-                                    moveTo(pBottomLeft.x, pBottomLeft.y)
-                                    lineTo(pBottomRight.x, pBottomRight.y)
-                                    lineTo(pTop.x, pTop.y)
-                                    close()
-                                }
-
-                                drawPath(path, color = primaryColor.copy(alpha = 0.2f))
-                                drawPath(path, color = primaryColor, style = Stroke(width = 4.dp.toPx()))
-
-                                // Altitude dashed line
-                                drawLine(
-                                    color = secondaryColor,
-                                    start = pTop,
-                                    end = Offset(cx, pBottomLeft.y),
-                                    strokeWidth = 3.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
-                                )
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 32f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText("ভূমি b = ${VisualMathEngine.formatNumberBn(baseParam)}", cx, pBottomLeft.y + 36f, paint)
-                                    drawText("উচ্চতা h = ${VisualMathEngine.formatNumberBn(heightParam)}", cx + 50f, cy, paint)
-                                }
-                            }
-                            GeoShapeType.CIRCLE -> {
-                                val maxRadiusPx = min(canvasWidth, canvasHeight) * 0.35f * zoomScale
-                                val normR = (baseParam / 30.0).coerceIn(0.25, 1.0)
-                                val rPx = (maxRadiusPx * normR).toFloat()
-
-                                drawCircle(
-                                    color = primaryColor.copy(alpha = 0.2f),
-                                    radius = rPx,
-                                    center = Offset(cx, cy)
-                                )
-                                drawCircle(
-                                    color = primaryColor,
-                                    radius = rPx,
-                                    center = Offset(cx, cy),
-                                    style = Stroke(width = 4.dp.toPx())
-                                )
-                                // Radius line from center
-                                drawLine(
-                                    color = secondaryColor,
-                                    start = Offset(cx, cy),
-                                    end = Offset(cx + rPx, cy),
-                                    strokeWidth = 3.dp.toPx()
-                                )
-                                drawCircle(
-                                    color = secondaryColor,
-                                    radius = 5.dp.toPx(),
-                                    center = Offset(cx, cy)
-                                )
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 34f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText("r = ${VisualMathEngine.formatNumberBn(baseParam)}", cx + rPx / 2f, cy - 14f, paint)
-                                }
-                            }
-                            GeoShapeType.ANGLES -> {
-                                val deg = baseParam.coerceIn(0.0, 360.0).toFloat()
-                                val rayLen = min(canvasWidth, canvasHeight) * 0.36f * zoomScale
-                                val origin = Offset(cx - rayLen * 0.2f, cy + rayLen * 0.25f)
-                                val rad = Math.toRadians(-deg.toDouble())
-                                val endRay1 = Offset(origin.x + rayLen, origin.y)
-                                val endRay2 = Offset(
-                                    origin.x + (rayLen * cos(rad)).toFloat(),
-                                    origin.y + (rayLen * sin(rad)).toFloat()
-                                )
-
-                                drawArc(
-                                    color = primaryColor.copy(alpha = 0.22f),
-                                    startAngle = 0f,
-                                    sweepAngle = -deg,
-                                    useCenter = true,
-                                    topLeft = Offset(origin.x - rayLen * 0.45f, origin.y - rayLen * 0.45f),
-                                    size = Size(rayLen * 0.9f, rayLen * 0.9f)
-                                )
-                                drawLine(primaryColor, origin, endRay1, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-                                drawLine(secondaryColor, origin, endRay2, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-                                drawCircle(primaryColor, radius = 6.dp.toPx(), center = origin)
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 32f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    val angleInfo = VisualMathEngine.calculateAngle(baseParam)
-                                    drawText(
-                                        "θ = ${VisualMathEngine.formatNumberBn(baseParam)}° (${angleInfo.angleTypeBn})",
-                                        cx,
-                                        38f,
-                                        paint
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            OutlinedButton(
-                                onClick = { zoomScale = (zoomScale - 0.15f).coerceAtLeast(0.7f) },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp).testTag("btn_geo_zoom_out")
-                            ) {
-                                Text("জুম -", fontSize = 11.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { zoomScale = (zoomScale + 0.15f).coerceAtMost(1.4f) },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp).testTag("btn_geo_zoom_in")
-                            ) {
-                                Text("জুম +", fontSize = 11.sp)
-                            }
-                        }
-                        OutlinedButton(
-                            onClick = {
-                                zoomScale = 1.0f
-                                when (selectedShape) {
-                                    GeoShapeType.SQUARE -> baseParam = 8.0
-                                    GeoShapeType.CIRCLE -> baseParam = 7.0
-                                    GeoShapeType.ANGLES -> baseParam = 60.0
-                                    else -> {
-                                        baseParam = 10.0
-                                        heightParam = 6.0
-                                    }
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp).testTag("btn_geo_reset")
-                        ) {
-                            Text("রিসেট", fontSize = 11.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Sliders to change dimensions
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "পরিমাপ পরিবর্তন ও সমন্বয় (Sliders)",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    val p1Label = when (selectedShape) {
-                        GeoShapeType.RECTANGLE -> "দৈর্ঘ্য (Length a)"
-                        GeoShapeType.SQUARE -> "বাহু (Side a)"
-                        GeoShapeType.TRIANGLE -> "ভূমি (Base b)"
-                        GeoShapeType.CIRCLE -> "ব্যাসার্ধ (Radius r)"
-                        GeoShapeType.ANGLES -> "কোণ (Angle θ°)"
-                    }
-                    val maxVal1 = when (selectedShape) {
-                        GeoShapeType.ANGLES -> 360f
-                        GeoShapeType.CIRCLE -> 30f
-                        else -> 25f
-                    }
-                    val minVal1 = if (selectedShape == GeoShapeType.ANGLES) 0f else 1f
-                    val unitLabel = if (selectedShape == GeoShapeType.ANGLES) "ডিগ্রি (°)" else "একক"
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = p1Label, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            text = "${VisualMathEngine.formatNumberBn(baseParam)} $unitLabel",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Slider(
-                        value = baseParam.toFloat(),
-                        onValueChange = { baseParam = it.toDouble().coerceIn(minVal1.toDouble(), maxVal1.toDouble()) },
-                        valueRange = minVal1..maxVal1,
-                        steps = 29,
-                        modifier = Modifier.testTag("slider_base_param")
-                    )
-
-                    if (selectedShape == GeoShapeType.RECTANGLE || selectedShape == GeoShapeType.TRIANGLE) {
-                        val p2Label = if (selectedShape == GeoShapeType.RECTANGLE) "প্রস্থ (Width b)" else "উচ্চতা (Height h)"
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = p2Label, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                text = "${VisualMathEngine.formatNumberBn(heightParam)} একক",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                        Slider(
-                            value = heightParam.toFloat(),
-                            onValueChange = { heightParam = it.toDouble().coerceIn(1.0, 25.0) },
-                            valueRange = 1f..25f,
-                            steps = 24,
-                            modifier = Modifier.testTag("slider_height_param")
-                        )
-                    }
-                }
-            }
-        }
-
-        // Calculation Results & Explanations in Bengali
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("geometry_result_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Calculate,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "পরিমাপের ফলাফল ও বাংলা বিশ্লেষণ",
+                            text = "${selectedShape.titleBn} (${selectedShape.formulaSummaryBn})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
-                    }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(text = "ক্ষেত্রফল (Area)", style = MaterialTheme.typography.labelMedium)
+                        // Zoom Controls
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            IconButton(
+                                onClick = { zoomScale = (zoomScale - 0.15f).coerceAtLeast(0.6f) },
+                                modifier = Modifier.size(32.dp).testTag("geo_zoom_out")
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
+                            }
                             Text(
-                                text = "${VisualMathEngine.formatNumberBn(calcResult.primaryArea)} বর্গ একক",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                text = "${BengaliNumberFormatter.toBengaliDigits((zoomScale * 100).toInt().toString())}%",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
                             )
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            val perimLabel = if (selectedShape == GeoShapeType.CIRCLE) "পরিধি (Circumference)" else "পরিসীমা (Perimeter)"
-                            Text(text = perimLabel, style = MaterialTheme.typography.labelMedium)
-                            if (selectedShape == GeoShapeType.TRIANGLE && !calcResult.isPerimeterExact) {
-                                Text(
-                                    text = "অপর্যাপ্ত উপাত্ত",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
-                                Text(
-                                    text = "(বাকি ২ বাহু প্রয়োজন)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            } else {
-                                Text(
-                                    text = "${VisualMathEngine.formatNumberBn(calcResult.primaryPerimeterOrCircumference)} একক",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.secondary
-                                )
+                            IconButton(
+                                onClick = { zoomScale = (zoomScale + 0.15f).coerceAtMost(1.6f) },
+                                modifier = Modifier.size(32.dp).testTag("geo_zoom_in")
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(
-                        text = "ধাপে ধাপে সমাধান প্রক্রিয়া:",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    calcResult.explanationStepsBn.forEachIndexed { idx, step ->
-                        Text(
-                            text = "${BengaliNumberFormatter.toBn(idx + 1)}. $step",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    val secondaryColor = MaterialTheme.colorScheme.tertiary
+                    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                            .testTag("geometry_canvas_box"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            drawGridBackground(gridColor)
+                            drawGeometryShape(
+                                shapeType = selectedShape,
+                                param1 = baseParam,
+                                param2 = heightParam,
+                                zoom = zoomScale,
+                                primaryColor = primaryColor,
+                                secondaryColor = secondaryColor,
+                                labelColorArgb = onSurfaceArgb,
+                                accentColorArgb = primaryArgb,
+                                useExactTriangleSides = useExactTriangleSides,
+                                sideA = sideAParam,
+                                sideC = sideCParam
+                            )
+                        }
                     }
                 }
             }
         }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+
+        // 3. Interactive Dimension Sliders
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "পরিমাপ পরিবর্তন করুন (Interactive Controls)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    val param1Label = when (selectedShape) {
+                        GeoShapeType.TRIANGLE -> "ভূমি (Base b)"
+                        GeoShapeType.RECTANGLE -> "দৈর্ঘ্য (Length a)"
+                        GeoShapeType.SQUARE -> "বাহুর দৈর্ঘ্য (Side a)"
+                        GeoShapeType.CIRCLE -> "ব্যাসার্ধ (Radius r)"
+                        GeoShapeType.ANGLES -> "কোণের মান (Angle θ°)"
+                    }
+
+                    DimensionSliderRow(
+                        label = param1Label,
+                        value = baseParam,
+                        valueRange = if (selectedShape == GeoShapeType.ANGLES) 5f..355f else 2f..20f,
+                        onValueChange = { baseParam = it.toDouble() },
+                        testTag = "geo_slider_param1"
+                    )
+
+                    if (selectedShape == GeoShapeType.TRIANGLE || selectedShape == GeoShapeType.RECTANGLE) {
+                        val param2Label = if (selectedShape == GeoShapeType.TRIANGLE) "উচ্চতা (Height h)" else "প্রস্থ (Width b)"
+                        DimensionSliderRow(
+                            label = param2Label,
+                            value = heightParam,
+                            valueRange = 2f..16f,
+                            onValueChange = { heightParam = it.toDouble() },
+                            testTag = "geo_slider_param2"
+                        )
+                    }
+
+                    // BUG-56 FIX: Optional exact 3-side perimeter controls for Triangle
+                    if (selectedShape == GeoShapeType.TRIANGLE) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "ত্রিভুজের তিন বাহু নির্দিষ্ট করুন (সঠিক পরিসীমার জন্য)",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = "চালু করলে a, b, c তিন বাহুর সমষ্টি দিয়ে পরিসীমা নির্ণীত হবে",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = useExactTriangleSides,
+                                onCheckedChange = { useExactTriangleSides = it },
+                                modifier = Modifier.testTag("geo_triangle_exact_sides_switch")
+                            )
+                        }
+
+                        if (useExactTriangleSides) {
+                            DimensionSliderRow(
+                                label = "বাম বাহু (Side a)",
+                                value = sideAParam,
+                                valueRange = 2f..20f,
+                                onValueChange = { sideAParam = it.toDouble() },
+                                testTag = "geo_slider_triangle_side_a"
+                            )
+                            DimensionSliderRow(
+                                label = "ডান বাহু (Side c)",
+                                value = sideCParam,
+                                valueRange = 2f..20f,
+                                onValueChange = { sideCParam = it.toDouble() },
+                                testTag = "geo_slider_triangle_side_c"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Real-Time Mathematical Metrics & Step-by-Step Proof
+        item {
+            ElevatedCard(
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().testTag("geo_calculation_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (!calcResult.isValid) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = calcResult.errorMessageBn ?: "অবৈধ জ্যামিতিক মান",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        MetricHighlightBox(
+                            title = if (selectedShape == GeoShapeType.ANGLES) "প্রদত্ত কোণ (θ)" else "ক্ষেত্রফল (Area)",
+                            value = if (selectedShape == GeoShapeType.ANGLES) {
+                                "${VisualMathEngine.formatNumberBn(calcResult.primaryArea, 1)}°"
+                            } else {
+                                VisualMathEngine.formatNumberBn(calcResult.primaryArea, 2)
+                            },
+                            unit = if (selectedShape == GeoShapeType.ANGLES) "ডিগ্রি" else "বর্গ একক",
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.weight(1f).testTag("geo_metric_area")
+                        )
+
+                        val perimTitle = when (selectedShape) {
+                            GeoShapeType.CIRCLE -> "পরিধি (Circumference)"
+                            GeoShapeType.ANGLES -> "পূরক কোণ (90° - θ)"
+                            else -> "পরিসীমা (Perimeter)"
+                        }
+                        val perimValueText = if (calcResult.isPerimeterExact) {
+                            if (selectedShape == GeoShapeType.ANGLES) {
+                                "${VisualMathEngine.formatNumberBn(calcResult.primaryPerimeterOrCircumference, 1)}°"
+                            } else {
+                                VisualMathEngine.formatNumberBn(calcResult.primaryPerimeterOrCircumference, 2)
+                            }
+                        } else {
+                            "অনির্ধারিত"
+                        }
+                        val perimUnitText = if (calcResult.isPerimeterExact) {
+                            if (selectedShape == GeoShapeType.ANGLES) "ডিগ্রি" else "একক"
+                        } else {
+                            "তিন বাহু প্রয়োজন"
+                        }
+
+                        MetricHighlightBox(
+                            title = perimTitle,
+                            value = perimValueText,
+                            unit = perimUnitText,
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.weight(1f).testTag("geo_metric_perimeter")
+                        )
+                    }
+
+                    calcResult.perimeterNoteBn?.let { note ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "নোট: $note",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Text(
+                        text = "গাণিতিক সূত্র: ${calcResult.formulaExpressionBn}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+
+                    Text(
+                        text = "ধাপে ধাপে ব্যাখ্যা (Step-by-Step Analysis):",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    calcResult.explanationStepsBn.forEachIndexed { idx, step ->
+                        StepItemRow(stepNumber = idx + 1, stepText = step)
+                    }
+                }
+            }
+        }
+
+        // 5. BUG-55 FIX: Interactive 2D Coordinate Transformation Explorer Card
+        item {
+            CoordinateTransformation2DCard(
+                viewModel = viewModel,
+                labelColorArgb = onSurfaceArgb,
+                accentColorArgb = primaryArgb
+            )
+        }
     }
 }
 
 // =============================================================================
-// B. VISUAL ALGEBRA (Balance-Scale Linear Equations)
+// DEDICATED 3D SOLID GEOMETRY STUDIO TAB & REUSABLE STUDIO CARD
 // =============================================================================
 
 @Composable
-fun VisualAlgebraTab(viewModel: MathViewModel) {
-    var aParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:aParam", 2.0) // coeff of x
-    var bParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:bParam", 4.0) // constant b
-    var cParam by rememberManagedUiState(viewModel, "visual_explorer:tab_1:cParam", 14.0) // RHS c
-    var activeStepIdx by rememberManagedUiState(viewModel, "visual_explorer:tab_1:activeStepIdx", 0)
-    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_1")
-
-    val algebraResult = remember(aParam, bParam, cParam) {
-        VisualMathEngine.solveVisualAlgebra(aParam, bParam, cParam)
-    }
-
+fun Solid3DExplorerTab(viewModel: MathViewModel) {
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_4")
     LazyColumn(
         state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("visual_explorer_tab_1_list"),
+        modifier = Modifier.fillMaxSize().testTag("solid_3d_explorer_list"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            // Equation preset buttons
-            Text(
-                text = "অনুশীলনের সমীকরণ নির্বাচন করুন:",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
+            Interactive3DSolidStudioCard(
+                viewModel = viewModel,
+                statePrefix = "visual_explorer:tab_4:solid3d"
             )
-            Spacer(modifier = Modifier.height(6.dp))
+        }
+    }
+}
+
+@Composable
+fun Interactive3DSolidStudioCard(
+    viewModel: MathViewModel,
+    statePrefix: String = "visual_explorer:solid3d"
+) {
+    var selectedSolid by rememberManagedUiState(viewModel, "$statePrefix:type", Solid3DShapeType.CUBE)
+    var pitchDeg by rememberManagedUiState(viewModel, "$statePrefix:pitch", CameraPreset3D.ISOMETRIC.pitchDeg)
+    var yawDeg by rememberManagedUiState(viewModel, "$statePrefix:yaw", CameraPreset3D.ISOMETRIC.yawDeg)
+    var zoom3D by rememberManagedUiState(viewModel, "$statePrefix:zoom", 1.0f)
+    var unfoldProgress by rememberManagedUiState(viewModel, "$statePrefix:unfold", 0.0f)
+    var volumeFillRatio by rememberManagedUiState(viewModel, "$statePrefix:fill", 0.0f)
+    var highlightMode by rememberManagedUiState(viewModel, "$statePrefix:highlight", SolidAnatomyHighlight.ALL)
+
+    // Dimension parameters
+    var param1 by rememberManagedUiState(viewModel, "$statePrefix:p1", selectedSolid.defaultP1)
+    var param2 by rememberManagedUiState(viewModel, "$statePrefix:p2", selectedSolid.defaultP2)
+    var param3 by rememberManagedUiState(viewModel, "$statePrefix:p3", selectedSolid.defaultP3)
+
+    val mensuration = remember(selectedSolid, param1, param2, param3) {
+        Math3DEngine.calculateSolidMetrics(selectedSolid, param1, param2, param3)
+    }
+
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+
+    ElevatedCard(
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("interactive_3d_solid_studio_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "ইন্টারঅ্যাক্টিভ ৩ডি ঘনবস্তু ও নেট স্টুডিও (3D Solid Studio)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "৩৬০° ঘূর্ণন, ৩ডি→২ডি নেট আনফোল্ডিং, আয়তন পূর্ণতা এবং পরিমিতি বিশ্লেষণ",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // 1. 3D Solid Type Selector Chips
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().testTag("solid_3d_selector_row"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(Solid3DShapeType.entries) { solid ->
+                    FilterChip(
+                        selected = selectedSolid == solid,
+                        onClick = {
+                            selectedSolid = solid
+                            param1 = solid.defaultP1
+                            param2 = solid.defaultP2
+                            param3 = solid.defaultP3
+                        },
+                        label = {
+                            Text(
+                                text = solid.titleBn,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        leadingIcon = if (selectedSolid == solid) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                        } else null,
+                        modifier = Modifier.testTag("solid_3d_chip_${solid.name.lowercase()}")
+                    )
+                }
+            }
+
+            // 2. Camera Presets & Reset Row
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(CameraPreset3D.entries) { preset ->
+                    FilterChip(
+                        selected = abs(pitchDeg - preset.pitchDeg) < 2f && abs(yawDeg - preset.yawDeg) < 2f,
+                        onClick = {
+                            pitchDeg = preset.pitchDeg
+                            yawDeg = preset.yawDeg
+                        },
+                        label = { Text(preset.titleBn, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.testTag("solid_3d_cam_${preset.name.lowercase()}")
+                    )
+                }
+                item {
+                    OutlinedButton(
+                        onClick = {
+                            pitchDeg = CameraPreset3D.ISOMETRIC.pitchDeg
+                            yawDeg = CameraPreset3D.ISOMETRIC.yawDeg
+                            zoom3D = 1.0f
+                            unfoldProgress = 0.0f
+                            volumeFillRatio = 0.0f
+                            highlightMode = SolidAnatomyHighlight.ALL
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("solid_3d_reset_btn")
+                    ) {
+                        Text("রিসেট ভিউ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            // 3. Interactive 3D Viewport Canvas (Drag-to-Orbit + Perspective + Painter's Algorithm)
+            val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val secondaryColor = MaterialTheme.colorScheme.secondary
+            val tertiaryColor = MaterialTheme.colorScheme.tertiary
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(270.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
+                    .pointerInput(selectedSolid) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            yawDeg = ((yawDeg + dragAmount.x * 0.45f) % 360f + 360f) % 360f
+                            pitchDeg = (pitchDeg - dragAmount.y * 0.45f).coerceIn(-80f, 80f)
+                        }
+                    }
+                    .testTag("solid_3d_viewport_canvas")
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    drawGridBackground(gridColor)
+                    val (faces, internalLines) = Math3DEngine.buildSolidMesh(
+                        shape = selectedSolid,
+                        p1 = param1,
+                        p2 = param2,
+                        p3 = param3,
+                        unfoldProgress = unfoldProgress,
+                        volumeFillFraction = volumeFillRatio
+                    )
+                    val scene = Math3DEngine.projectScene(
+                        faces = faces,
+                        internalLines = internalLines,
+                        camera = OrbitCameraState(
+                            pitchDeg = pitchDeg,
+                            yawDeg = yawDeg,
+                            zoom = zoom3D
+                        ),
+                        canvasWidth = size.width,
+                        canvasHeight = size.height
+                    )
+                    drawProjected3DScene(
+                        scene = scene,
+                        highlightMode = highlightMode,
+                        primaryColor = primaryColor,
+                        secondaryColor = secondaryColor,
+                        tertiaryColor = tertiaryColor,
+                        labelColorArgb = onSurfaceArgb,
+                        accentColorArgb = primaryArgb
+                    )
+                }
+
+                // Overlay badge showing current rotation & mode
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "Pitch: ${BengaliNumberFormatter.toBengaliDigits(pitchDeg.toInt().toString())}° | Yaw: ${BengaliNumberFormatter.toBengaliDigits(yawDeg.toInt().toString())}° (আঙুল টেনে ঘোরান)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Topology Badge (F / E / V)
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(8.dp)
+                ) {
+                    Text(
+                        text = "তল (F): ${BengaliNumberFormatter.toBengaliDigits(mensuration.facesCount.toString())} | ধার (E): ${BengaliNumberFormatter.toBengaliDigits(mensuration.edgesCount.toString())} | শীর্ষ (V): ${BengaliNumberFormatter.toBengaliDigits(mensuration.verticesCount.toString())}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            // 4. Anatomy Highlight Selector Chips
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(SolidAnatomyHighlight.entries) { mode ->
+                    FilterChip(
+                        selected = highlightMode == mode,
+                        onClick = { highlightMode = mode },
+                        label = { Text(mode.titleBn, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.testTag("solid_3d_highlight_${mode.name.lowercase()}")
+                    )
+                }
+            }
+
+            // 5. 3D-to-2D Net Unfolding & Volume Fill Sliders + Accessible Pitch/Yaw Sliders
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (selectedSolid.supportsNetUnfold) {
+                        DimensionSliderRow(
+                            label = "৩ডি → ২ডি নেট আনফোল্ডিং (Surface Net Unfold %)",
+                            value = (unfoldProgress * 100f).toDouble(),
+                            valueRange = 0f..100f,
+                            onValueChange = { unfoldProgress = (it / 100f).coerceIn(0f, 1f) },
+                            testTag = "solid_3d_unfold_slider"
+                        )
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().testTag("sphere_net_limitation_banner")
+                        ) {
+                            Text(
+                                text = "গাণিতিক সীমাবদ্ধতা (Theorema Egregium): গোলকের গউসীয় বক্রতা ধনাত্মক (K = 1/r² > 0) হওয়ায় ঘনকের মতো এর কোনো বিকৃতিহীন (Distortion-free) সমতল বহুভুজ নেট নেই। এর পৃষ্ঠতলের ক্ষেত্রফল ৪টি মহাবৃত্তের ক্ষেত্রফলের (4πr²) সমান।",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    DimensionSliderRow(
+                        label = "উচ্চতা অনুযায়ী পূর্ণতা (Height Fill Level %)",
+                        value = (volumeFillRatio * 100f).toDouble(),
+                        valueRange = 0f..100f,
+                        onValueChange = { volumeFillRatio = (it / 100f).coerceIn(0f, 1f) },
+                        testTag = "solid_3d_fill_slider"
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "উল্লম্ব কোণ (Pitch: ${BengaliNumberFormatter.toBengaliDigits(pitchDeg.toInt().toString())}°)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = pitchDeg,
+                                onValueChange = { pitchDeg = it },
+                                valueRange = -80f..80f,
+                                modifier = Modifier.testTag("solid_3d_pitch_slider")
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "অনুভূমিক কোণ (Yaw: ${BengaliNumberFormatter.toBengaliDigits(yawDeg.toInt().toString())}°)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Slider(
+                                value = yawDeg,
+                                onValueChange = { yawDeg = it },
+                                valueRange = 0f..360f,
+                                modifier = Modifier.testTag("solid_3d_yaw_slider")
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    // Solid-specific dimension sliders
+                    DimensionSliderRow(
+                        label = selectedSolid.param1LabelBn,
+                        value = param1,
+                        valueRange = 1.5f..10f,
+                        onValueChange = { param1 = it.toDouble() },
+                        testTag = "solid_3d_param_1"
+                    )
+
+                    selectedSolid.param2LabelBn?.let { label2 ->
+                        DimensionSliderRow(
+                            label = label2,
+                            value = param2,
+                            valueRange = 1.5f..10f,
+                            onValueChange = { param2 = it.toDouble() },
+                            testTag = "solid_3d_param_2"
+                        )
+                    }
+
+                    selectedSolid.param3LabelBn?.let { label3 ->
+                        DimensionSliderRow(
+                            label = label3,
+                            value = param3,
+                            valueRange = 1.5f..10f,
+                            onValueChange = { param3 = it.toDouble() },
+                            testTag = "solid_3d_param_3"
+                        )
+                    }
+                }
+            }
+
+            // 6. 3D Mensuration Metrics Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val presets = listOf(
-                    Triple(2.0, 4.0, 14.0), // 2x + 4 = 14
-                    Triple(3.0, 6.0, 21.0), // 3x + 6 = 21
-                    Triple(4.0, -2.0, 14.0), // 4x - 2 = 14
-                    Triple(5.0, 10.0, 35.0)  // 5x + 10 = 35
+                MetricHighlightBox(
+                    title = "আয়তন (Volume V)",
+                    value = VisualMathEngine.formatNumberBn(mensuration.volume, 2),
+                    unit = "ঘন একক",
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_volume")
                 )
-                presets.forEach { (a, b, c) ->
-                    val signStr = if (b >= 0) "+ ${VisualMathEngine.formatNumberBn(b)}" else "- ${VisualMathEngine.formatNumberBn(abs(b))}"
-                    val label = "${VisualMathEngine.formatNumberBn(a)}x $signStr = ${VisualMathEngine.formatNumberBn(c)}"
-                    val isSelected = aParam == a && bParam == b && cParam == c
+                MetricHighlightBox(
+                    title = "সমগ্রতলের ক্ষেত্রফল (TSA)",
+                    value = VisualMathEngine.formatNumberBn(mensuration.totalSurfaceArea, 2),
+                    unit = "বর্গ একক",
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_tsa")
+                )
+                MetricHighlightBox(
+                    title = mensuration.secondaryMetricLabelBn,
+                    value = VisualMathEngine.formatNumberBn(mensuration.secondaryMetricValue, 2),
+                    unit = "একক",
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_aux")
+                )
+            }
 
+            if (volumeFillRatio > 0.01f) {
+                val fillAnalysis = Math3DEngine.calculateVolumeFill(
+                    shape = selectedSolid,
+                    p1 = param1,
+                    p2 = param2,
+                    p3 = param3,
+                    heightFillFraction = volumeFillRatio
+                )
+                val heightPctBn = VisualMathEngine.formatNumberBn(fillAnalysis.heightFillFraction * 100.0, 1)
+                val volPctBn = VisualMathEngine.formatNumberBn(fillAnalysis.volumeFillFraction * 100.0, 2)
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("solid_3d_volume_fill_summary")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "আংশিক পূর্ণ আয়তন ($heightPctBn% উচ্চতা → প্রকৃত আয়তন $volPctBn%): V_fill = ${VisualMathEngine.formatNumberBn(fillAnalysis.filledVolume, 2)} ঘন একক",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "${fillAnalysis.formulaRelationBn} — ${fillAnalysis.explanationBn}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "${mensuration.volumeFormulaBn}  |  ${mensuration.surfaceAreaFormulaBn}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = if (unfoldProgress > 0.1f) mensuration.netExplanationBn else mensuration.conceptSummaryBn,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            mensuration.calculationStepsBn.forEachIndexed { idx, step ->
+                StepItemRow(stepNumber = idx + 1, stepText = step)
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawProjected3DScene(
+    scene: ProjectedScene2D,
+    highlightMode: SolidAnatomyHighlight,
+    primaryColor: Color,
+    secondaryColor: Color,
+    tertiaryColor: Color,
+    labelColorArgb: Int,
+    accentColorArgb: Int
+) {
+    val faceAlphaMultiplier = when (highlightMode) {
+        SolidAnatomyHighlight.ALL -> 0.74f
+        SolidAnatomyHighlight.FACES -> 0.88f
+        SolidAnatomyHighlight.EDGES, SolidAnatomyHighlight.VERTICES, SolidAnatomyHighlight.DIAGONAL_OR_AXIS -> 0.22f
+    }
+
+    scene.facesBackToFront.forEach { face ->
+        if (face.points.size >= 3) {
+            val path = Path().apply {
+                moveTo(face.points[0].x, face.points[0].y)
+                for (i in 1 until face.points.size) {
+                    lineTo(face.points[i].x, face.points[i].y)
+                }
+                close()
+            }
+            val roleColor = when (face.colorRole) {
+                0 -> primaryColor
+                1 -> secondaryColor
+                2 -> tertiaryColor
+                else -> Color(0xFF0EA5E9)
+            }
+            val alpha = if (face.isVolumeFill) 0.58f else faceAlphaMultiplier
+            val shadedColor = Color(
+                red = (roleColor.red * face.lightIntensity).coerceIn(0f, 1f),
+                green = (roleColor.green * face.lightIntensity).coerceIn(0f, 1f),
+                blue = (roleColor.blue * face.lightIntensity).coerceIn(0f, 1f),
+                alpha = alpha
+            )
+            drawPath(path = path, color = shadedColor, style = Fill)
+
+            val strokeAlpha = if (highlightMode == SolidAnatomyHighlight.EDGES) 1.0f else 0.78f
+            val strokeWidth = if (highlightMode == SolidAnatomyHighlight.EDGES) 3.5f else 1.8f
+            drawPath(
+                path = path,
+                color = roleColor.copy(alpha = strokeAlpha),
+                style = Stroke(width = strokeWidth)
+            )
+        }
+    }
+
+    // Draw internal axes / diagonals / slant height lines
+    scene.internalLines.forEach { line ->
+        val isHighlighted = highlightMode == SolidAnatomyHighlight.DIAGONAL_OR_AXIS || highlightMode == SolidAnatomyHighlight.ALL
+        drawLine(
+            color = if (isHighlighted) Color(0xFFDC2626) else Color(0xFFDC2626).copy(alpha = 0.45f),
+            start = Offset(line.start.x, line.start.y),
+            end = Offset(line.end.x, line.end.y),
+            strokeWidth = if (highlightMode == SolidAnatomyHighlight.DIAGONAL_OR_AXIS) 5f else 3f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+        )
+        line.labelBn?.let { lbl ->
+            val midX = (line.start.x + line.end.x) / 2f
+            val midY = (line.start.y + line.end.y) / 2f
+            drawCanvasText(lbl, midX + 12f, midY - 8f, Color(0xFFDC2626).toArgb(), 24f)
+        }
+    }
+
+    // Draw Vertices when highlighted or in ALL mode
+    if (highlightMode == SolidAnatomyHighlight.VERTICES || highlightMode == SolidAnatomyHighlight.ALL) {
+        val vertexRadius = if (highlightMode == SolidAnatomyHighlight.VERTICES) 7.5f else 4.0f
+        scene.uniqueVertices.forEach { v ->
+            drawCircle(
+                color = tertiaryColor,
+                radius = vertexRadius,
+                center = Offset(v.x, v.y)
+            )
+        }
+    }
+
+    // Draw Face Labels when in FACES highlight mode
+    if (highlightMode == SolidAnatomyHighlight.FACES) {
+        scene.facesBackToFront.takeLast(6).forEach { face ->
+            val lbl = face.labelBn
+            if (!lbl.isNullOrBlank()) {
+                drawCanvasText(lbl, face.center2D.x, face.center2D.y, labelColorArgb, 24f)
+            }
+        }
+    }
+}
+
+// =============================================================================
+// BUG-55 FIX: INTERACTIVE 2D COORDINATE TRANSFORMATION CARD
+// =============================================================================
+
+@Composable
+private fun CoordinateTransformation2DCard(
+    viewModel: MathViewModel,
+    labelColorArgb: Int,
+    accentColorArgb: Int
+) {
+    var pointX by rememberManagedUiState(viewModel, "visual_explorer:tab_0:trans_x", 3.0)
+    var pointY by rememberManagedUiState(viewModel, "visual_explorer:tab_0:trans_y", 4.0)
+    var transformType by rememberManagedUiState(viewModel, "visual_explorer:tab_0:trans_type", "reflect_x")
+    var translateDelta by rememberManagedUiState(viewModel, "visual_explorer:tab_0:trans_dx", 2.0)
+
+    val result = remember(pointX, pointY, transformType, translateDelta) {
+        VisualMathEngine.calculate2DTransformation(pointX, pointY, transformType, translateDelta)
+    }
+
+    val transformOptions = listOf(
+        "reflect_x" to "x-অক্ষে প্রতিফলন",
+        "reflect_y" to "y-অক্ষে প্রতিফলন",
+        "rotate_90" to "৯০° ঘূর্ণন",
+        "rotate_180" to "১৮০° ঘূর্ণন",
+        "translate" to "স্থানান্তর (Translate)"
+    )
+
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().testTag("transformation_2d_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "স্থানাঙ্ক রূপান্তর ল্যাব (2D Coordinate Transformations)",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "প্রতিফলন (Reflection), ঘূর্ণন (Rotation) ও স্থানান্তর (Translation) সরাসরি গ্রাফে দেখুন",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(transformOptions) { (key, labelBn) ->
                     FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            aParam = a
-                            bParam = b
-                            cParam = c
-                            activeStepIdx = 0
+                        selected = transformType == key,
+                        onClick = { transformType = key },
+                        label = { Text(labelBn, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.testTag("trans_type_$key")
+                    )
+                }
+            }
+
+            val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+            val axisColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val tertiaryColor = MaterialTheme.colorScheme.tertiary
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    drawGridBackground(gridColor)
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val unitPx = (min(size.width, size.height) / 14f).coerceAtLeast(8f)
+
+                    // Axes
+                    drawLine(axisColor, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 2f)
+                    drawLine(axisColor, Offset(cx, 0f), Offset(cx, size.height), strokeWidth = 2f)
+
+                    val origScreen = Offset(cx + pointX.toFloat() * unitPx, cy - pointY.toFloat() * unitPx)
+                    val transScreen = Offset(cx + result.transformedX.toFloat() * unitPx, cy - result.transformedY.toFloat() * unitPx)
+
+                    // Dashed connector
+                    drawLine(
+                        color = tertiaryColor.copy(alpha = 0.7f),
+                        start = origScreen,
+                        end = transScreen,
+                        strokeWidth = 2.5f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+                    )
+
+                    // Original point P
+                    drawCircle(color = primaryColor, radius = 8f, center = origScreen)
+                    drawCanvasText(
+                        "P(${VisualMathEngine.formatNumberBn(pointX, 0)},${VisualMathEngine.formatNumberBn(pointY, 0)})",
+                        (origScreen.x + 38f).coerceIn(40f, size.width - 40f),
+                        (origScreen.y - 12f).coerceIn(20f, size.height - 12f),
+                        accentColorArgb,
+                        24f
+                    )
+
+                    // Transformed point P'
+                    drawCircle(color = Color(0xFFDC2626), radius = 8f, center = transScreen)
+                    drawCanvasText(
+                        "P'(${VisualMathEngine.formatNumberBn(result.transformedX, 0)},${VisualMathEngine.formatNumberBn(result.transformedY, 0)})",
+                        (transScreen.x + 42f).coerceIn(40f, size.width - 40f),
+                        (transScreen.y + 22f).coerceIn(20f, size.height - 12f),
+                        Color(0xFFDC2626).toArgb(),
+                        24f
+                    )
+                }
+            }
+
+            DimensionSliderRow(
+                label = "বিন্দু x স্থানাঙ্ক (x)",
+                value = pointX,
+                valueRange = -5f..5f,
+                onValueChange = { pointX = it.toInt().toDouble() },
+                testTag = "trans_slider_x"
+            )
+            DimensionSliderRow(
+                label = "বিন্দু y স্থানাঙ্ক (y)",
+                value = pointY,
+                valueRange = -5f..5f,
+                onValueChange = { pointY = it.toInt().toDouble() },
+                testTag = "trans_slider_y"
+            )
+
+            if (transformType == "translate") {
+                DimensionSliderRow(
+                    label = "সরণ মান (Translation Δ)",
+                    value = translateDelta,
+                    valueRange = -4f..4f,
+                    onValueChange = { translateDelta = it.toInt().toDouble() },
+                    testTag = "trans_slider_dx"
+                )
+            }
+
+            Text(
+                text = "${result.ruleFormulaBn} — ${result.explanationBn}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawGridBackground(gridColor: Color) {
+    val step = 24.dp.toPx()
+    var x = 0f
+    while (x <= size.width) {
+        drawLine(color = gridColor, start = Offset(x, 0f), end = Offset(x, size.height), strokeWidth = 1f)
+        x += step
+    }
+    var y = 0f
+    while (y <= size.height) {
+        drawLine(color = gridColor, start = Offset(0f, y), end = Offset(size.width, y), strokeWidth = 1f)
+        y += step
+    }
+}
+
+private fun DrawScope.drawGeometryShape(
+    shapeType: GeoShapeType,
+    param1: Double,
+    param2: Double,
+    zoom: Float,
+    primaryColor: Color,
+    secondaryColor: Color,
+    labelColorArgb: Int,
+    accentColorArgb: Int,
+    useExactTriangleSides: Boolean = false,
+    sideA: Double = param2,
+    sideC: Double = param2
+) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val maxCanvasDim = min(size.width, size.height) * 0.72f
+
+    when (shapeType) {
+        GeoShapeType.RECTANGLE -> {
+            // BUG-56 FIX: Apply zoomScale to Rectangle
+            val maxInput = max(param1, param2).coerceAtLeast(1.0).toFloat()
+            val scale = (maxCanvasDim / maxInput) * zoom.coerceIn(0.6f, 1.5f)
+            val rectW = (param1.toFloat() * scale).coerceIn(40f, size.width * 0.92f)
+            val rectH = (param2.toFloat() * scale).coerceIn(40f, size.height * 0.88f)
+            val topLeft = Offset(cx - rectW / 2f, cy - rectH / 2f)
+
+            drawRect(
+                color = primaryColor.copy(alpha = 0.18f),
+                topLeft = topLeft,
+                size = Size(rectW, rectH)
+            )
+            drawRect(
+                color = primaryColor,
+                topLeft = topLeft,
+                size = Size(rectW, rectH),
+                style = Stroke(width = 4f)
+            )
+
+            drawCanvasText(
+                text = "a = ${VisualMathEngine.formatNumberBn(param1, 1)}",
+                x = cx,
+                y = (topLeft.y + rectH + 26f).coerceAtMost(size.height - 4f),
+                colorArgb = accentColorArgb
+            )
+            drawCanvasText(
+                text = "b = ${VisualMathEngine.formatNumberBn(param2, 1)}",
+                x = (topLeft.x + rectW + 42f).coerceAtMost(size.width - 36f),
+                y = cy,
+                colorArgb = accentColorArgb
+            )
+        }
+
+        GeoShapeType.SQUARE -> {
+            // BUG-56 FIX: Apply zoomScale to Square
+            val sidePx = ((param1.toFloat() / 20f) * maxCanvasDim * zoom).coerceIn(55f, maxCanvasDim * 1.15f)
+            val topLeft = Offset(cx - sidePx / 2f, cy - sidePx / 2f)
+
+            drawRect(
+                color = primaryColor.copy(alpha = 0.18f),
+                topLeft = topLeft,
+                size = Size(sidePx, sidePx)
+            )
+            drawRect(
+                color = primaryColor,
+                topLeft = topLeft,
+                size = Size(sidePx, sidePx),
+                style = Stroke(width = 4f)
+            )
+            drawLine(
+                color = secondaryColor,
+                start = topLeft,
+                end = Offset(topLeft.x + sidePx, topLeft.y + sidePx),
+                strokeWidth = 3f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+            )
+
+            drawCanvasText(
+                text = "a = ${VisualMathEngine.formatNumberBn(param1, 1)}",
+                x = cx,
+                y = (topLeft.y + sidePx + 26f).coerceAtMost(size.height - 4f),
+                colorArgb = accentColorArgb
+            )
+        }
+
+        GeoShapeType.TRIANGLE -> {
+            // BUG-56 FIX: Apply zoomScale and render true 3-side geometry when useExactTriangleSides is active
+            val maxInput = max(param1, max(param2, if (useExactTriangleSides) max(sideA, sideC) else 1.0)).coerceAtLeast(1.0).toFloat()
+            val scale = (maxCanvasDim / maxInput) * zoom.coerceIn(0.6f, 1.5f)
+            val basePx = (param1.toFloat() * scale).coerceIn(50f, size.width * 0.90f)
+            val heightPx = (param2.toFloat() * scale).coerceIn(50f, size.height * 0.84f)
+
+            val bottomLeft = Offset(cx - basePx / 2f, cy + heightPx / 2f)
+            val bottomRight = Offset(cx + basePx / 2f, cy + heightPx / 2f)
+
+            val apexOffsetXFraction = if (useExactTriangleSides && param1 > 0.0 &&
+                (sideA + param1 > sideC) && (sideA + sideC > param1) && (param1 + sideC > sideA)
+            ) {
+                val xProj = (sideA * sideA + param1 * param1 - sideC * sideC) / (2.0 * param1)
+                (xProj / param1).toFloat().coerceIn(0.05f, 0.95f)
+            } else {
+                0.5f
+            }
+
+            val apexX = (bottomLeft.x + basePx * apexOffsetXFraction).coerceIn(24f, size.width - 24f)
+            val topVertex = Offset(apexX, cy - heightPx / 2f)
+            val footOfAltitude = Offset(apexX, cy + heightPx / 2f)
+
+            val path = Path().apply {
+                moveTo(topVertex.x, topVertex.y)
+                lineTo(bottomLeft.x, bottomLeft.y)
+                lineTo(bottomRight.x, bottomRight.y)
+                close()
+            }
+
+            drawPath(path = path, color = primaryColor.copy(alpha = 0.18f), style = Fill)
+            drawPath(path = path, color = primaryColor, style = Stroke(width = 4f))
+
+            drawLine(
+                color = secondaryColor,
+                start = topVertex,
+                end = footOfAltitude,
+                strokeWidth = 3f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f), 0f)
+            )
+
+            drawCanvasText(
+                text = "b = ${VisualMathEngine.formatNumberBn(param1, 1)}",
+                x = cx,
+                y = (bottomLeft.y + 26f).coerceAtMost(size.height - 4f),
+                colorArgb = accentColorArgb
+            )
+            drawCanvasText(
+                text = "h = ${VisualMathEngine.formatNumberBn(param2, 1)}",
+                x = (apexX + 34f).coerceAtMost(size.width - 36f),
+                y = cy + 6f,
+                colorArgb = secondaryColor.toArgb()
+            )
+            if (useExactTriangleSides) {
+                drawCanvasText(
+                    text = "a = ${VisualMathEngine.formatNumberBn(sideA, 1)}",
+                    x = ((bottomLeft.x + topVertex.x) / 2f - 28f).coerceAtLeast(28f),
+                    y = (bottomLeft.y + topVertex.y) / 2f,
+                    colorArgb = labelColorArgb
+                )
+                drawCanvasText(
+                    text = "c = ${VisualMathEngine.formatNumberBn(sideC, 1)}",
+                    x = ((bottomRight.x + topVertex.x) / 2f + 28f).coerceAtMost(size.width - 28f),
+                    y = (bottomRight.y + topVertex.y) / 2f,
+                    colorArgb = labelColorArgb
+                )
+            }
+        }
+
+        GeoShapeType.CIRCLE -> {
+            val radiusPx = ((param1.toFloat() / 20f) * (maxCanvasDim / 2f) * zoom).coerceIn(32f, maxCanvasDim * 0.58f)
+            val center = Offset(cx, cy)
+
+            drawCircle(
+                color = primaryColor.copy(alpha = 0.18f),
+                radius = radiusPx,
+                center = center
+            )
+            drawCircle(
+                color = primaryColor,
+                radius = radiusPx,
+                center = center,
+                style = Stroke(width = 4f)
+            )
+            drawCircle(color = secondaryColor, radius = 5f, center = center)
+            drawLine(
+                color = secondaryColor,
+                start = center,
+                end = Offset(center.x + radiusPx, center.y),
+                strokeWidth = 3.5f
+            )
+
+            drawCanvasText(
+                text = "r = ${VisualMathEngine.formatNumberBn(param1, 1)}",
+                x = center.x + radiusPx / 2f,
+                y = center.y - 12f,
+                colorArgb = secondaryColor.toArgb()
+            )
+        }
+
+        GeoShapeType.ANGLES -> {
+            val armLength = (maxCanvasDim * 0.48f * zoom).coerceIn(55f, maxCanvasDim * 0.65f)
+            val origin = Offset(cx - armLength * 0.3f, cy + armLength * 0.3f)
+            val rad = Math.toRadians(param1)
+            val endArm1 = Offset(origin.x + armLength, origin.y)
+            val endArm2 = Offset(
+                origin.x + (armLength * cos(rad)).toFloat(),
+                origin.y - (armLength * sin(rad)).toFloat()
+            )
+
+            drawLine(color = primaryColor, start = origin, end = endArm1, strokeWidth = 5f, cap = StrokeCap.Round)
+            drawLine(color = secondaryColor, start = origin, end = endArm2, strokeWidth = 5f, cap = StrokeCap.Round)
+            drawArc(
+                color = primaryColor.copy(alpha = 0.28f),
+                startAngle = 0f,
+                sweepAngle = -param1.toFloat(),
+                useCenter = true,
+                topLeft = Offset(origin.x - 45f, origin.y - 45f),
+                size = Size(90f, 90f)
+            )
+            drawCanvasText(
+                text = "θ = ${VisualMathEngine.formatNumberBn(param1, 1)}°",
+                x = origin.x + 65f,
+                y = origin.y - 25f,
+                colorArgb = labelColorArgb
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawCanvasText(
+    text: String,
+    x: Float,
+    y: Float,
+    colorArgb: Int = android.graphics.Color.DKGRAY,
+    textSizePx: Float = 28f
+) {
+    drawContext.canvas.nativeCanvas.apply {
+        val paint = android.graphics.Paint().apply {
+            color = colorArgb
+            textSize = textSizePx
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+        drawText(text, x, y, paint)
+    }
+}
+
+// =============================================================================
+// B. VISUAL ALGEBRA TAB (BALANCE-SCALE EQUATION SOLVER WITH TILT PHYSICS)
+// =============================================================================
+
+@Composable
+fun VisualAlgebraTab(viewModel: MathViewModel) {
+    var coeffA by rememberManagedUiState(viewModel, "visual_explorer:tab_1:coeffA", 2.0)
+    var constB by rememberManagedUiState(viewModel, "visual_explorer:tab_1:constB", 4.0)
+    var rhsC by rememberManagedUiState(viewModel, "visual_explorer:tab_1:rhsC", 14.0)
+    var activeStepIndex by rememberManagedUiState(viewModel, "visual_explorer:tab_1:activeStepIndex", 0)
+    var useTrialX by rememberManagedUiState(viewModel, "visual_explorer:tab_1:useTrialX", false)
+    var trialX by rememberManagedUiState(viewModel, "visual_explorer:tab_1:trialX", 5.0)
+    val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_1")
+
+    val algebraResult = remember(coeffA, constB, rhsC) {
+        VisualMathEngine.solveVisualAlgebra(coeffA, constB, rhsC)
+    }
+
+    val safeStepIdx = activeStepIndex.coerceIn(0, (algebraResult.steps.size - 1).coerceAtLeast(0))
+    val currentStep = algebraResult.steps.getOrNull(safeStepIdx)
+
+    val presets = listOf(
+        Triple(2.0, 4.0, 14.0) to "2x + 4 = 14",
+        Triple(3.0, 3.0, 18.0) to "3x + 3 = 18",
+        Triple(4.0, -2.0, 14.0) to "4x - 2 = 14",
+        Triple(5.0, 5.0, 30.0) to "5x + 5 = 30",
+        Triple(2.0, -6.0, 10.0) to "2x - 6 = 10"
+    )
+
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().testTag("visual_algebra_list"),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. Preset Selector + Custom Equation Sliders (BUG-58 FIX)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "সমীকরণ নির্বাচন বা কাস্টমাইজ করুন (ax + b = c):",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().testTag("algebra_presets_row"),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(presets.size) { index ->
+                            val (triple, label) = presets[index]
+                            val isSelected = coeffA == triple.first && constB == triple.second && rhsC == triple.third
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    coeffA = triple.first
+                                    constB = triple.second
+                                    rhsC = triple.third
+                                    activeStepIndex = 0
+                                    trialX = ((triple.third - triple.second) / triple.first)
+                                },
+                                label = { Text(label, fontWeight = FontWeight.SemiBold) },
+                                modifier = Modifier.testTag("algebra_preset_$index")
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    DimensionSliderRow(
+                        label = "সহগ a (x-এর গুণিতক)",
+                        value = coeffA,
+                        valueRange = 1f..8f,
+                        onValueChange = {
+                            coeffA = it.toInt().coerceAtLeast(1).toDouble()
+                            activeStepIndex = 0
                         },
-                        label = { Text(label, fontSize = 12.sp) },
-                        modifier = Modifier.testTag("preset_${a.toInt()}_${b.toInt()}")
+                        testTag = "algebra_slider_a"
+                    )
+                    DimensionSliderRow(
+                        label = "ধ্রুবক b (বাম পক্ষের ধ্রুবক)",
+                        value = constB,
+                        valueRange = -10f..12f,
+                        onValueChange = {
+                            constB = it.toInt().toDouble()
+                            activeStepIndex = 0
+                        },
+                        testTag = "algebra_slider_b"
+                    )
+                    DimensionSliderRow(
+                        label = "ডান পক্ষ c (RHS)",
+                        value = rhsC,
+                        valueRange = -6f..36f,
+                        onValueChange = {
+                            rhsC = it.toInt().toDouble()
+                            activeStepIndex = 0
+                        },
+                        testTag = "algebra_slider_c"
                     )
                 }
             }
         }
 
-        // Interactive Balance Scale Diagram Canvas
+        // 2. Balance Scale Visual Canvas with Real Tilt Physics (BUG-58 FIX)
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("algebra_balance_card")
+            val activeXForTilt = if (useTrialX) trialX else algebraResult.solutionX
+            val lhsVal = coeffA * activeXForTilt + constB
+            val rhsVal = rhsC
+            val diff = rhsVal - lhsVal
+            val tiltAngleDeg = if (useTrialX) (diff.toFloat() * 1.8f).coerceIn(-16f, 16f) else 0f
+
+            val displayXCount = when (safeStepIdx) {
+                0, 1 -> coeffA.toInt().coerceAtLeast(1)
+                else -> 1
+            }
+            val displayLeftConst = if (safeStepIdx == 0) constB.toInt() else 0
+            val displayRightConst = when (safeStepIdx) {
+                0 -> rhsC.toInt()
+                1 -> (rhsC - constB).toInt()
+                else -> algebraResult.solutionX.toInt()
+            }
+
+            ElevatedCard(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "দাঁড়িপাল্লায় সমীকরণ ভারসাম্য (Balance Scale)",
+                        text = "সমতার পাল্লা (Equation Balance Scale)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "উভয় পক্ষ সবসময় সমান ও ভারসাম্যপূর্ণ থাকে",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = currentStep?.let { "${it.leftExprBn}  =  ${it.rightExprBn}" } ?: "${VisualMathEngine.formatNumberBn(coeffA, 0)}x + ${VisualMathEngine.formatNumberBn(constB, 0)} = ${VisualMathEngine.formatNumberBn(rhsC, 0)}",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.testTag("algebra_active_equation_text")
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    val primColor = MaterialTheme.colorScheme.primary
-                    val secColor = MaterialTheme.colorScheme.secondary
+                    val scaleBeamColor = MaterialTheme.colorScheme.primary
+                    val xBoxColor = MaterialTheme.colorScheme.tertiary
+                    val constBoxColor = MaterialTheme.colorScheme.secondary
 
-                    val currentStep = algebraResult.steps.getOrNull(activeStepIdx) ?: algebraResult.steps.firstOrNull()
-
-                    Canvas(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(210.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surface)
-                            .testTag("balance_scale_canvas")
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                            .testTag("algebra_balance_canvas"),
+                        contentAlignment = Alignment.Center
                     ) {
-                        val w = size.width
-                        val h = size.height
-                        val cx = w / 2f
-                        val fulcrumY = h * 0.45f
-                        val baseScaleY = h * 0.88f
-
-                        // Draw Stand and Fulcrum (Center Base)
-                        val standPath = Path().apply {
-                            moveTo(cx, fulcrumY)
-                            lineTo(cx - 30f, baseScaleY)
-                            lineTo(cx + 30f, baseScaleY)
-                            close()
+                        Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            drawBalanceScale(
+                                xCount = displayXCount,
+                                leftConst = displayLeftConst,
+                                rightConst = displayRightConst,
+                                tiltAngleDeg = tiltAngleDeg,
+                                beamColor = scaleBeamColor,
+                                xBoxColor = xBoxColor,
+                                constColor = constBoxColor,
+                                labelColorArgb = onSurfaceArgb
+                            )
                         }
-                        drawPath(standPath, color = Color.Gray.copy(alpha = 0.5f))
-                        drawCircle(color = primColor, radius = 12f, center = Offset(cx, fulcrumY))
+                    }
 
-                        // Draw Balance Beam (Horizontal line when balanced)
-                        val beamHalfLen = w * 0.36f
-                        val leftBeamEnd = Offset(cx - beamHalfLen, fulcrumY)
-                        val rightBeamEnd = Offset(cx + beamHalfLen, fulcrumY)
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                        drawLine(
-                            color = primColor,
-                            start = leftBeamEnd,
-                            end = rightBeamEnd,
-                            strokeWidth = 6.dp.toPx(),
-                            cap = StrokeCap.Round
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "নিজে x-এর মান বসিয়ে পাল্লার ভারসাম্য পরীক্ষা করুন:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Switch(
+                            checked = useTrialX,
+                            onCheckedChange = {
+                                useTrialX = it
+                                if (!it) trialX = algebraResult.solutionX
+                            },
+                            modifier = Modifier.testTag("algebra_trial_x_switch")
+                        )
+                    }
+
+                    if (useTrialX) {
+                        DimensionSliderRow(
+                            label = "পরীক্ষামূলক x (Trial x)",
+                            value = trialX,
+                            valueRange = -5f..15f,
+                            onValueChange = { trialX = (Math.round(it * 2.0) / 2.0) },
+                            testTag = "algebra_trial_x_slider"
+                        )
+                        val isBalanced = abs(diff) < 0.05
+                        Text(
+                            text = if (isBalanced) {
+                                "পাল্লা সম্পূর্ণ সমতলে আছে! LHS (${VisualMathEngine.formatNumberBn(lhsVal, 1)}) = RHS (${VisualMathEngine.formatNumberBn(rhsVal, 1)})"
+                            } else {
+                                "পাল্লা কাত হয়ে আছে: LHS = ${VisualMathEngine.formatNumberBn(lhsVal, 1)}, RHS = ${VisualMathEngine.formatNumberBn(rhsVal, 1)} (পার্থক্য: ${VisualMathEngine.formatNumberBn(abs(diff), 1)})"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isBalanced) Color(0xFF15803D) else MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Interactive Stepper Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { if (activeStepIndex > 0) activeStepIndex-- },
+                            enabled = activeStepIndex > 0,
+                            modifier = Modifier.testTag("algebra_prev_step")
+                        ) {
+                            Text("পূর্ববর্তী ধাপ")
+                        }
+
+                        Text(
+                            text = "ধাপ ${BengaliNumberFormatter.toBengaliDigits((safeStepIdx + 1).toString())} / ${BengaliNumberFormatter.toBengaliDigits(algebraResult.steps.size.toString())}",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
                         )
 
-                        // Draw left and right hanging strings & pans
-                        val panH = 24f
-                        val panW = 100f
-                        val stringLen = 55f
-
-                        val leftPanCenter = Offset(leftBeamEnd.x, leftBeamEnd.y + stringLen)
-                        val rightPanCenter = Offset(rightBeamEnd.x, rightBeamEnd.y + stringLen)
-
-                        // Strings
-                        drawLine(Color.Gray, leftBeamEnd, Offset(leftPanCenter.x - panW / 2, leftPanCenter.y), 2.dp.toPx())
-                        drawLine(Color.Gray, leftBeamEnd, Offset(leftPanCenter.x + panW / 2, leftPanCenter.y), 2.dp.toPx())
-                        drawLine(Color.Gray, rightBeamEnd, Offset(rightPanCenter.x - panW / 2, rightPanCenter.y), 2.dp.toPx())
-                        drawLine(Color.Gray, rightBeamEnd, Offset(rightPanCenter.x + panW / 2, rightPanCenter.y), 2.dp.toPx())
-
-                        // Pans
-                        drawArc(
-                            color = primColor.copy(alpha = 0.3f),
-                            startAngle = 0f,
-                            sweepAngle = 180f,
-                            useCenter = true,
-                            topLeft = Offset(leftPanCenter.x - panW / 2, leftPanCenter.y - panH),
-                            size = Size(panW, panH * 2)
-                        )
-                        drawArc(
-                            color = secColor.copy(alpha = 0.3f),
-                            startAngle = 0f,
-                            sweepAngle = 180f,
-                            useCenter = true,
-                            topLeft = Offset(rightPanCenter.x - panW / 2, rightPanCenter.y - panH),
-                            size = Size(panW, panH * 2)
-                        )
-
-                        // Draw Content Labels onto the pans
-                        drawContext.canvas.nativeCanvas.apply {
-                            val textPaint = android.graphics.Paint().apply {
-                                color = android.graphics.Color.BLACK
-                                textSize = 32f
-                                textAlign = android.graphics.Paint.Align.CENTER
-                                isFakeBoldText = true
-                                isAntiAlias = true
-                            }
-
-                            val leftTxt = currentStep?.leftExprBn ?: "LHS"
-                            val rightTxt = currentStep?.rightExprBn ?: "RHS"
-
-                            drawText(leftTxt, leftPanCenter.x, leftPanCenter.y - 10f, textPaint)
-                            drawText(rightTxt, rightPanCenter.x, rightPanCenter.y - 10f, textPaint)
-
-                            // Equal sign in the middle
-                            val eqPaint = android.graphics.Paint().apply {
-                                color = android.graphics.Color.DKGRAY
-                                textSize = 42f
-                                textAlign = android.graphics.Paint.Align.CENTER
-                                isFakeBoldText = true
-                            }
-                            drawText("=", cx, fulcrumY - 20f, eqPaint)
+                        Button(
+                            onClick = { if (activeStepIndex < algebraResult.steps.size - 1) activeStepIndex++ },
+                            enabled = activeStepIndex < algebraResult.steps.size - 1,
+                            modifier = Modifier.testTag("algebra_next_step")
+                        ) {
+                            Text("পরবর্তী ধাপ")
                         }
                     }
                 }
             }
         }
 
-        // Stepper Navigation for Algebraic Transformation
+        // 3. Transformation Steps & Verification
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ElevatedCard(
                 shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth().testTag("algebra_steps_card")
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Text(
-                        text = "রূপান্তরের ধাপসমূহ (Algebraic Transformations)",
+                        text = "সমীকরণ সমাধানের ধাপসমূহ (Balance Operations):",
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
 
                     algebraResult.steps.forEachIndexed { idx, step ->
-                        val isCurrent = idx == activeStepIdx
+                        val isCurrent = idx == safeStepIdx
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
                             color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { activeStepIdx = idx }
+                                .clickable { activeStepIndex = idx }
+                                .testTag("algebra_step_card_$idx")
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        text = "ধাপ ${BengaliNumberFormatter.toBn(step.stepNumber)}:",
+                                        text = "ধাপ ${BengaliNumberFormatter.toBengaliDigits(step.stepNumber.toString())}: ${step.balanceActionBn}",
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = "${step.leftExprBn} = ${step.rightExprBn}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = step.explanationBn,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = if (isCurrent) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = algebraResult.verificationBn,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Final Answer and Substitution Verification
+        // 4. Interactive Linear Graph (y = mx + c) Explorer Card
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("algebra_verification_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "চূড়ান্ত সমাধান ও মান যাচাইকরণ (Substitution)",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Text(
-                        text = "x এর মান = ${VisualMathEngine.formatNumberBn(algebraResult.solutionX)}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = algebraResult.verificationBn,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
+            LinearGraphExplorerCard(
+                viewModel = viewModel,
+                labelColorArgb = onSurfaceArgb
+            )
         }
-
-        // Coordinate Plane & Linear Graph (y = mx + c)
-        item {
-            LinearGraphExplorerCard()
-        }
-
-        item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 }
 
 @Composable
-fun LinearGraphExplorerCard() {
-    var mSlope by remember { mutableDoubleStateOf(1.5) }
-    var cIntercept by remember { mutableDoubleStateOf(1.0) }
-    val graphModel = remember(mSlope, cIntercept) {
-        VisualMathEngine.evaluateLinearGraph(mSlope, cIntercept)
+private fun LinearGraphExplorerCard(
+    viewModel: MathViewModel,
+    labelColorArgb: Int
+) {
+    // BUG-55 FIX: Use rememberManagedUiState instead of volatile remember
+    var slopeM by rememberManagedUiState(viewModel, "visual_explorer:tab_1:slopeM", 2.0)
+    var interceptC by rememberManagedUiState(viewModel, "visual_explorer:tab_1:interceptC", -2.0)
+    var sampleX by rememberManagedUiState(viewModel, "visual_explorer:tab_1:sampleX", 2.0)
+
+    val eval = remember(slopeM, interceptC, sampleX) {
+        VisualMathEngine.evaluateLinearGraph(slopeM, interceptC, sampleX)
     }
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ElevatedCard(
         shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        modifier = Modifier.fillMaxWidth().testTag("linear_graph_card")
+        modifier = Modifier.fillMaxWidth().testTag("linear_graph_explorer_card")
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             Text(
-                text = "স্থানাঙ্ক সমতল ও সরলরেখার লেখচিত্র (${graphModel.equationBn})",
-                style = MaterialTheme.typography.titleMedium,
+                text = "সরলরেখার গ্রাফ ও ঢাল এক্সপ্লোরার (y = mx + c)",
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
             Text(
-                text = "ঢাল (m) ও ছেদক (c) পরিবর্তন করে X-Y সমতলে রেখার পরিবর্তন দেখুন",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = eval.equationBn,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.secondary
             )
-            Spacer(modifier = Modifier.height(12.dp))
 
-            val primColor = MaterialTheme.colorScheme.primary
-            val secColor = MaterialTheme.colorScheme.secondary
+            val primaryColor = MaterialTheme.colorScheme.primary
+            val tertiaryColor = MaterialTheme.colorScheme.tertiary
+            val axisColor = MaterialTheme.colorScheme.outline
 
-            Canvas(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp)
+                    .height(180.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                    .testTag("linear_graph_canvas")
+                    .background(MaterialTheme.colorScheme.surface)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
             ) {
-                val w = size.width
-                val h = size.height
-                val cx = w / 2f
-                val cy = h / 2f
-                val unitPx = min(w, h) / 12f // -6 to +6
+                Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val unitPx = min(size.width, size.height) / 14f
 
-                // Grid lines
-                for (i in -5..5) {
-                    val gx = cx + i * unitPx
-                    val gy = cy - i * unitPx
-                    drawLine(Color.Gray.copy(alpha = 0.2f), Offset(gx, 0f), Offset(gx, h), 1f)
-                    drawLine(Color.Gray.copy(alpha = 0.2f), Offset(0f, gy), Offset(w, gy), 1f)
+                    drawLine(axisColor, Offset(0f, cy), Offset(size.width, cy), strokeWidth = 2f)
+                    drawLine(axisColor, Offset(cx, 0f), Offset(cx, size.height), strokeWidth = 2f)
+
+                    val x1 = -6f
+                    val y1 = (slopeM * x1 + interceptC).toFloat()
+                    val x2 = 6f
+                    val y2 = (slopeM * x2 + interceptC).toFloat()
+
+                    drawLine(
+                        color = primaryColor,
+                        start = Offset(cx + x1 * unitPx, cy - y1 * unitPx),
+                        end = Offset(cx + x2 * unitPx, cy - y2 * unitPx),
+                        strokeWidth = 4f
+                    )
+
+                    val px = cx + sampleX.toFloat() * unitPx
+                    val py = cy - eval.sampleY.toFloat() * unitPx
+                    drawCircle(
+                        color = tertiaryColor,
+                        radius = 7f,
+                        center = Offset(px.coerceIn(0f, size.width), py.coerceIn(0f, size.height))
+                    )
+                    drawCanvasText(
+                        "(${VisualMathEngine.formatNumberBn(sampleX, 0)}, ${VisualMathEngine.formatNumberBn(eval.sampleY, 1)})",
+                        (px + 38f).coerceIn(40f, size.width - 40f),
+                        (py - 10f).coerceIn(20f, size.height - 10f),
+                        labelColorArgb,
+                        22f
+                    )
                 }
-
-                // Axes
-                drawLine(Color.DarkGray, Offset(0f, cy), Offset(w, cy), 2.5f)
-                drawLine(Color.DarkGray, Offset(cx, 0f), Offset(cx, h), 2.5f)
-
-                // Line y = mx + c for x in [-6, 6]
-                val x1 = -6.0
-                val y1 = mSlope * x1 + cIntercept
-                val x2 = 6.0
-                val y2 = mSlope * x2 + cIntercept
-
-                val p1 = Offset(cx + (x1 * unitPx).toFloat(), cy - (y1 * unitPx).toFloat())
-                val p2 = Offset(cx + (x2 * unitPx).toFloat(), cy - (y2 * unitPx).toFloat())
-                drawLine(primColor, p1, p2, strokeWidth = 3.5.dp.toPx(), cap = StrokeCap.Round)
-
-                // Y-intercept point (0, c)
-                val yIntOffset = Offset(cx, cy - (cIntercept * unitPx).toFloat())
-                drawCircle(secColor, radius = 6.dp.toPx(), center = yIntOffset)
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            Text("ঢাল (Slope m): ${VisualMathEngine.formatNumberBn(mSlope)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-            Slider(
-                value = mSlope.toFloat(),
-                onValueChange = { mSlope = ((it * 2).toInt() / 2.0) },
-                valueRange = -3f..3f,
-                modifier = Modifier.testTag("slider_graph_m")
-            )
-            Text("Y-অক্ষ ছেদক (Intercept c): ${VisualMathEngine.formatNumberBn(cIntercept)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-            Slider(
-                value = cIntercept.toFloat(),
-                onValueChange = { cIntercept = ((it * 2).toInt() / 2.0) },
+            DimensionSliderRow(
+                label = "ঢাল (Slope m)",
+                value = slopeM,
                 valueRange = -4f..4f,
-                modifier = Modifier.testTag("slider_graph_c")
+                onValueChange = { slopeM = (Math.round(it * 2.0) / 2.0) },
+                testTag = "linear_graph_slider_m"
             )
-            graphModel.explanationStepsBn.forEach { step ->
-                Text("• $step", style = MaterialTheme.typography.bodySmall)
+            DimensionSliderRow(
+                label = "y-ছেদক (Intercept c)",
+                value = interceptC,
+                valueRange = -5f..5f,
+                onValueChange = { interceptC = it.toInt().toDouble() },
+                testTag = "linear_graph_slider_c"
+            )
+
+            eval.stepsBn.forEachIndexed { idx, step ->
+                StepItemRow(stepNumber = idx + 1, stepText = step)
             }
         }
     }
 }
 
+private fun DrawScope.drawBalanceScale(
+    xCount: Int,
+    leftConst: Int,
+    rightConst: Int,
+    tiltAngleDeg: Float,
+    beamColor: Color,
+    xBoxColor: Color,
+    constColor: Color,
+    labelColorArgb: Int
+) {
+    val cx = size.width / 2f
+    val baseY = size.height * 0.88f
+    val pivotY = size.height * 0.56f
+    val beamHalfWidth = size.width * 0.38f
+
+    // Fulcrum triangle
+    val fulcrumPath = Path().apply {
+        moveTo(cx, pivotY)
+        lineTo(cx - 26f, baseY)
+        lineTo(cx + 26f, baseY)
+        close()
+    }
+    drawPath(path = fulcrumPath, color = beamColor.copy(alpha = 0.75f), style = Fill)
+
+    // Rotate beam and pans around fulcrum pivot
+    rotate(degrees = tiltAngleDeg, pivot = Offset(cx, pivotY)) {
+        drawLine(
+            color = beamColor,
+            start = Offset(cx - beamHalfWidth, pivotY),
+            end = Offset(cx + beamHalfWidth, pivotY),
+            strokeWidth = 8f,
+            cap = StrokeCap.Round
+        )
+
+        val leftPanCenter = Offset(cx - beamHalfWidth * 0.72f, pivotY - 12f)
+        val rightPanCenter = Offset(cx + beamHalfWidth * 0.72f, pivotY - 12f)
+        val panWidth = size.width * 0.34f
+
+        drawLine(
+            color = beamColor,
+            start = Offset(leftPanCenter.x - panWidth / 2f, leftPanCenter.y),
+            end = Offset(leftPanCenter.x + panWidth / 2f, leftPanCenter.y),
+            strokeWidth = 5f
+        )
+        drawLine(
+            color = beamColor,
+            start = Offset(rightPanCenter.x - panWidth / 2f, rightPanCenter.y),
+            end = Offset(rightPanCenter.x + panWidth / 2f, rightPanCenter.y),
+            strokeWidth = 5f
+        )
+
+        val boxW = 34f
+        val boxH = 34f
+        val totalLeftItems = xCount + if (leftConst != 0) 1 else 0
+        val startLeftX = leftPanCenter.x - (totalLeftItems * (boxW + 6f)) / 2f
+
+        for (i in 0 until xCount.coerceAtMost(5)) {
+            val bx = startLeftX + i * (boxW + 6f)
+            val by = leftPanCenter.y - boxH - 4f
+            drawRect(color = xBoxColor, topLeft = Offset(bx, by), size = Size(boxW, boxH))
+            drawCanvasText("x", bx + boxW / 2f, by + boxH * 0.68f, android.graphics.Color.WHITE, 24f)
+        }
+
+        if (leftConst != 0) {
+            val bx = startLeftX + xCount.coerceAtMost(5) * (boxW + 6f)
+            val by = leftPanCenter.y - boxH - 4f
+            drawRect(color = constColor, topLeft = Offset(bx, by), size = Size(boxW + 12f, boxH))
+            val sign = if (leftConst > 0) "+" else ""
+            drawCanvasText(
+                "$sign${BengaliNumberFormatter.toBengaliDigits(leftConst.toString())}",
+                bx + (boxW + 12f) / 2f,
+                by + boxH * 0.68f,
+                android.graphics.Color.WHITE,
+                22f
+            )
+        }
+
+        val rBoxW = 64f
+        val rBoxH = 40f
+        val rBx = rightPanCenter.x - rBoxW / 2f
+        val rBy = rightPanCenter.y - rBoxH - 4f
+        drawRect(color = constColor, topLeft = Offset(rBx, rBy), size = Size(rBoxW, rBoxH))
+        drawCanvasText(
+            BengaliNumberFormatter.toBengaliDigits(rightConst.toString()),
+            rBx + rBoxW / 2f,
+            rBy + rBoxH * 0.68f,
+            android.graphics.Color.WHITE,
+            26f
+        )
+    }
+
+    drawCanvasText("বাম পক্ষ (LHS)", cx - beamHalfWidth * 0.72f, baseY - 4f, labelColorArgb, 22f)
+    drawCanvasText("ডান পক্ষ (RHS)", cx + beamHalfWidth * 0.72f, baseY - 4f, labelColorArgb, 22f)
+}
+
 // =============================================================================
-// C. NUMBER LINE & FRACTIONS TAB
+// C. NUMBER LINE & FRACTION VISUALIZER TAB
 // =============================================================================
 
 @Composable
 fun NumberLineTab(viewModel: MathViewModel) {
     var numerator by rememberManagedUiState(viewModel, "visual_explorer:tab_2:numerator", 3)
     var denominator by rememberManagedUiState(viewModel, "visual_explorer:tab_2:denominator", 4)
-    var activeValue by rememberManagedUiState(viewModel, "visual_explorer:tab_2:activeValue", 0.75f) // decimal point on number line (-5 to +5)
+    var numberLineMarker by rememberManagedUiState(viewModel, "visual_explorer:tab_2:numberLineMarker", 0.75f)
     val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_2")
 
-    val fractionInfo = remember(numerator, denominator) {
+    val fractionModel = remember(numerator, denominator) {
         VisualMathEngine.analyzeFraction(numerator, denominator)
     }
 
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+
     LazyColumn(
         state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("visual_explorer_tab_2_list"),
+        modifier = Modifier.fillMaxSize().testTag("number_line_list"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // 1. Fraction Pie & Bar Comparison Card (BUG-54 FIX: Multi-Whole Improper Fractions!)
         item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "ইন্টারেক্টিভ সংখ্যা রেখা (Interactive Number Line)",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = "রেখার বিন্দু টেনে বা স্লাইডার নাড়িয়ে ধনাত্মক ও ঋণাত্মক অবস্থান দেখুন",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        // Native Number Line Canvas
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("number_line_canvas_card")
+            ElevatedCard(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    val currentVal = activeValue
-                    val lineMin = -5f
-                    val lineMax = 5f
+                    Text(
+                        text = "ভগ্নাংশ ও দশমিকের ভিজ্যুয়াল তুলনা",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
 
-                    val primColor = MaterialTheme.colorScheme.primary
-                    val errorColor = MaterialTheme.colorScheme.error
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    Canvas(
+                    val numBn = BengaliNumberFormatter.toBengaliDigits(numerator.toString())
+                    val denBn = BengaliNumberFormatter.toBengaliDigits(denominator.toString())
+                    val decBn = VisualMathEngine.formatNumberBn(fractionModel.decimalValue, 3)
+                    val pctBn = VisualMathEngine.formatNumberBn(fractionModel.decimalValue * 100.0, 1)
+
+                    Text(
+                        text = "$numBn / $denBn  =  $decBn  ($pctBn%)",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.testTag("fraction_summary_headline")
+                    )
+
+                    if (numerator > denominator) {
+                        val wholePart = numerator / denominator
+                        val remPart = numerator % denominator
+                        val mixedText = if (remPart == 0) {
+                            "পূর্ণ সংখ্যা: ${BengaliNumberFormatter.toBengaliDigits(wholePart.toString())}টি সম্পূর্ণ অংশ"
+                        } else {
+                            "মিশ্র ভগ্নাংশ: ${BengaliNumberFormatter.toBengaliDigits(wholePart.toString())} পূর্ণ ${BengaliNumberFormatter.toBengaliDigits(remPart.toString())}/${BengaliNumberFormatter.toBengaliDigits(denominator.toString())}"
+                        }
+                        Text(
+                            text = mixedText,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    val secondaryColor = MaterialTheme.colorScheme.tertiary
+                    val emptySliceColor = MaterialTheme.colorScheme.surfaceVariant
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(130.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(185.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surface)
-                            .pointerInput(Unit) {
-                                detectDragGestures { change, _ ->
-                                    val newX = change.position.x
-                                    val margin = 35f
-                                    val usableW = size.width - (2 * margin)
-                                    val frac = ((newX - margin) / usableW).coerceIn(0f, 1f)
-                                    val computedVal = lineMin + frac * (lineMax - lineMin)
-                                    activeValue = (computedVal * 100).toInt() / 100f
-                                }
-                            }
-                            .testTag("number_line_canvas")
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                            .testTag("fraction_visual_canvas")
                     ) {
-                        val w = size.width
-                        val h = size.height
-                        val cy = h / 2f
-                        val margin = 35f
-                        val usableW = w - (2 * margin)
-
-                        // Main Horizontal Line with arrows
-                        drawLine(
-                            color = Color.DarkGray,
-                            start = Offset(margin - 15f, cy),
-                            end = Offset(w - margin + 15f, cy),
-                            strokeWidth = 4.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-
-                        // Tick marks from -5 to +5
-                        val stepCount = 10
-                        for (i in 0..stepCount) {
-                            val v = lineMin + i * 1f
-                            val tickX = margin + (i / stepCount.toFloat()) * usableW
-                            val isZero = v == 0f
-
-                            val tickH = if (isZero) 36f else 20f
-                            val tickColor = if (isZero) primColor else Color.Gray
-
-                            drawLine(
-                                color = tickColor,
-                                start = Offset(tickX, cy - tickH / 2f),
-                                end = Offset(tickX, cy + tickH / 2f),
-                                strokeWidth = if (isZero) 3.dp.toPx() else 1.5.dp.toPx()
+                        Canvas(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                            drawFractionPieAndBar(
+                                num = numerator,
+                                den = denominator,
+                                filledColor = primaryColor,
+                                accentColor = secondaryColor,
+                                emptyColor = emptySliceColor,
+                                labelColorArgb = onSurfaceArgb
                             )
-
-                            // Labels
-                            drawContext.canvas.nativeCanvas.apply {
-                                val paint = android.graphics.Paint().apply {
-                                    color = if (isZero) android.graphics.Color.BLACK else android.graphics.Color.DKGRAY
-                                    textSize = if (isZero) 32f else 26f
-                                    textAlign = android.graphics.Paint.Align.CENTER
-                                    isFakeBoldText = isZero
-                                    isAntiAlias = true
-                                }
-                                val labelBn = BengaliNumberFormatter.toBn(v.toInt().toString())
-                                drawText(labelBn, tickX, cy + 42f, paint)
-                            }
-                        }
-
-                        // Active Selected Value Pointer
-                        val normVal = ((currentVal - lineMin) / (lineMax - lineMin)).coerceIn(0f, 1f)
-                        val pointX = margin + normVal * usableW
-
-                        // Pulse Ring
-                        drawCircle(
-                            color = primColor.copy(alpha = 0.3f),
-                            radius = 16.dp.toPx(),
-                            center = Offset(pointX, cy)
-                        )
-                        drawCircle(
-                            color = primColor,
-                            radius = 8.dp.toPx(),
-                            center = Offset(pointX, cy)
-                        )
-
-                        // Pointer Label atop
-                        drawContext.canvas.nativeCanvas.apply {
-                            val tipPaint = android.graphics.Paint().apply {
-                                color = android.graphics.Color.BLUE
-                                textSize = 32f
-                                textAlign = android.graphics.Paint.Align.CENTER
-                                isFakeBoldText = true
-                                isAntiAlias = true
-                            }
-                            val dispVal = VisualMathEngine.formatNumberBn(currentVal.toDouble(), 2)
-                            drawText(dispVal, pointX, cy - 30f, tipPaint)
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Number line slider
-                    Slider(
-                        value = activeValue,
-                        onValueChange = { activeValue = (it * 100).toInt() / 100f },
-                        valueRange = -5f..5f,
-                        modifier = Modifier.fillMaxWidth().testTag("slider_number_line")
-                    )
-
+                    // Numerator & Denominator Controls
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(text = "ঋণাত্মক সীমা: -৫", style = MaterialTheme.typography.labelSmall)
-                        Text(
-                            text = "বর্তমান বিন্দু: ${VisualMathEngine.formatNumberBn(activeValue.toDouble(), 2)}",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(text = "ধনাত্মক সীমা: +৫", style = MaterialTheme.typography.labelSmall)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "লব (Numerator): ${BengaliNumberFormatter.toBengaliDigits(numerator.toString())}",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Slider(
+                                value = numerator.toFloat(),
+                                onValueChange = {
+                                    numerator = it.toInt().coerceIn(0, 12)
+                                    numberLineMarker = (numerator.toFloat() / denominator.coerceAtLeast(1).toFloat()).coerceIn(-5f, 5f)
+                                },
+                                valueRange = 0f..12f,
+                                steps = 11,
+                                modifier = Modifier.testTag("slider_numerator")
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "হর (Denominator): ${BengaliNumberFormatter.toBengaliDigits(denominator.toString())}",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Slider(
+                                value = denominator.toFloat(),
+                                onValueChange = {
+                                    denominator = it.toInt().coerceIn(1, 12)
+                                    numberLineMarker = (numerator.toFloat() / denominator.toFloat()).coerceIn(-5f, 5f)
+                                },
+                                valueRange = 1f..12f,
+                                steps = 10,
+                                modifier = Modifier.testTag("slider_denominator")
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Visual Fraction Pie & Bar Representation
+        // 2. Interactive Number Line Explorer (-5 to +5)
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth().testTag("fraction_visual_card")
+            ElevatedCard(
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "ভগ্নাংশ ভিজ্যুয়ালাইজেশন (Fractions & Decimals)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Fraction Pie and Bar Canvas
-                    val num = numerator
-                    val den = max(1, denominator)
-                    val primColor = MaterialTheme.colorScheme.primary
-
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(160.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                            .testTag("fraction_canvas")
-                    ) {
-                        val w = size.width
-                        val h = size.height
-                        val cx = w * 0.3f
-                        val cy = h / 2f
-                        val r = min(w * 0.22f, h * 0.42f)
-
-                        // 1. Draw Fraction Circle Pie
-                        drawCircle(
-                            color = Color.LightGray.copy(alpha = 0.5f),
-                            radius = r,
-                            center = Offset(cx, cy)
-                        )
-                        val anglePerSlice = 360f / den
-                        val safeNum = min(num, den)
-
-                        for (i in 0 until den) {
-                            val startAngle = -90f + i * anglePerSlice
-                            val isFilled = i < safeNum
-                            drawArc(
-                                color = if (isFilled) primColor else Color.Transparent,
-                                startAngle = startAngle,
-                                sweepAngle = anglePerSlice,
-                                useCenter = true,
-                                topLeft = Offset(cx - r, cy - r),
-                                size = Size(r * 2, r * 2)
-                            )
-                        }
-                        // Pie outline slices
-                        for (i in 0 until den) {
-                            val angleRad = Math.toRadians((-90.0 + i * anglePerSlice))
-                            val edgeX = (cx + r * cos(angleRad)).toFloat()
-                            val edgeY = (cy + r * sin(angleRad)).toFloat()
-                            drawLine(Color.White, Offset(cx, cy), Offset(edgeX, edgeY), 2.dp.toPx())
-                        }
-                        drawCircle(color = primColor, radius = r, center = Offset(cx, cy), style = Stroke(2.dp.toPx()))
-
-                        // 2. Draw Fraction Bar Chart on right side
-                        val barLeft = w * 0.6f
-                        val barW = w * 0.32f
-                        val barH = 34f
-                        val barTop = cy - barH / 2f
-
-                        drawRect(
-                            color = Color.LightGray.copy(alpha = 0.5f),
-                            topLeft = Offset(barLeft, barTop),
-                            size = Size(barW, barH)
-                        )
-                        val cellW = barW / den
-                        for (i in 0 until safeNum) {
-                            drawRect(
-                                color = primColor,
-                                topLeft = Offset(barLeft + i * cellW, barTop),
-                                size = Size(cellW, barH)
-                            )
-                        }
-                        // Grid dividers
-                        for (i in 1 until den) {
-                            drawLine(
-                                Color.White,
-                                Offset(barLeft + i * cellW, barTop),
-                                Offset(barLeft + i * cellW, barTop + barH),
-                                2.dp.toPx()
-                            )
-                        }
-                        drawRect(
-                            color = primColor,
-                            topLeft = Offset(barLeft, barTop),
-                            size = Size(barW, barH),
-                            style = Stroke(2.dp.toPx())
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Controls for Numerator & Denominator
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text(text = "লব (Numerator): ${BengaliNumberFormatter.toBn(numerator)}", fontWeight = FontWeight.Bold)
-                            Row {
-                                IconButton(
-                                    onClick = { if (numerator > 1) numerator-- },
-                                    modifier = Modifier.testTag("btn_num_dec")
-                                ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "কমান")
-                                }
-                                IconButton(
-                                    onClick = { if (numerator < 12) numerator++ },
-                                    modifier = Modifier.testTag("btn_num_inc")
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = "বাড়ান")
-                                }
-                            }
-                        }
-
-                        Column {
-                            Text(text = "হর (Denominator): ${BengaliNumberFormatter.toBn(denominator)}", fontWeight = FontWeight.Bold)
-                            Row {
-                                IconButton(
-                                    onClick = { if (denominator > 1) denominator-- },
-                                    modifier = Modifier.testTag("btn_den_dec")
-                                ) {
-                                    Icon(Icons.Default.Remove, contentDescription = "কমান")
-                                }
-                                IconButton(
-                                    onClick = { if (denominator < 12) denominator++ },
-                                    modifier = Modifier.testTag("btn_den_inc")
-                                ) {
-                                    Icon(Icons.Default.Add, contentDescription = "বাড়ান")
-                                }
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                // Match number line position to fraction
-                                activeValue = fractionInfo.decimalValue.toFloat()
-                            },
-                            modifier = Modifier.testTag("btn_sync_fraction_to_line")
+                        Text(
+                            text = "সংখ্যা রেখা (Interactive Number Line)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("রেখায় দেখান")
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Explanation in Bengali
-                    Text(
-                        text = fractionInfo.fractionTypeBn,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = fractionInfo.comparisonExplanationBn,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
-        }
-
-        // Ratio & 10x10 Percentage Grid Visual Card
-        item {
-            val ratioInfo = remember(numerator, denominator) {
-                VisualMathEngine.analyzeRatioAndPercentage(numerator, denominator)
-            }
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth().testTag("ratio_percentage_visual_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "অনুপাত ও ১০×১০ শতকরা গ্রিড (${ratioInfo.simplifiedRatioBn} • ${VisualMathEngine.formatNumberBn(ratioInfo.partAPercentage)}%)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val primColor = MaterialTheme.colorScheme.primary
-                    val secColor = MaterialTheme.colorScheme.secondary
-
-                    Canvas(
-                        modifier = Modifier
-                            .size(160.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .testTag("percentage_grid_canvas")
-                    ) {
-                        val cellSize = size.width / 10f
-                        for (idx in 0 until 100) {
-                            val r = idx / 10
-                            val c = idx % 10
-                            val isFilled = idx < ratioInfo.gridCellsFilledOutOf100
-                            drawRect(
-                                color = if (isFilled) primColor else secColor.copy(alpha = 0.2f),
-                                topLeft = Offset(c * cellSize + 1f, r * cellSize + 1f),
-                                size = Size(cellSize - 2f, cellSize - 2f)
+                            Text(
+                                text = "মান: ${VisualMathEngine.formatNumberBn(numberLineMarker.toDouble(), 2)}",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ratioInfo.explanationStepsBn.forEach { step ->
-                        Text("• $step", style = MaterialTheme.typography.bodySmall)
+                    val axisColor = MaterialTheme.colorScheme.onSurface
+                    val markerColor = MaterialTheme.colorScheme.primary
+                    val zeroColor = MaterialTheme.colorScheme.tertiary
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                            .testTag("number_line_canvas")
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                            drawInteractiveNumberLine(
+                                markerValue = numberLineMarker,
+                                axisColor = axisColor,
+                                markerColor = markerColor,
+                                zeroColor = zeroColor,
+                                labelColorArgb = onSurfaceArgb
+                            )
+                        }
                     }
+
+                    Slider(
+                        value = numberLineMarker,
+                        onValueChange = { numberLineMarker = it },
+                        valueRange = -5f..5f,
+                        modifier = Modifier.fillMaxWidth().testTag("slider_number_line")
+                    )
+
+                    Text(
+                        text = when {
+                            abs(numberLineMarker) < 0.02f -> "শূন্য (০): এটি ধনাত্মক ও ঋণাত্মক সংখ্যার মধ্যবিন্দু (Origin)।"
+                            numberLineMarker > 0f -> "ধনাত্মক সংখ্যা (+${VisualMathEngine.formatNumberBn(numberLineMarker.toDouble(), 2)}): শূন্যের ডানদিকে অবস্থিত। পরমমান = ${VisualMathEngine.formatNumberBn(abs(numberLineMarker).toDouble(), 2)}।"
+                            else -> "ঋণাত্মক সংখ্যা (${VisualMathEngine.formatNumberBn(numberLineMarker.toDouble(), 2)}): শূন্যের বামদিকে অবস্থিত। পরমমান (Distance from 0) = ${VisualMathEngine.formatNumberBn(abs(numberLineMarker).toDouble(), 2)}।"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
 
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+        // 3. Detailed Fraction Analysis Card
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "ভগ্নাংশের বৈশিষ্ট্য: ${fractionModel.fractionTypeBn}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "লঘিষ্ঠ রূপ (Simplified): ${BengaliNumberFormatter.toBengaliDigits(fractionModel.simplifiedNumerator.toString())} / ${BengaliNumberFormatter.toBengaliDigits(fractionModel.simplifiedDenominator.toString())}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = fractionModel.comparisonExplanationBn,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+
+        // 4. Ratio, Percentage & Visual Sequence Pattern Card
+        item {
+            RatioPercentageAndPatternCard(viewModel = viewModel)
+        }
     }
 }
 
+@Composable
+private fun RatioPercentageAndPatternCard(viewModel: MathViewModel) {
+    // BUG-55 FIX: Use rememberManagedUiState instead of volatile remember
+    var patternType by rememberManagedUiState(viewModel, "visual_explorer:tab_2:patternType", "square")
+    val ratioAnalysis = remember {
+        VisualMathEngine.analyzeRatioAndPercentage(3, 2, 60)
+    }
+    val patternModel = remember(patternType) {
+        VisualMathEngine.generateVisualPattern(patternType, termCount = 5)
+    }
+
+    ElevatedCard(
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().testTag("ratio_and_pattern_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "অনুপাত, শতকরা ও সংখ্যা প্যাটার্ন ভিজ্যুয়ালাইজার",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = ratioAnalysis.explanationBn.joinToString(" "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("square" to "বর্গ সংখ্যা", "triangular" to "ত্রিভুজাকার", "fibonacci" to "ফিবোনাচ্চি").forEach { (key, label) ->
+                    FilterChip(
+                        selected = patternType == key,
+                        onClick = { patternType = key },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
+            }
+
+            Text(
+                text = "${patternModel.titleBn} (${patternModel.formulaBn}): ${
+                    patternModel.terms.joinToString(", ") { BengaliNumberFormatter.toBengaliDigits(it.toString()) }
+                }",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            Text(
+                text = patternModel.explanationBn,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawFractionPieAndBar(
+    num: Int,
+    den: Int,
+    filledColor: Color,
+    accentColor: Color,
+    emptyColor: Color,
+    labelColorArgb: Int
+) {
+    val safeDen = den.coerceAtLeast(1)
+    // BUG-54 FIX: Support improper fractions (num > den) by rendering multiple wholes!
+    val totalWholes = if (num <= safeDen) 1 else ceil(num.toDouble() / safeDen.toDouble()).toInt().coerceAtMost(4)
+
+    val leftAreaWidth = size.width * 0.44f
+    val pieCenterY = size.height / 2f
+
+    if (totalWholes == 1) {
+        val pieCenter = Offset(leftAreaWidth * 0.52f, pieCenterY)
+        val pieRadius = min(leftAreaWidth, size.height) * 0.38f
+        drawSingleFractionPie(pieCenter, pieRadius, num.coerceIn(0, safeDen), safeDen, filledColor, emptyColor, labelColorArgb)
+    } else {
+        val cols = 2
+        val rows = if (totalWholes <= 2) 1 else 2
+        val cellW = leftAreaWidth / cols
+        val cellH = (size.height - 24f) / rows
+        val pieRadius = (min(cellW, cellH) * 0.38f).coerceAtLeast(16f)
+
+        var remainingSlices = num
+        for (w in 0 until totalWholes) {
+            val r = w / cols
+            val c = w % cols
+            val center = Offset(c * cellW + cellW / 2f, r * cellH + cellH / 2f + 6f)
+            val filledInThisWhole = remainingSlices.coerceIn(0, safeDen)
+            remainingSlices = (remainingSlices - safeDen).coerceAtLeast(0)
+            drawSingleFractionPie(
+                center = center,
+                radius = pieRadius,
+                filledSlices = filledInThisWhole,
+                den = safeDen,
+                filledColor = if (filledInThisWhole == safeDen) filledColor else accentColor,
+                emptyColor = emptyColor,
+                labelColorArgb = labelColorArgb,
+                showCaption = false
+            )
+        }
+        drawCanvasText(
+            text = "মোট ${BengaliNumberFormatter.toBengaliDigits(totalWholes.toString())}টি একক বৃত্ত",
+            x = leftAreaWidth * 0.5f,
+            y = size.height - 2f,
+            colorArgb = labelColorArgb,
+            textSizePx = 20f
+        )
+    }
+
+    val barLeft = size.width * 0.48f
+    val barWidth = size.width * 0.48f
+    val totalBarHeight = if (totalWholes == 1) 42f else (110f / totalWholes).coerceIn(22f, 36f)
+    val gapY = 8f
+    val startBarY = (size.height - (totalWholes * totalBarHeight + (totalWholes - 1) * gapY)) / 2f
+    val segWidth = barWidth / safeDen
+
+    var remainingBarSlices = num
+    for (w in 0 until totalWholes) {
+        val barTop = startBarY + w * (totalBarHeight + gapY)
+        val filledInThisBar = remainingBarSlices.coerceIn(0, safeDen)
+        remainingBarSlices = (remainingBarSlices - safeDen).coerceAtLeast(0)
+
+        for (i in 0 until safeDen) {
+            val sx = barLeft + i * segWidth
+            drawRect(
+                color = if (i < filledInThisBar) {
+                    if (w == 0) accentColor.copy(alpha = 0.85f) else filledColor.copy(alpha = 0.80f)
+                } else {
+                    emptyColor
+                },
+                topLeft = Offset(sx, barTop),
+                size = Size(segWidth, totalBarHeight)
+            )
+            drawRect(
+                color = android.graphics.Color.GRAY.let { Color(it) },
+                topLeft = Offset(sx, barTop),
+                size = Size(segWidth, totalBarHeight),
+                style = Stroke(width = 2f)
+            )
+        }
+    }
+
+    drawCanvasText(
+        text = "বার মডেল (${BengaliNumberFormatter.toBengaliDigits(num.toString())}/${BengaliNumberFormatter.toBengaliDigits(safeDen.toString())})",
+        x = barLeft + barWidth / 2f,
+        y = (startBarY + totalWholes * (totalBarHeight + gapY) + 20f).coerceAtMost(size.height - 2f),
+        colorArgb = labelColorArgb,
+        textSizePx = 22f
+    )
+}
+
+private fun DrawScope.drawSingleFractionPie(
+    center: Offset,
+    radius: Float,
+    filledSlices: Int,
+    den: Int,
+    filledColor: Color,
+    emptyColor: Color,
+    labelColorArgb: Int,
+    showCaption: Boolean = true
+) {
+    val sweepPerSlice = 360f / den
+    for (i in 0 until den) {
+        val startAngle = -90f + i * sweepPerSlice
+        val isFilled = i < filledSlices
+        drawArc(
+            color = if (isFilled) filledColor.copy(alpha = 0.85f) else emptyColor,
+            startAngle = startAngle,
+            sweepAngle = sweepPerSlice,
+            useCenter = true,
+            topLeft = Offset(center.x - radius, center.y - radius),
+            size = Size(radius * 2f, radius * 2f)
+        )
+        drawArc(
+            color = android.graphics.Color.WHITE.let { Color(it) },
+            startAngle = startAngle,
+            sweepAngle = sweepPerSlice,
+            useCenter = true,
+            topLeft = Offset(center.x - radius, center.y - radius),
+            size = Size(radius * 2f, radius * 2f),
+            style = Stroke(width = 2f)
+        )
+    }
+    drawCircle(
+        color = filledColor,
+        radius = radius,
+        center = center,
+        style = Stroke(width = 3f)
+    )
+    if (showCaption) {
+        drawCanvasText("বৃত্তাকার মডেল", center.x, center.y + radius + 24f, labelColorArgb, 22f)
+    }
+}
+
+private fun DrawScope.drawInteractiveNumberLine(
+    markerValue: Float,
+    axisColor: Color,
+    markerColor: Color,
+    zeroColor: Color,
+    labelColorArgb: Int
+) {
+    val cy = size.height * 0.55f
+    val startX = 0f
+    val endX = size.width
+    val totalWidth = endX - startX
+
+    drawLine(
+        color = axisColor,
+        start = Offset(startX, cy),
+        end = Offset(endX, cy),
+        strokeWidth = 4f
+    )
+
+    for (tick in -5..5) {
+        val ratio = (tick + 5f) / 10f
+        val tx = startX + ratio * totalWidth
+        val tickHeight = if (tick == 0) 16f else 10f
+        drawLine(
+            color = if (tick == 0) zeroColor else axisColor,
+            start = Offset(tx, cy - tickHeight),
+            end = Offset(tx, cy + tickHeight),
+            strokeWidth = if (tick == 0) 4f else 2f
+        )
+        drawCanvasText(
+            text = BengaliNumberFormatter.toBengaliDigits(tick.toString()),
+            x = tx,
+            y = cy + 34f,
+            colorArgb = labelColorArgb,
+            textSizePx = 22f
+        )
+    }
+
+    val clamped = markerValue.coerceIn(-5f, 5f)
+    val markerRatio = (clamped + 5f) / 10f
+    val mx = startX + markerRatio * totalWidth
+    val zeroX = startX + 0.5f * totalWidth
+
+    drawLine(
+        color = markerColor.copy(alpha = 0.5f),
+        start = Offset(zeroX, cy),
+        end = Offset(mx, cy),
+        strokeWidth = 10f,
+        cap = StrokeCap.Round
+    )
+
+    drawCircle(
+        color = markerColor,
+        radius = 11f,
+        center = Offset(mx, cy)
+    )
+}
+
 // =============================================================================
-// D. FORMULA VISUALIZER TAB
+// D. FORMULA VISUALIZER TAB (VISUAL PROOFS & STEP-BY-STEP CALCULATIONS)
 // =============================================================================
 
 @Composable
 fun VisualFormulaTab(viewModel: MathViewModel) {
     val formulas = VisualMathEngine.formulaVisualizerList
     var selectedFormulaId by rememberManagedUiState(viewModel, "visual_explorer:tab_3:selectedFormulaId", formulas.first().id)
-    val currentFormula = formulas.find { it.id == selectedFormulaId } ?: formulas.first()
+    val selectedFormula = formulas.find { it.id == selectedFormulaId } ?: formulas.first()
 
-    var p1 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p1", currentFormula.param1Default)
-    var p2 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p2", currentFormula.param2Default)
-    var p3 by rememberManagedUiState(viewModel, "visual_explorer:tab_3:${currentFormula.id}:p3", currentFormula.param3Default)
+    var inputA by rememberManagedUiState(viewModel, "visual_explorer:tab_3:inputA:${selectedFormula.id}", selectedFormula.param1Default)
+    var inputB by rememberManagedUiState(viewModel, "visual_explorer:tab_3:inputB:${selectedFormula.id}", selectedFormula.param2Default)
+    var inputC by rememberManagedUiState(viewModel, "visual_explorer:tab_3:inputC:${selectedFormula.id}", selectedFormula.param3Default)
     val listState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_3")
+    val formulaChipRowState = rememberManagedLazyListState(viewModel, "visual_explorer:tab_3:chips")
 
-    val result = remember(currentFormula, p1, p2, p3) {
-        currentFormula.calculate(p1, p2, p3)
+    val calcResult = remember(selectedFormula, inputA, inputB, inputC) {
+        selectedFormula.calculate(inputA, inputB, inputC)
     }
+
+    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
 
     LazyColumn(
         state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .testTag("visual_explorer_tab_3_list"),
+        modifier = Modifier.fillMaxSize().testTag("visual_formula_list"),
+        contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "সূত্র নির্বাচন করুন (Choose Formula):",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Formula preset chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                formulas.forEach { f ->
-                    FilterChip(
-                        selected = selectedFormulaId == f.id,
-                        onClick = {
-                            selectedFormulaId = f.id
-                        },
-                        label = { Text(f.titleBn.split(" ")[0], fontSize = 12.sp) },
-                        modifier = Modifier.testTag("formula_chip_${f.id}")
-                    )
-                }
-            }
-        }
-
-        // Formula Header Card
+        // 1. Formula Selector Chips
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("formula_header_card")
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = currentFormula.titleBn,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        text = "ভিজ্যুয়াল সূত্র নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
-                    Text(
-                        text = currentFormula.categoryBn,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                    LazyRow(
+                        state = formulaChipRowState,
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = currentFormula.formulaExpression,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(10.dp),
-                            textAlign = TextAlign.Center
-                        )
+                        items(formulas, key = { it.id }) { item ->
+                            FilterChip(
+                                selected = item.id == selectedFormula.id,
+                                onClick = { selectedFormulaId = item.id },
+                                label = { Text(item.titleBn, fontWeight = FontWeight.Medium) },
+                                modifier = Modifier.testTag("vis_formula_${item.id}")
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Native Visual Canvas for the Formula
+        // 2. Visual Proof / Geometric Partition Diagram
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("formula_diagram_card")
+            ElevatedCard(
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "ভিজ্যুয়াল ডায়াগ্রাম (${result.diagramNotesBn})",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = selectedFormula.titleBn,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = selectedFormula.formulaExpression,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
 
-                    val primColor = MaterialTheme.colorScheme.primary
-                    val secColor = MaterialTheme.colorScheme.secondary
+                    val primaryColor = MaterialTheme.colorScheme.primary
+                    val secondaryColor = MaterialTheme.colorScheme.tertiary
+                    val accentColor = MaterialTheme.colorScheme.secondary
 
-                    Canvas(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(225.dp)
+                            .clip(RoundedCornerShape(16.dp))
                             .background(MaterialTheme.colorScheme.surface)
-                            .testTag("formula_canvas")
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                            .testTag("formula_visual_canvas")
                     ) {
-                        val w = size.width
-                        val h = size.height
-                        val cx = w / 2f
-                        val cy = h / 2f
-
-                        when (currentFormula.id) {
-                            "vis_pythagoras" -> {
-                                val aVal = p1.toFloat()
-                                val bVal = p2.toFloat()
-                                val maxSide = max(aVal, bVal)
-                                val scale = (min(w * 0.6f, h * 0.7f) / max(maxSide, 10f)).coerceIn(5f, 20f)
-
-                                val triW = bVal * scale
-                                val triH = aVal * scale
-                                val pBottomLeft = Offset(cx - triW / 2f, cy + triH / 2f)
-                                val pBottomRight = Offset(cx + triW / 2f, cy + triH / 2f)
-                                val pTopLeft = Offset(cx - triW / 2f, cy - triH / 2f)
-
-                                val path = Path().apply {
-                                    moveTo(pBottomLeft.x, pBottomLeft.y)
-                                    lineTo(pBottomRight.x, pBottomRight.y)
-                                    lineTo(pTopLeft.x, pTopLeft.y)
-                                    close()
-                                }
-                                drawPath(path, color = primColor.copy(alpha = 0.25f))
-                                drawPath(path, color = primColor, style = Stroke(width = 4.dp.toPx()))
-
-                                // Hypotenuse highlight
-                                drawLine(secColor, pBottomRight, pTopLeft, 4.dp.toPx())
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 30f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText("ভূমি b = ${VisualMathEngine.formatNumberBn(p2)}", cx, pBottomLeft.y + 30f, paint)
-                                    drawText("লম্ব a = ${VisualMathEngine.formatNumberBn(p1)}", pBottomLeft.x - 40f, cy, paint)
-                                    drawText("c = ${VisualMathEngine.formatNumberBn(result.outputValue)}", cx + 20f, cy - 10f, paint)
-                                }
-                            }
-                            "vis_simple_interest" -> {
-                                // Draw Principal vs Interest comparative bars
-                                val pVal = p1.toFloat()
-                                val iVal = result.outputValue.toFloat()
-                                val total = pVal + iVal
-
-                                val barW = 60.dp.toPx()
-                                val maxBarH = h * 0.65f
-
-                                val pBarH = (pVal / total) * maxBarH
-                                val iBarH = (iVal / total) * maxBarH
-
-                                val pX = cx - barW - 20f
-                                val iX = cx + 20f
-                                val baseY = cy + maxBarH / 2f
-
-                                // Principal bar
-                                drawRect(
-                                    color = primColor,
-                                    topLeft = Offset(pX, baseY - pBarH),
-                                    size = Size(barW, pBarH)
-                                )
-                                // Interest bar
-                                drawRect(
-                                    color = secColor,
-                                    topLeft = Offset(iX, baseY - iBarH),
-                                    size = Size(barW, iBarH)
-                                )
-
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 28f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText("মূলধন P", pX + barW / 2f, baseY + 28f, paint)
-                                    drawText("সুদ I", iX + barW / 2f, baseY + 28f, paint)
-                                    drawText(VisualMathEngine.formatNumberBn(p1), pX + barW / 2f, baseY - pBarH - 10f, paint)
-                                    drawText(VisualMathEngine.formatNumberBn(result.outputValue), iX + barW / 2f, baseY - iBarH - 10f, paint)
-                                }
-                            }
-                            else -> {
-                                // Default Geometry or Cube wireframe preview
-                                drawCircle(
-                                    color = primColor.copy(alpha = 0.2f),
-                                    radius = min(w, h) * 0.35f,
-                                    center = Offset(cx, cy)
-                                )
-                                drawCircle(
-                                    color = primColor,
-                                    radius = min(w, h) * 0.35f,
-                                    center = Offset(cx, cy),
-                                    style = Stroke(3.dp.toPx())
-                                )
-                                drawContext.canvas.nativeCanvas.apply {
-                                    val paint = android.graphics.Paint().apply {
-                                        color = android.graphics.Color.DKGRAY
-                                        textSize = 32f
-                                        textAlign = android.graphics.Paint.Align.CENTER
-                                        isAntiAlias = true
-                                    }
-                                    drawText(result.outputLabelBn + ": " + VisualMathEngine.formatNumberBn(result.outputValue), cx, cy, paint)
-                                }
+                        Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                            when (selectedFormula.id) {
+                                "vis_alg_sq_plus" -> drawSquareOfSumVisual(inputA, inputB, primaryColor, secondaryColor, accentColor)
+                                "vis_pythagoras" -> drawPythagorasVisual(inputA, inputB, primaryColor, secondaryColor, onSurfaceArgb)
+                                "vis_simple_interest" -> drawSimpleInterestVisual(inputA, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
+                                // BUG-53 FIX: Render a true 3D projected Cube via Math3DEngine instead of drawCircle!
+                                "vis_cube_vol" -> drawCubeVolumeVisual3D(inputA, primaryColor, accentColor, secondaryColor, onSurfaceArgb, primaryArgb)
+                                "vis_circle_area" -> drawCircleAreaVisual(inputA, primaryColor, secondaryColor, onSurfaceArgb)
+                                else -> drawGenericBarVisual(inputA, inputB, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                             }
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = calcResult.diagramNotesBn,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+
+        // 3. Interactive Parameter Sliders
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val rangeA = selectedFormula.param1Min.toFloat()..selectedFormula.param1Max.toFloat()
+                    DimensionSliderRow(
+                        label = selectedFormula.param1NameBn,
+                        value = inputA,
+                        valueRange = rangeA,
+                        onValueChange = {
+                            inputA = if (selectedFormula.id == "vis_simple_interest") {
+                                (it.toInt() / 100 * 100).toDouble()
+                            } else {
+                                it.toInt().toDouble()
+                            }
+                        },
+                        testTag = "vis_formula_slider_a"
+                    )
+
+                    selectedFormula.param2NameBn?.let { labelB ->
+                        val rangeB = selectedFormula.param2Min.toFloat()..selectedFormula.param2Max.toFloat()
+                        DimensionSliderRow(
+                            label = labelB,
+                            value = inputB,
+                            valueRange = rangeB,
+                            onValueChange = { inputB = it.toInt().toDouble() },
+                            testTag = "vis_formula_slider_b"
+                        )
+                    }
+
+                    selectedFormula.param3NameBn?.let { labelC ->
+                        val rangeC = selectedFormula.param3Min.toFloat()..selectedFormula.param3Max.toFloat()
+                        DimensionSliderRow(
+                            label = labelC,
+                            value = inputC,
+                            valueRange = rangeC,
+                            onValueChange = { inputC = it.toInt().toDouble() },
+                            testTag = "vis_formula_slider_c"
+                        )
                     }
                 }
             }
         }
 
-        // Parameter Sliders
+        // 4. Step-by-Step Result Card
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ElevatedCard(
                 shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth().testTag("formula_sliders_card")
+                modifier = Modifier.fillMaxWidth().testTag("vis_formula_result_card")
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    MetricHighlightBox(
+                        title = calcResult.outputLabelBn,
+                        value = VisualMathEngine.formatNumberBn(calcResult.outputValue, 2),
+                        unit = "",
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     Text(
-                        text = "চলকের মান পরিবর্তন করুন",
-                        style = MaterialTheme.typography.titleSmall,
+                        text = "ভিজ্যুয়াল গাণিতিক বিশ্লেষণ:",
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Param 1
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(text = currentFormula.param1NameBn)
-                        Text(text = VisualMathEngine.formatNumberBn(p1), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Slider(
-                        value = p1.toFloat(),
-                        onValueChange = { p1 = it.toDouble() },
-                        valueRange = currentFormula.param1Min.toFloat()..currentFormula.param1Max.toFloat(),
-                        modifier = Modifier.testTag("formula_slider_p1")
-                    )
-
-                    // Param 2 if present
-                    if (currentFormula.param2NameBn != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = currentFormula.param2NameBn)
-                            Text(text = VisualMathEngine.formatNumberBn(p2), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
-                        }
-                        Slider(
-                            value = p2.toFloat(),
-                            onValueChange = { p2 = it.toDouble() },
-                            valueRange = currentFormula.param2Min.toFloat()..currentFormula.param2Max.toFloat(),
-                            modifier = Modifier.testTag("formula_slider_p2")
-                        )
-                    }
-
-                    // Param 3 if present
-                    if (currentFormula.param3NameBn != null) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(text = currentFormula.param3NameBn)
-                            Text(text = VisualMathEngine.formatNumberBn(p3), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary)
-                        }
-                        Slider(
-                            value = p3.toFloat(),
-                            onValueChange = { p3 = it.toDouble() },
-                            valueRange = currentFormula.param3Min.toFloat()..currentFormula.param3Max.toFloat(),
-                            modifier = Modifier.testTag("formula_slider_p3")
-                        )
+                    calcResult.calculationStepsBn.forEachIndexed { idx, step ->
+                        StepItemRow(stepNumber = idx + 1, stepText = step)
                     }
                 }
             }
         }
+    }
+}
 
-        // Calculation Steps and Result in Bengali
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("formula_calculation_result_card")
+private fun DrawScope.drawSquareOfSumVisual(
+    a: Double,
+    b: Double,
+    colorA: Color,
+    colorB: Color,
+    colorAB: Color
+) {
+    val total = (a + b).coerceAtLeast(1.0).toFloat()
+    val boxSize = min(size.width, size.height) * 0.82f
+    val startX = (size.width - boxSize) / 2f
+    val startY = (size.height - boxSize) / 2f
+
+    val aPx = (a.toFloat() / total) * boxSize
+    val bPx = (b.toFloat() / total) * boxSize
+
+    drawRect(color = colorA.copy(alpha = 0.75f), topLeft = Offset(startX, startY), size = Size(aPx, aPx))
+    drawCanvasText("a²", startX + aPx / 2f, startY + aPx / 2f + 8f, android.graphics.Color.WHITE, 26f)
+
+    drawRect(color = colorAB.copy(alpha = 0.65f), topLeft = Offset(startX + aPx, startY), size = Size(bPx, aPx))
+    drawCanvasText("ab", startX + aPx + bPx / 2f, startY + aPx / 2f + 8f, android.graphics.Color.WHITE, 22f)
+
+    drawRect(color = colorAB.copy(alpha = 0.65f), topLeft = Offset(startX, startY + aPx), size = Size(aPx, bPx))
+    drawCanvasText("ab", startX + aPx / 2f, startY + aPx + bPx / 2f + 8f, android.graphics.Color.WHITE, 22f)
+
+    drawRect(color = colorB.copy(alpha = 0.80f), topLeft = Offset(startX + aPx, startY + aPx), size = Size(bPx, bPx))
+    drawCanvasText("b²", startX + aPx + bPx / 2f, startY + aPx + bPx / 2f + 8f, android.graphics.Color.WHITE, 22f)
+
+    drawRect(color = android.graphics.Color.WHITE.let { Color(it) }, topLeft = Offset(startX, startY), size = Size(boxSize, boxSize), style = Stroke(width = 3f))
+}
+
+private fun DrawScope.drawPythagorasVisual(
+    a: Double,
+    b: Double,
+    primaryColor: Color,
+    secondaryColor: Color,
+    labelColorArgb: Int
+) {
+    val maxIn = max(a, b).coerceAtLeast(1.0).toFloat()
+    val scale = (min(size.width, size.height) * 0.65f) / maxIn
+    val hPx = (a.toFloat() * scale).coerceAtLeast(40f)
+    val bPx = (b.toFloat() * scale).coerceAtLeast(40f)
+
+    val originX = (size.width - bPx) / 2f
+    val originY = (size.height + hPx) / 2f
+
+    val pTop = Offset(originX, originY - hPx)
+    val pCorner = Offset(originX, originY)
+    val pRight = Offset(originX + bPx, originY)
+
+    val path = Path().apply {
+        moveTo(pTop.x, pTop.y)
+        lineTo(pCorner.x, pCorner.y)
+        lineTo(pRight.x, pRight.y)
+        close()
+    }
+    drawPath(path = path, color = primaryColor.copy(alpha = 0.22f), style = Fill)
+    drawPath(path = path, color = primaryColor, style = Stroke(width = 4f))
+
+    drawRect(
+        color = secondaryColor,
+        topLeft = Offset(pCorner.x, pCorner.y - 14f),
+        size = Size(14f, 14f),
+        style = Stroke(width = 2.5f)
+    )
+
+    drawCanvasText("a=${VisualMathEngine.formatNumberBn(a, 0)}", pCorner.x - 28f, pCorner.y - hPx / 2f, labelColorArgb, 22f)
+    drawCanvasText("b=${VisualMathEngine.formatNumberBn(b, 0)}", pCorner.x + bPx / 2f, pCorner.y + 24f, labelColorArgb, 22f)
+    drawCanvasText("অতিভুজ c", (pTop.x + pRight.x) / 2f + 28f, (pTop.y + pRight.y) / 2f - 8f, secondaryColor.toArgb(), 22f)
+}
+
+private fun DrawScope.drawSimpleInterestVisual(
+    principal: Double,
+    interest: Double,
+    primaryColor: Color,
+    secondaryColor: Color,
+    labelColorArgb: Int
+) {
+    val total = (principal + interest).coerceAtLeast(1.0).toFloat()
+    val maxBarW = size.width * 0.82f
+    val pW = (principal.toFloat() / total) * maxBarW
+    val iW = (interest.toFloat() / total) * maxBarW
+    val barH = 48f
+    val startX = (size.width - maxBarW) / 2f
+    val startY = size.height / 2f - barH / 2f
+
+    drawRect(color = primaryColor, topLeft = Offset(startX, startY), size = Size(pW, barH))
+    drawRect(color = secondaryColor, topLeft = Offset(startX + pW, startY), size = Size(iW.coerceAtLeast(6f), barH))
+
+    drawCanvasText("আসল (P)", startX + pW / 2f, startY - 12f, labelColorArgb, 22f)
+    drawCanvasText("মুনাফা (I)", startX + pW + iW / 2f, startY + barH + 26f, labelColorArgb, 22f)
+}
+
+// BUG-53 FIX: True 3D Projected Cube for "vis_cube_vol" Formula Visualization
+private fun DrawScope.drawCubeVolumeVisual3D(
+    sideA: Double,
+    primaryColor: Color,
+    secondaryColor: Color,
+    tertiaryColor: Color,
+    labelColorArgb: Int,
+    accentColorArgb: Int
+) {
+    val (faces, lines) = Math3DEngine.buildSolidMesh(
+        shape = Solid3DShapeType.CUBE,
+        p1 = sideA.coerceIn(1.5, 10.0),
+        unfoldProgress = 0.0f,
+        volumeFillFraction = 0.0f
+    )
+    val scene = Math3DEngine.projectScene(
+        faces = faces,
+        internalLines = lines,
+        camera = OrbitCameraState(pitchDeg = 25f, yawDeg = -38f, zoom = 0.95f),
+        canvasWidth = size.width,
+        canvasHeight = size.height
+    )
+    drawProjected3DScene(
+        scene = scene,
+        highlightMode = SolidAnatomyHighlight.ALL,
+        primaryColor = primaryColor,
+        secondaryColor = secondaryColor,
+        tertiaryColor = tertiaryColor,
+        labelColorArgb = labelColorArgb,
+        accentColorArgb = accentColorArgb
+    )
+    drawCanvasText(
+        text = "ঘনক: ধার a = ${VisualMathEngine.formatNumberBn(sideA, 1)}, আয়তন V = a³ = ${VisualMathEngine.formatNumberBn(sideA * sideA * sideA, 1)}",
+        x = size.width / 2f,
+        y = size.height - 4f,
+        colorArgb = labelColorArgb,
+        textSizePx = 22f
+    )
+}
+
+private fun DrawScope.drawCircleAreaVisual(
+    radius: Double,
+    primaryColor: Color,
+    secondaryColor: Color,
+    labelColorArgb: Int
+) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f - 8f
+    val rPx = ((radius.toFloat() / 12f) * (min(size.width, size.height) * 0.42f)).coerceIn(36f, min(size.width, size.height) * 0.42f)
+
+    val sectors = 12
+    val sweep = 360f / sectors
+    for (i in 0 until sectors) {
+        drawArc(
+            color = if (i % 2 == 0) primaryColor.copy(alpha = 0.65f) else secondaryColor.copy(alpha = 0.55f),
+            startAngle = i * sweep,
+            sweepAngle = sweep,
+            useCenter = true,
+            topLeft = Offset(cx - rPx, cy - rPx),
+            size = Size(rPx * 2f, rPx * 2f)
+        )
+    }
+    drawCircle(color = primaryColor, radius = rPx, center = Offset(cx, cy), style = Stroke(width = 3.5f))
+    drawLine(color = Color(0xFFDC2626), start = Offset(cx, cy), end = Offset(cx + rPx, cy), strokeWidth = 3.5f)
+    drawCanvasText("r = ${VisualMathEngine.formatNumberBn(radius, 1)}", cx + rPx / 2f, cy - 10f, labelColorArgb, 22f)
+    drawCanvasText("A = πr² ≈ ${VisualMathEngine.formatNumberBn(PI * radius * radius, 2)}", cx, size.height - 4f, labelColorArgb, 22f)
+}
+
+private fun DrawScope.drawGenericBarVisual(
+    a: Double,
+    b: Double,
+    output: Double,
+    primaryColor: Color,
+    secondaryColor: Color,
+    labelColorArgb: Int
+) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val radius = min(size.width, size.height) * 0.35f
+    drawCircle(color = primaryColor.copy(alpha = 0.2f), radius = radius, center = Offset(cx, cy))
+    drawCircle(color = secondaryColor, radius = radius, center = Offset(cx, cy), style = Stroke(width = 4f))
+    drawCanvasText(VisualMathEngine.formatNumberBn(output, 2), cx, cy + 8f, labelColorArgb, 30f)
+}
+
+// =============================================================================
+// SHARED UI HELPER COMPONENTS
+// =============================================================================
+
+@Composable
+private fun DimensionSliderRow(
+    label: String,
+    value: Double,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    testTag: String
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(8.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "ফলাফল: ${result.outputLabelBn}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = VisualMathEngine.formatNumberBn(result.outputValue),
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "ধাপে ধাপে হিসাব প্রক্রিয়া:",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    result.calculationStepsBn.forEachIndexed { idx, step ->
-                        Text(
-                            text = "${BengaliNumberFormatter.toBn(idx + 1)}. $step",
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        )
-                    }
-                }
+                Text(
+                    text = VisualMathEngine.formatNumberBn(value, 1),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                )
             }
         }
+        Slider(
+            value = value.toFloat().coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            modifier = Modifier.fillMaxWidth().testTag(testTag)
+        )
+    }
+}
 
-        // Visual Number Patterns & 2D Transformations Card
-        item {
-            var patternType by remember { mutableIntStateOf(0) }
-            var patternStep by remember { mutableIntStateOf(4) }
-            val patternModel = remember(patternType, patternStep) {
-                VisualMathEngine.generateVisualPattern(patternType, patternStep)
-            }
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(16.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                modifier = Modifier.fillMaxWidth().testTag("pattern_transformation_card")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "সংখ্যার প্যাটার্ন ও জ্যামিতিক রূপান্তর (Patterns & Transformations)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("বর্গ সংখ্যা", "ত্রিভুজ সংখ্যা", "বিজোড় সংখ্যা").forEachIndexed { idx, label ->
-                            FilterChip(
-                                selected = patternType == idx,
-                                onClick = { patternType = idx },
-                                label = { Text(label, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "${patternModel.patternNameBn} (${patternModel.formulaBn}): পদসমূহ = ${patternModel.terms.joinToString(", ") { BengaliNumberFormatter.toBn(it) }}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = patternModel.explanationBn,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+@Composable
+private fun MetricHighlightBox(
+    title: String,
+    value: String,
+    unit: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(14.dp),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = contentColor.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold,
+                color = contentColor,
+                textAlign = TextAlign.Center
+            )
+            if (unit.isNotEmpty()) {
+                Text(
+                    text = unit,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.75f)
+                )
             }
         }
+    }
+}
 
-        item { Spacer(modifier = Modifier.height(24.dp)) }
+@Composable
+private fun StepItemRow(
+    stepNumber: Int,
+    stepText: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primary,
+            shape = CircleShape,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = BengaliNumberFormatter.toBengaliDigits(stepNumber.toString()),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
+        Text(
+            text = stepText,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
     }
 }

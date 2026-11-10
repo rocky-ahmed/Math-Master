@@ -416,21 +416,25 @@ object ExamQuestionBank {
                 }
                 when (targetType) {
                     QuizQuestionType.TRUE_FALSE -> {
-                        val isTrue = (idx % 2 == 0)
-                        val shownOption = if (isTrue) {
+                        val wrongOpts = q.optionsBn.filterIndexed { i, opt ->
+                            i != q.correctIndex && !SharedMathEngine.isAnswerCorrect(opt, rawAns)
+                        }
+                        val wantTrue = kotlin.random.Random.nextBoolean() || wrongOpts.isEmpty()
+                        val shownOption = if (wantTrue) {
                             rawAns
                         } else {
-                            q.optionsBn.filterIndexed { i, _ -> i != q.correctIndex }.firstOrNull() ?: rawAns
+                            wrongOpts.random()
                         }
+                        val actualIsTrue = SharedMathEngine.isAnswerCorrect(shownOption, rawAns)
                         val tfOpts = listOf("সত্য (True)", "মিথ্যা (False)")
-                        val tfCorrect = if (isTrue) 0 else 1
+                        val tfCorrect = if (actualIsTrue) 0 else 1
                         q.copy(
                             questionType = QuizQuestionType.TRUE_FALSE,
                             optionsBn = tfOpts,
                             correctIndex = tfCorrect,
                             correctAnswerText = tfOpts[tfCorrect],
-                            trueFalseStatementBn = "${q.questionBn} — উত্তর: $shownOption",
-                            isStatementTrue = isTrue
+                            trueFalseStatementBn = QuizGenerator.formatTrueFalseStatementBn(q.questionBn, shownOption),
+                            isStatementTrue = actualIsTrue
                         )
                     }
                     QuizQuestionType.NUMERICAL -> {

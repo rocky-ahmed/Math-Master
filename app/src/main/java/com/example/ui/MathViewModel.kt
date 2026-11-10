@@ -225,6 +225,49 @@ data class QuizSessionState(
             val ans = userAnswers[index]
             ExamScoringEngine.isOptionAnswered(ans) && ans != q.correctIndex
         }
+
+    val effectiveAnswersMap: Map<Int, Int>
+        get() {
+            if (isFullExamMode && pendingOptionSelections.isEmpty() && pendingTypedAnswers.isEmpty() &&
+                (selectedOptionIndex == null || userAnswers.containsKey(currentIndex)) &&
+                (typedAnswer.isBlank() || userAnswers.containsKey(currentIndex))
+            ) {
+                return userAnswers
+            }
+            val merged = userAnswers.toMutableMap()
+            pendingOptionSelections.forEach { (qIdx, optIdx) ->
+                if (!userAnswers.containsKey(qIdx)) {
+                    merged[qIdx] = optIdx
+                }
+            }
+            pendingTypedAnswers.forEach { (qIdx, rawText) ->
+                val trimmed = rawText.trim()
+                if (trimmed.isNotEmpty() && !userAnswers.containsKey(qIdx)) {
+                    val q = questions.getOrNull(qIdx)
+                    val recOpt = if (q != null) {
+                        val isCorrect = SharedMathEngine.isAnswerCorrect(trimmed, q.correctAnswerText)
+                        val matchIdx = q.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(trimmed, it) }
+                        if (matchIdx != -1) matchIdx else if (isCorrect) q.correctIndex else -2
+                    } else 0
+                    merged[qIdx] = recOpt
+                }
+            }
+            if (!userAnswers.containsKey(currentIndex)) {
+                if (selectedOptionIndex != null) {
+                    merged[currentIndex] = selectedOptionIndex
+                } else if (typedAnswer.isNotBlank()) {
+                    val trimmed = typedAnswer.trim()
+                    val q = questions.getOrNull(currentIndex)
+                    val recOpt = if (q != null) {
+                        val isCorrect = SharedMathEngine.isAnswerCorrect(trimmed, q.correctAnswerText)
+                        val matchIdx = q.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(trimmed, it) }
+                        if (matchIdx != -1) matchIdx else if (isCorrect) q.correctIndex else -2
+                    } else 0
+                    merged[currentIndex] = recOpt
+                }
+            }
+            return merged
+        }
 }
 
 class MathViewModel @JvmOverloads constructor(
@@ -1036,8 +1079,13 @@ class MathViewModel @JvmOverloads constructor(
     fun jumpToQuizQuestion(targetIndex: Int) {
         val current = _quizSession.value
         if (current.isFinished || targetIndex !in current.questions.indices) return
-        val existingChoice = current.userAnswers[targetIndex]?.takeIf { it >= 0 }
-            ?: current.pendingOptionSelections[targetIndex]
+        val targetQ = current.questions.getOrNull(targetIndex)
+        val existingChoice = if (targetQ?.questionType == QuizQuestionType.NUMERICAL) {
+            null
+        } else {
+            current.userAnswers[targetIndex]?.takeIf { it >= 0 }
+                ?: current.pendingOptionSelections[targetIndex]
+        }
         val existingTyped = current.userTypedAnswers[targetIndex]
             ?: current.pendingTypedAnswers[targetIndex]
             ?: ""
@@ -1092,7 +1140,7 @@ class MathViewModel @JvmOverloads constructor(
         val nextState = current.copy(
             state = QuizState.ANSWER_SUBMITTED,
             isAnswerSubmitted = true,
-            selectedOptionIndex = if (recordedOption >= 0) recordedOption else null,
+            selectedOptionIndex = if (currentQ.questionType == QuizQuestionType.NUMERICAL) null else if (recordedOption >= 0) recordedOption else null,
             correctCount = recomputedCorrect,
             userAnswers = updatedAnswers,
             userTypedAnswers = updatedTypedMap,
@@ -1155,8 +1203,13 @@ class MathViewModel @JvmOverloads constructor(
         val current = _quizSession.value
         if (current.isFinished || current.currentIndex <= 0) return
         val prevIdx = current.currentIndex - 1
-        val prevSelected = current.userAnswers[prevIdx]?.takeIf { it >= 0 }
-            ?: current.pendingOptionSelections[prevIdx]
+        val prevQ = current.questions.getOrNull(prevIdx)
+        val prevSelected = if (prevQ?.questionType == QuizQuestionType.NUMERICAL) {
+            null
+        } else {
+            current.userAnswers[prevIdx]?.takeIf { it >= 0 }
+                ?: current.pendingOptionSelections[prevIdx]
+        }
         val prevTyped = current.userTypedAnswers[prevIdx]
             ?: current.pendingTypedAnswers[prevIdx]
             ?: ""
@@ -1179,8 +1232,13 @@ class MathViewModel @JvmOverloads constructor(
 
         val nextIndex = current.currentIndex + 1
         if (nextIndex < current.questions.size) {
-            val existingChoice = current.userAnswers[nextIndex]?.takeIf { it >= 0 }
-                ?: current.pendingOptionSelections[nextIndex]
+            val nextQ = current.questions.getOrNull(nextIndex)
+            val existingChoice = if (nextQ?.questionType == QuizQuestionType.NUMERICAL) {
+                null
+            } else {
+                current.userAnswers[nextIndex]?.takeIf { it >= 0 }
+                    ?: current.pendingOptionSelections[nextIndex]
+            }
             val existingTyped = current.userTypedAnswers[nextIndex]
                 ?: current.pendingTypedAnswers[nextIndex]
                 ?: ""
@@ -1250,11 +1308,15 @@ class MathViewModel @JvmOverloads constructor(
         if (rem <= 0) {
             finishQuizSession()
         } else if (rem != current.timeRemainingSeconds || elapsedSec != current.elapsedSeconds) {
-            _quizSession.value = current.copy(
+            val nextState = current.copy(
                 timeRemainingSeconds = rem,
                 elapsedSeconds = elapsedSec,
                 questionTimeSeconds = updatedQTimes
             )
+            _quizSession.value = nextState
+            if (elapsedSec % 5 == 0 || rem <= 30) {
+                persistActiveExamStateAsync(nextState)
+            }
         }
     }
 
@@ -1267,14 +1329,14 @@ class MathViewModel @JvmOverloads constructor(
         val mergedTypedAnswers = current.userTypedAnswers.toMutableMap()
 
         current.pendingOptionSelections.forEach { (qIdx, optIdx) ->
-            if (!mergedAnswers.containsKey(qIdx)) {
+            if (!current.userAnswers.containsKey(qIdx)) {
                 mergedAnswers[qIdx] = optIdx
             }
         }
         current.pendingTypedAnswers.forEach { (qIdx, rawText) ->
             val trimmed = rawText.trim()
             val q = current.questions.getOrNull(qIdx)
-            if (trimmed.isNotEmpty() && q != null && !mergedAnswers.containsKey(qIdx)) {
+            if (trimmed.isNotEmpty() && q != null && !current.userAnswers.containsKey(qIdx)) {
                 val isCorrect = SharedMathEngine.isAnswerCorrect(trimmed, q.correctAnswerText)
                 val matchIdx = q.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(trimmed, it) }
                 val recOpt = if (matchIdx != -1) matchIdx else if (isCorrect) q.correctIndex else -2
@@ -1284,19 +1346,20 @@ class MathViewModel @JvmOverloads constructor(
         }
 
         val activeQ = current.questions.getOrNull(current.currentIndex)
-        if (current.selectedOptionIndex != null && !mergedAnswers.containsKey(current.currentIndex)) {
-            mergedAnswers[current.currentIndex] = current.selectedOptionIndex
-        } else if (
-            activeQ?.questionType == QuizQuestionType.NUMERICAL &&
-            current.typedAnswer.trim().isNotEmpty() &&
-            !mergedAnswers.containsKey(current.currentIndex)
-        ) {
-            val typed = current.typedAnswer.trim()
-            val isCorrect = SharedMathEngine.isAnswerCorrect(typed, activeQ.correctAnswerText)
-            val matchIdx = activeQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
-            val recOpt = if (matchIdx != -1) matchIdx else if (isCorrect) activeQ.correctIndex else -2
-            mergedTypedAnswers[current.currentIndex] = typed
-            mergedAnswers[current.currentIndex] = recOpt
+        if (!current.userAnswers.containsKey(current.currentIndex)) {
+            if (current.selectedOptionIndex != null) {
+                mergedAnswers[current.currentIndex] = current.selectedOptionIndex
+            } else if (
+                activeQ?.questionType == QuizQuestionType.NUMERICAL &&
+                current.typedAnswer.trim().isNotEmpty()
+            ) {
+                val typed = current.typedAnswer.trim()
+                val isCorrect = SharedMathEngine.isAnswerCorrect(typed, activeQ.correctAnswerText)
+                val matchIdx = activeQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
+                val recOpt = if (matchIdx != -1) matchIdx else if (isCorrect) activeQ.correctIndex else -2
+                mergedTypedAnswers[current.currentIndex] = typed
+                mergedAnswers[current.currentIndex] = recOpt
+            }
         }
 
         val finalAnswers = mergedAnswers.toMap()
@@ -1517,13 +1580,15 @@ class MathViewModel @JvmOverloads constructor(
             val qType = QuizQuestionType.values().firstOrNull { it.id == entity.questionType } ?: QuizQuestionType.MCQ
 
             val remSec = if (entity.durationLimitSeconds > 0) {
-                entity.remainingSeconds.coerceAtLeast(30)
+                val computedRem = entity.durationLimitSeconds - entity.elapsedSeconds
+                if (entity.remainingSeconds > 0) entity.remainingSeconds else computedRem.coerceAtLeast(1)
             } else {
                 0
             }
             val now = clock.elapsedRealtime()
             val deadline = if (entity.durationLimitSeconds > 0) now + remSec * 1000L else 0L
             val curIdx = entity.currentQuestionIndex.coerceIn(0, questions.lastIndex)
+            val curQ = questions.getOrNull(curIdx)
             val isImmediatePractice = preset == ExamPresetType.PRACTICE_EXAM ||
                 entity.attemptId.startsWith("bcs_mode_topic_practice") ||
                 entity.attemptId.startsWith("bcs_mode_mistake_practice")
@@ -1550,7 +1615,7 @@ class MathViewModel @JvmOverloads constructor(
                 state = QuizState.IN_PROGRESS,
                 questions = questions,
                 currentIndex = curIdx,
-                selectedOptionIndex = answers[curIdx]?.takeIf { it >= 0 },
+                selectedOptionIndex = if (curQ?.questionType == QuizQuestionType.NUMERICAL) null else answers[curIdx]?.takeIf { it >= 0 },
                 typedAnswer = typedAnswers[curIdx] ?: "",
                 isAnswerSubmitted = if (!isImmediatePractice) false else answers.containsKey(curIdx),
                 correctCount = answers.count { (i, a) -> questions.getOrNull(i)?.correctIndex == a },
@@ -2863,8 +2928,59 @@ class MathViewModel @JvmOverloads constructor(
         when (rec.actionType) {
             RecommendationActionType.RESUME_ACTIVE_EXAM -> resumeActiveExamAttempt()
             RecommendationActionType.OPEN_QUIZ_TOPIC -> {
-                val topic = QuizTopic.values().firstOrNull { it.id == rec.targetTopicId } ?: QuizTopic.MIXED_CHALLENGE
-                startQuiz(topic = topic, count = 10, mode = QuizMode.TOPIC)
+                if (rec.targetTopicId.startsWith("BOOK_", ignoreCase = true)) {
+                    openBookHub()
+                    return
+                }
+                if (rec.targetTopicId.startsWith("VISUAL_", ignoreCase = true)) {
+                    navigateTo(Screen.VisualExplorer)
+                    return
+                }
+                if (rec.targetTopicId.startsWith("BCS", ignoreCase = true)) {
+                    navigateTo(Screen.BcsPreparation)
+                    return
+                }
+                val directQuizTopic = QuizTopic.values().firstOrNull { it.id.equals(rec.targetTopicId, ignoreCase = true) }
+                if (directQuizTopic != null) {
+                    startQuiz(topic = directQuizTopic, count = 10, mode = QuizMode.TOPIC)
+                    return
+                }
+                val practiceCategory = PracticeCategory.values().firstOrNull {
+                    it.id.equals(rec.targetTopicId, ignoreCase = true) ||
+                        rec.targetTopicId.removePrefix("PRACTICE_").startsWith(it.id, ignoreCase = true)
+                }
+                if (practiceCategory != null) {
+                    startPracticeSession(
+                        category = practiceCategory,
+                        difficulty = PracticeDifficulty.MEDIUM,
+                        count = 10
+                    )
+                    return
+                }
+                val numberSystemTopic = com.example.math.NumberSystemTopic.values().firstOrNull {
+                    it.id.equals(rec.targetTopicId, ignoreCase = true)
+                }
+                if (numberSystemTopic != null ||
+                    rec.targetTopicId.equals("NUMBER_SYSTEM", ignoreCase = true) ||
+                    rec.targetTopicId.contains("num", ignoreCase = true) ||
+                    rec.targetTopicId.contains("div", ignoreCase = true)
+                ) {
+                    startNumberSystemPractice(
+                        topic = numberSystemTopic ?: com.example.math.NumberSystemTopic.ALL,
+                        difficulty = com.example.math.NumberSystemDifficulty.MEDIUM
+                    )
+                    return
+                }
+                val mappedTopic = when {
+                    rec.targetTopicId.contains("mul", ignoreCase = true) || rec.targetTopicId.contains("table", ignoreCase = true) -> QuizTopic.MULTIPLICATION
+                    rec.targetTopicId.contains("prime", ignoreCase = true) -> QuizTopic.PRIMES
+                    rec.targetTopicId.contains("square", ignoreCase = true) || rec.targetTopicId.contains("cube", ignoreCase = true) -> QuizTopic.SQUARES_CUBES
+                    rec.targetTopicId.contains("alg", ignoreCase = true) -> QuizTopic.ALGEBRA
+                    rec.targetTopicId.contains("geom", ignoreCase = true) -> QuizTopic.GEOMETRY_MENSURATION
+                    rec.targetTopicId.contains("arith", ignoreCase = true) || rec.targetTopicId.contains("percent", ignoreCase = true) || rec.targetTopicId.contains("ratio", ignoreCase = true) -> QuizTopic.ARITHMETIC_PERCENTAGE
+                    else -> QuizTopic.MIXED_CHALLENGE
+                }
+                startQuiz(topic = mappedTopic, count = 10, mode = QuizMode.TOPIC)
             }
             RecommendationActionType.OPEN_EXAM_PRESET -> {
                 val preset = ExamPresetType.fromIdOrDefault(rec.targetTopicId)
@@ -4001,5 +4117,47 @@ class MathViewModel @JvmOverloads constructor(
         val current = _studySessionTimer.value
         prefs.edit().putInt("study_timer_daily_goal_min", clamped).apply()
         _studySessionTimer.value = current.copy(dailyGoalMinutes = clamped)
+    }
+
+    fun flushUnrecordedStudyTime() {
+        val current = _studySessionTimer.value
+        val unrecorded = current.unrecordedDbSeconds
+        if (unrecorded <= 0) return
+        _studySessionTimer.value = current.copy(unrecordedDbSeconds = 0)
+        viewModelScope.launch {
+            repository.recordDailyStudyDelta(
+                questionsAttemptedDelta = 0,
+                correctDelta = 0,
+                wrongDelta = 0,
+                studyTimeSecondsDelta = unrecorded,
+                examsCompletedDelta = 0,
+                practiceSessionsCompletedDelta = 0
+            )
+        }
+    }
+
+    fun recordVisualMathCheckpoint(
+        topicId: String,
+        topicTitleBn: String,
+        isCorrect: Boolean
+    ) {
+        recordDailyActivity(1)
+        viewModelScope.launch {
+            repository.recordSessionAndAnalytics(
+                moduleType = "VISUAL_MATH",
+                categoryId = topicId,
+                categoryTitleBn = topicTitleBn,
+                difficulty = "MEDIUM",
+                mode = "interactive_lab",
+                inputFormat = "MCQ",
+                score = if (isCorrect) 10 else 0,
+                correctCount = if (isCorrect) 1 else 0,
+                wrongCount = if (isCorrect) 0 else 1,
+                totalQuestions = 1,
+                accuracyPercent = if (isCorrect) 100 else 0,
+                durationSeconds = 30L,
+                highestStreak = if (isCorrect) 1 else 0
+            )
+        }
     }
 }

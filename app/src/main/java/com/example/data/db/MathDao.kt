@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.example.data.model.BcsMistakeEntity
 import com.example.data.model.BcsStudyPlanGoalEntity
 import com.example.data.model.BcsTopicProgressEntity
@@ -56,6 +57,12 @@ interface MathDao {
     @Query("DELETE FROM quiz_scores WHERE id = :id")
     suspend fun deleteQuizScoreById(id: Int)
 
+    @Query("SELECT * FROM quiz_scores WHERE timestamp BETWEEN :minTimestamp AND :maxTimestamp ORDER BY ABS(timestamp - :targetTimestamp) ASC")
+    suspend fun getQuizScoresInTimeWindow(minTimestamp: Long, maxTimestamp: Long, targetTimestamp: Long): List<QuizScoreEntity>
+
+    @Query("DELETE FROM quiz_scores WHERE timestamp BETWEEN :minTimestamp AND :maxTimestamp")
+    suspend fun deleteQuizScoresInTimeWindow(minTimestamp: Long, maxTimestamp: Long)
+
     // User Progress
     @Query("SELECT * FROM user_progress")
     fun getAllProgress(): Flow<List<ProgressEntity>>
@@ -63,15 +70,24 @@ interface MathDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProgress(progress: ProgressEntity)
 
-    // Practice & Challenge History (Room v3)
-    @Query("SELECT * FROM practice_history ORDER BY timestamp DESC LIMIT 200")
+    // Practice & Challenge History (Room v3) — full historical completeness without arbitrary row truncation
+    @Query("SELECT * FROM practice_history ORDER BY timestamp DESC")
     fun getAllPracticeHistory(): Flow<List<PracticeHistoryEntity>>
 
-    @Query("SELECT * FROM practice_history WHERE module = :module ORDER BY timestamp DESC LIMIT 50")
+    @Query("SELECT * FROM practice_history WHERE module = :module ORDER BY timestamp DESC")
     fun getPracticeHistoryByModule(module: String): Flow<List<PracticeHistoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPracticeHistory(history: PracticeHistoryEntity)
+
+    @Query("DELETE FROM practice_history WHERE id = :id")
+    suspend fun deletePracticeHistoryById(id: Int)
+
+    @Query("SELECT * FROM practice_history WHERE module = 'QUIZ' AND timestamp BETWEEN :minTimestamp AND :maxTimestamp ORDER BY ABS(timestamp - :targetTimestamp) ASC")
+    suspend fun getQuizPracticeHistoryInTimeWindow(minTimestamp: Long, maxTimestamp: Long, targetTimestamp: Long): List<PracticeHistoryEntity>
+
+    @Query("DELETE FROM practice_history WHERE module = 'QUIZ' AND timestamp BETWEEN :minTimestamp AND :maxTimestamp")
+    suspend fun deleteQuizPracticeHistoryInTimeWindow(minTimestamp: Long, maxTimestamp: Long)
 
     // Topic Analytics (Room v3)
     @Query("SELECT * FROM topic_analytics ORDER BY lastPracticedAt DESC")
@@ -96,6 +112,9 @@ interface MathDao {
 
     @Query("SELECT * FROM exam_attempts WHERE status = 'COMPLETED' ORDER BY completedAt DESC, startedAt DESC")
     fun getCompletedExamAttempts(): Flow<List<ExamAttemptEntity>>
+
+    @Query("SELECT * FROM exam_attempts WHERE status = 'COMPLETED' AND attemptId != :excludeAttemptId AND COALESCE(completedAt, updatedAt) BETWEEN :minTimestamp AND :maxTimestamp")
+    suspend fun getOtherCompletedExamsInTimeWindow(excludeAttemptId: String, minTimestamp: Long, maxTimestamp: Long): List<ExamAttemptEntity>
 
     @Query("SELECT * FROM exam_attempts WHERE status = 'IN_PROGRESS' ORDER BY updatedAt DESC LIMIT 1")
     fun getActiveExamAttemptFlow(): Flow<ExamAttemptEntity?>
@@ -128,8 +147,8 @@ interface MathDao {
     @Query("DELETE FROM solver_history")
     suspend fun clearAllSolverHistory()
 
-    // Daily Study Activity (Room v4)
-    @Query("SELECT * FROM daily_study_activity ORDER BY dateKey DESC LIMIT 120")
+    // Daily Study Activity (Room v4) — full historical completeness for multi-year streak calculation
+    @Query("SELECT * FROM daily_study_activity ORDER BY dateKey DESC")
     fun getAllDailyStudyActivity(): Flow<List<DailyStudyActivityEntity>>
 
     @Query("SELECT * FROM daily_study_activity WHERE dateKey = :dateKey LIMIT 1")
@@ -137,6 +156,89 @@ interface MathDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDailyStudyActivity(activity: DailyStudyActivityEntity)
+
+    @Transaction
+    suspend fun deleteExamAttemptSafely(attemptId: String, dateKeyForRefTs: String) {
+        val existing = getExamAttemptById(attemptId) ?: return
+        deleteExamAttemptById(attemptId)
+
+        // Only remove paired completion records and adjust daily counters if the attempt was actually COMPLETED
+        if (existing.status != "COMPLETED") return
+
+        val refTs = existing.completedAt ?: existing.updatedAt
+        if (refTs <= 0L) return
+
+        val expectedTopicId = existing.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" }
+        val otherExams = getOtherCompletedExamsInTimeWindow(attemptId, refTs - 2500L, refTs + 2500L)
+
+        // 1. Delete at most 1 paired quiz_scores record with full signature verification & sibling protection
+        val otherSameQuizSig = otherExams.filter { other ->
+            val otherTopic = other.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" }
+            other.totalQuestions == existing.totalQuestions &&
+                other.correctCount == existing.correctCount &&
+                (otherTopic == expectedTopicId || other.examTitleBn == existing.examTitleBn)
+        }
+        val candidateScores = getQuizScoresInTimeWindow(refTs - 2500L, refTs + 2500L, refTs)
+        val matchingScores = candidateScores.filter { qs ->
+            qs.totalQuestions == existing.totalQuestions &&
+                qs.score == existing.correctCount &&
+                (qs.topic == expectedTopicId || qs.topicTitleBn == existing.examTitleBn)
+        }
+        if (matchingScores.size > otherSameQuizSig.size) {
+            val targetScore = matchingScores.firstOrNull { qs ->
+                val distToDeleted = kotlin.math.abs(qs.timestamp - refTs)
+                otherSameQuizSig.none { sib ->
+                    val sibTs = sib.completedAt ?: sib.updatedAt
+                    kotlin.math.abs(qs.timestamp - sibTs) < distToDeleted
+                }
+            } ?: matchingScores.first()
+            deleteQuizScoreById(targetScore.id)
+        }
+
+        // 2. Delete at most 1 paired practice_history record with full signature verification & sibling protection
+        val otherSameHistorySig = otherExams.filter { other ->
+            val otherTopic = other.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" }
+            other.totalQuestions == existing.totalQuestions &&
+                other.correctCount == existing.correctCount &&
+                other.wrongCount == existing.wrongCount &&
+                (other.examType == existing.examType || otherTopic == expectedTopicId || other.examTitleBn == existing.examTitleBn)
+        }
+        val candidateHistory = getQuizPracticeHistoryInTimeWindow(refTs - 2500L, refTs + 2500L, refTs)
+        val matchingHistory = candidateHistory.filter { ph ->
+            ph.totalQuestions == existing.totalQuestions &&
+                ph.correctCount == existing.correctCount &&
+                ph.wrongCount == existing.wrongCount &&
+                (ph.mode == existing.examType || ph.topicId == expectedTopicId || ph.topicTitleBn == existing.examTitleBn)
+        }
+        if (matchingHistory.size > otherSameHistorySig.size) {
+            val targetHistory = matchingHistory.firstOrNull { ph ->
+                val distToDeleted = kotlin.math.abs(ph.timestamp - refTs)
+                otherSameHistorySig.none { sib ->
+                    val sibTs = sib.completedAt ?: sib.updatedAt
+                    kotlin.math.abs(ph.timestamp - sibTs) < distToDeleted
+                }
+            } ?: matchingHistory.first()
+            deletePracticeHistoryById(targetHistory.id)
+        }
+
+        // 3. Adjust daily_study_activity atomically within the same transaction
+        if (dateKeyForRefTs.isNotBlank()) {
+            val daily = getDailyStudyActivityByDate(dateKeyForRefTs)
+            if (daily != null) {
+                val attemptedDelta = existing.correctCount + existing.wrongCount
+                upsertDailyStudyActivity(
+                    daily.copy(
+                        questionsAttempted = kotlin.math.max(0, daily.questionsAttempted - attemptedDelta),
+                        correctCount = kotlin.math.max(0, daily.correctCount - existing.correctCount),
+                        wrongCount = kotlin.math.max(0, daily.wrongCount - existing.wrongCount),
+                        studyTimeSeconds = kotlin.math.max(0, daily.studyTimeSeconds - kotlin.math.max(1, existing.elapsedSeconds)),
+                        examsCompleted = kotlin.math.max(0, daily.examsCompleted - 1),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
 
     // Book Lesson Progress (Room v5)
     @Query("SELECT * FROM book_lesson_progress ORDER BY lastVisitedAt DESC")

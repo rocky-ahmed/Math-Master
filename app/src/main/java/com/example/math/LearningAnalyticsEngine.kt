@@ -197,6 +197,15 @@ object LearningAnalyticsEngine {
         val filteredExams = completedExams.filter { (it.completedAt ?: it.updatedAt) >= cutoffMs }
         val filteredQuizScores = quizScores.filter { it.timestamp >= cutoffMs }
         val filteredPractice = practiceHistory.filter { it.timestamp >= cutoffMs && it.module != "QUIZ" }
+        val examTimestamps = filteredExams.map { it.completedAt ?: it.updatedAt }
+        val standaloneLegacyQuizzes = filteredQuizScores.filter { legacy ->
+            !legacy.topicId.startsWith("PRACTICE_") &&
+                !legacy.topicId.startsWith("MENTAL_MATH_") &&
+                !legacy.topicId.startsWith("BOOK_") &&
+                !legacy.topicId.startsWith("VISUAL_") &&
+                legacy.topicId != "NUMBER_SYSTEM" &&
+                examTimestamps.none { kotlin.math.abs(it - legacy.timestamp) <= 2500L }
+        }
 
         val kpi = computeSeparatedKpis(
             filteredExams = filteredExams,
@@ -205,9 +214,20 @@ object LearningAnalyticsEngine {
             learnedItemsCount = progressItems.count { it.isLearned }
         )
 
+        val windowedPracticeAndQuizHistory = practiceHistory.filter { it.timestamp >= cutoffMs }
+        val effectiveTopicAnalytics = if (timeFilter == AnalyticsTimeFilter.ALL_TIME) {
+            topicAnalytics
+        } else {
+            buildWindowedTopicAnalytics(
+                windowedHistory = windowedPracticeAndQuizHistory,
+                windowedExams = filteredExams,
+                windowedLegacyQuizzes = standaloneLegacyQuizzes
+            )
+        }
+
         val masteryList = computeTopicMasteryReports(
-            topicAnalytics = topicAnalytics.filter { it.lastPracticedAt >= cutoffMs || timeFilter == AnalyticsTimeFilter.ALL_TIME },
-            practiceHistory = practiceHistory.filter { it.timestamp >= cutoffMs },
+            topicAnalytics = effectiveTopicAnalytics,
+            practiceHistory = windowedPracticeAndQuizHistory,
             completedExams = filteredExams
         )
 
@@ -227,13 +247,33 @@ object LearningAnalyticsEngine {
             completedExams = completedExams
         )
 
-        val examTrendPoints = if (filteredExams.isNotEmpty()) {
-            filteredExams.take(10).reversed().mapIndexed { idx, exam ->
-                "পরীক্ষা ${(idx + 1).toBengaliDigits()}" to exam.percentage.roundToInt().coerceIn(0, 100)
+        val examTrendPoints = run {
+            data class RawTrendItem(val timestamp: Long, val percentage: Int)
+            val combined = buildList {
+                filteredExams.forEach { exam ->
+                    add(
+                        RawTrendItem(
+                            timestamp = exam.completedAt ?: exam.updatedAt,
+                            percentage = exam.percentage.roundToInt().coerceIn(0, 100)
+                        )
+                    )
+                }
+                standaloneLegacyQuizzes.forEach { score ->
+                    add(
+                        RawTrendItem(
+                            timestamp = score.timestamp,
+                            percentage = score.percentage.coerceIn(0, 100)
+                        )
+                    )
+                }
             }
-        } else {
-            filteredQuizScores.take(10).reversed().mapIndexed { idx, score ->
-                "কুইজ ${(idx + 1).toBengaliDigits()}" to score.percentage.coerceIn(0, 100)
+            val chronologicalLatest = combined
+                .sortedByDescending { it.timestamp }
+                .take(10)
+                .reversed()
+            val prefix = if (filteredExams.isEmpty() && standaloneLegacyQuizzes.isNotEmpty()) "কুইজ" else "পরীক্ষা"
+            chronologicalLatest.mapIndexed { idx, item ->
+                "$prefix ${(idx + 1).toBengaliDigits()}" to item.percentage
             }
         }
 
@@ -257,6 +297,132 @@ object LearningAnalyticsEngine {
         )
     }
 
+    fun normalizeTopicTitleBn(rawTitle: String, fallbackTopicId: String = ""): String {
+        val base = rawTitle.trim().ifBlank { fallbackTopicId.trim() }
+        val cleaned = base
+            .removePrefix("প্র্যাকটিস: ")
+            .removePrefix("মেন্টাল ম্যাথ: ")
+            .removePrefix("ভিজ্যুয়াল গণিত: ")
+            .replace(Regex("""\s*\((সহজ|মাঝারি|কঠিন|মিশ্র|Easy|Medium|Hard|Mixed|STANDARD)\)\s*$"""), "")
+            .replace(Regex("""\s+কুইজ(\s*\([০-৯0-9\-–]+\))?\s*$"""), "")
+            .trim()
+        return cleaned.ifBlank { base }
+    }
+
+    private fun buildWindowedTopicAnalytics(
+        windowedHistory: List<PracticeHistoryEntity>,
+        windowedExams: List<ExamAttemptEntity>,
+        windowedLegacyQuizzes: List<QuizScoreEntity>
+    ): List<TopicAnalyticsEntity> {
+        if (windowedHistory.isEmpty() && windowedExams.isEmpty() && windowedLegacyQuizzes.isEmpty()) {
+            return emptyList()
+        }
+        val map = mutableMapOf<String, TopicAnalyticsEntity>()
+        val quizHistoryTimestamps = mutableListOf<Long>()
+        windowedHistory.forEach { h ->
+            if (h.module == "QUIZ") {
+                quizHistoryTimestamps.add(h.timestamp)
+            }
+            val key = "${h.module}:${h.topicId}"
+            val attempted = h.correctCount + h.wrongCount
+            val existing = map[key]
+            if (existing == null) {
+                map[key] = TopicAnalyticsEntity(
+                    analyticsKey = key,
+                    module = h.module,
+                    topicId = h.topicId,
+                    topicTitleBn = normalizeTopicTitleBn(h.topicTitleBn, h.topicId),
+                    difficulty = h.difficulty,
+                    totalAttempted = attempted,
+                    totalCorrect = h.correctCount,
+                    totalWrong = h.wrongCount,
+                    bestStreak = h.bestStreak,
+                    totalTimeSeconds = max(0, h.durationSeconds),
+                    lastPracticedAt = h.timestamp
+                )
+            } else {
+                val newAttempted = existing.totalAttempted + attempted
+                val newCorrect = existing.totalCorrect + h.correctCount
+                val newWrong = existing.totalWrong + h.wrongCount
+                map[key] = existing.copy(
+                    totalAttempted = newAttempted,
+                    totalCorrect = newCorrect,
+                    totalWrong = newWrong,
+                    bestStreak = max(existing.bestStreak, h.bestStreak),
+                    totalTimeSeconds = existing.totalTimeSeconds + max(0, h.durationSeconds),
+                    lastPracticedAt = max(existing.lastPracticedAt, h.timestamp)
+                )
+            }
+        }
+        windowedExams.forEach { exam ->
+            val refTs = exam.completedAt ?: exam.updatedAt
+            val alreadyInHistory = quizHistoryTimestamps.any { kotlin.math.abs(it - refTs) <= 2500L }
+            if (!alreadyInHistory) {
+                val topicId = exam.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" }
+                val key = "QUIZ:$topicId"
+                val attempted = exam.correctCount + exam.wrongCount
+                if (attempted > 0) {
+                    val existing = map[key]
+                    if (existing == null) {
+                        map[key] = TopicAnalyticsEntity(
+                            analyticsKey = key,
+                            module = "QUIZ",
+                            topicId = topicId,
+                            topicTitleBn = normalizeTopicTitleBn(exam.examTitleBn, topicId),
+                            difficulty = exam.difficulty,
+                            totalAttempted = attempted,
+                            totalCorrect = exam.correctCount,
+                            totalWrong = exam.wrongCount,
+                            bestStreak = exam.correctCount,
+                            totalTimeSeconds = max(0, exam.elapsedSeconds),
+                            lastPracticedAt = refTs
+                        )
+                    } else {
+                        map[key] = existing.copy(
+                            totalAttempted = existing.totalAttempted + attempted,
+                            totalCorrect = existing.totalCorrect + exam.correctCount,
+                            totalWrong = existing.totalWrong + exam.wrongCount,
+                            bestStreak = max(existing.bestStreak, exam.correctCount),
+                            totalTimeSeconds = existing.totalTimeSeconds + max(0, exam.elapsedSeconds),
+                            lastPracticedAt = max(existing.lastPracticedAt, refTs)
+                        )
+                    }
+                }
+            }
+        }
+        windowedLegacyQuizzes.forEach { q ->
+            val key = "QUIZ:${q.topicId}"
+            val correct = minOf(q.score, q.totalQuestions)
+            val wrong = max(0, q.totalQuestions - correct)
+            val existing = map[key]
+            if (existing == null) {
+                map[key] = TopicAnalyticsEntity(
+                    analyticsKey = key,
+                    module = "QUIZ",
+                    topicId = q.topicId,
+                    topicTitleBn = normalizeTopicTitleBn(q.topicTitleBn, q.topicId),
+                    difficulty = "MEDIUM",
+                    totalAttempted = q.totalQuestions,
+                    totalCorrect = correct,
+                    totalWrong = wrong,
+                    bestStreak = correct,
+                    totalTimeSeconds = 120,
+                    lastPracticedAt = q.timestamp
+                )
+            } else if (quizHistoryTimestamps.none { kotlin.math.abs(it - q.timestamp) <= 2500L }) {
+                map[key] = existing.copy(
+                    totalAttempted = existing.totalAttempted + q.totalQuestions,
+                    totalCorrect = existing.totalCorrect + correct,
+                    totalWrong = existing.totalWrong + wrong,
+                    bestStreak = max(existing.bestStreak, correct),
+                    totalTimeSeconds = existing.totalTimeSeconds + 120,
+                    lastPracticedAt = max(existing.lastPracticedAt, q.timestamp)
+                )
+            }
+        }
+        return map.values.toList()
+    }
+
     fun computeSeparatedKpis(
         filteredExams: List<ExamAttemptEntity>,
         filteredLegacyQuizScores: List<QuizScoreEntity>,
@@ -264,20 +430,22 @@ object LearningAnalyticsEngine {
         learnedItemsCount: Int
     ): SeparatedKpiSummary {
         // Dedup legacy quiz_scores that were created alongside ExamAttemptEntity (within 2.5 seconds)
-        // and exclude non-exam practice/mental-math entries from Exam KPIs
+        // and exclude non-exam practice/mental-math/book/visual entries from Exam KPIs
         val examTimestamps = filteredExams.map { it.completedAt ?: it.updatedAt }
         val standaloneLegacyQuizzes = filteredLegacyQuizScores.filter { legacy ->
             !legacy.topicId.startsWith("PRACTICE_") &&
                 !legacy.topicId.startsWith("MENTAL_MATH_") &&
                 !legacy.topicId.startsWith("BOOK_") &&
+                !legacy.topicId.startsWith("VISUAL_") &&
                 legacy.topicId != "NUMBER_SYSTEM" &&
                 examTimestamps.none { kotlin.math.abs(it - legacy.timestamp) <= 2500L }
         }
 
         val totalExams = filteredExams.size + standaloneLegacyQuizzes.size
-        val examCorrect = filteredExams.sumOf { it.correctCount } + standaloneLegacyQuizzes.sumOf { it.score }
+        val examCorrect = filteredExams.sumOf { it.correctCount } +
+            standaloneLegacyQuizzes.sumOf { minOf(it.score, it.totalQuestions) }
         val examWrong = filteredExams.sumOf { it.wrongCount } +
-            standaloneLegacyQuizzes.sumOf { max(0, it.totalQuestions - it.score) }
+            standaloneLegacyQuizzes.sumOf { max(0, it.totalQuestions - minOf(it.score, it.totalQuestions)) }
         val examAttempted = examCorrect + examWrong
         val examTimeSeconds = filteredExams.sumOf { it.elapsedSeconds } + (standaloneLegacyQuizzes.size * 120)
 
@@ -344,8 +512,8 @@ object LearningAnalyticsEngine {
     ): List<TopicMasteryReport> {
         if (topicAnalytics.isEmpty()) return emptyList()
 
-        val grouped = topicAnalytics.groupBy { it.topicTitleBn.ifBlank { it.topicId } }
-        val recentHistoryByTopic = practiceHistory.groupBy { it.topicTitleBn.ifBlank { it.topicId } }
+        val grouped = topicAnalytics.groupBy { normalizeTopicTitleBn(it.topicTitleBn, it.topicId) }
+        val recentHistoryByTopic = practiceHistory.groupBy { normalizeTopicTitleBn(it.topicTitleBn, it.topicId) }
 
         return grouped.map { (topicTitle, records) ->
             val primaryTopicId = records.first().topicId
@@ -448,6 +616,18 @@ object LearningAnalyticsEngine {
         )
     }
 
+    private fun parseDateKeyToEpochDay(dateKey: String): Long? {
+        val parts = dateKey.split("-")
+        if (parts.size != 3) return null
+        val year = parts[0].toIntOrNull() ?: return null
+        val month = parts[1].toIntOrNull() ?: return null
+        val day = parts[2].toIntOrNull() ?: return null
+        val utcCal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+        utcCal.clear()
+        utcCal.set(year, month - 1, day, 12, 0, 0)
+        return utcCal.timeInMillis / 86_400_000L
+    }
+
     fun computeDailyGoalsAndStreaks(
         dailyActivities: List<DailyStudyActivityEntity>,
         practiceHistory: List<PracticeHistoryEntity>,
@@ -456,36 +636,109 @@ object LearningAnalyticsEngine {
         nowMs: Long = System.currentTimeMillis()
     ): DailyGoalProgressReport {
         val todayKey = MathRepository.todayDateKey(nowMs)
+        val explicitDateKeys = dailyActivities.map { it.dateKey }.toSet()
         val activityMap = dailyActivities.associateBy { it.dateKey }.toMutableMap()
 
-        // Backfill from history timestamps if a day has history but no daily_study_activity row yet
+        // Backfill and accumulate all sessions on dates that do not have an explicit daily_study_activity row
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val backfilledTimestampsByDate = mutableMapOf<String, MutableList<Long>>()
+
         practiceHistory.forEach { h ->
             val key = sdf.format(Date(h.timestamp))
-            if (!activityMap.containsKey(key)) {
-                activityMap[key] = DailyStudyActivityEntity(
-                    dateKey = key,
-                    questionsAttempted = h.correctCount + h.wrongCount,
-                    correctCount = h.correctCount,
-                    wrongCount = h.wrongCount,
-                    studyTimeSeconds = max(60, h.durationSeconds),
-                    examsCompleted = if (h.module == "QUIZ") 1 else 0,
-                    practiceSessionsCompleted = if (h.module != "QUIZ") 1 else 0
-                )
+            if (key !in explicitDateKeys) {
+                val attempted = h.correctCount + h.wrongCount
+                val dur = max(60, h.durationSeconds)
+                val existing = activityMap[key]
+                if (existing == null) {
+                    activityMap[key] = DailyStudyActivityEntity(
+                        dateKey = key,
+                        questionsAttempted = attempted,
+                        correctCount = h.correctCount,
+                        wrongCount = h.wrongCount,
+                        studyTimeSeconds = dur,
+                        examsCompleted = if (h.module == "QUIZ") 1 else 0,
+                        practiceSessionsCompleted = if (h.module != "QUIZ") 1 else 0
+                    )
+                } else {
+                    activityMap[key] = existing.copy(
+                        questionsAttempted = existing.questionsAttempted + attempted,
+                        correctCount = existing.correctCount + h.correctCount,
+                        wrongCount = existing.wrongCount + h.wrongCount,
+                        studyTimeSeconds = existing.studyTimeSeconds + dur,
+                        examsCompleted = existing.examsCompleted + if (h.module == "QUIZ") 1 else 0,
+                        practiceSessionsCompleted = existing.practiceSessionsCompleted + if (h.module != "QUIZ") 1 else 0
+                    )
+                }
+                backfilledTimestampsByDate.getOrPut(key) { mutableListOf() }.add(h.timestamp)
+            }
+        }
+        completedExams.forEach { exam ->
+            val refTs = exam.completedAt ?: exam.updatedAt
+            val key = sdf.format(Date(refTs))
+            if (key !in explicitDateKeys) {
+                val alreadyCountedTs = backfilledTimestampsByDate[key].orEmpty()
+                if (alreadyCountedTs.none { kotlin.math.abs(it - refTs) <= 2500L }) {
+                    val attempted = exam.correctCount + exam.wrongCount
+                    val dur = max(60, exam.elapsedSeconds)
+                    val existing = activityMap[key]
+                    if (existing == null) {
+                        activityMap[key] = DailyStudyActivityEntity(
+                            dateKey = key,
+                            questionsAttempted = attempted,
+                            correctCount = exam.correctCount,
+                            wrongCount = exam.wrongCount,
+                            studyTimeSeconds = dur,
+                            examsCompleted = 1,
+                            practiceSessionsCompleted = 0
+                        )
+                    } else {
+                        activityMap[key] = existing.copy(
+                            questionsAttempted = existing.questionsAttempted + attempted,
+                            correctCount = existing.correctCount + exam.correctCount,
+                            wrongCount = existing.wrongCount + exam.wrongCount,
+                            studyTimeSeconds = existing.studyTimeSeconds + dur,
+                            examsCompleted = existing.examsCompleted + 1
+                        )
+                    }
+                    backfilledTimestampsByDate.getOrPut(key) { mutableListOf() }.add(refTs)
+                }
             }
         }
         quizScores.forEach { q ->
             val key = sdf.format(Date(q.timestamp))
-            if (!activityMap.containsKey(key)) {
-                activityMap[key] = DailyStudyActivityEntity(
-                    dateKey = key,
-                    questionsAttempted = q.totalQuestions,
-                    correctCount = q.score,
-                    wrongCount = max(0, q.totalQuestions - q.score),
-                    studyTimeSeconds = 120,
-                    examsCompleted = 1,
-                    practiceSessionsCompleted = 0
-                )
+            if (key !in explicitDateKeys &&
+                !q.topicId.startsWith("PRACTICE_") &&
+                !q.topicId.startsWith("MENTAL_MATH_") &&
+                !q.topicId.startsWith("BOOK_") &&
+                !q.topicId.startsWith("VISUAL_") &&
+                q.topicId != "NUMBER_SYSTEM"
+            ) {
+                val alreadyCountedTs = backfilledTimestampsByDate[key].orEmpty()
+                if (alreadyCountedTs.none { kotlin.math.abs(it - q.timestamp) <= 2500L }) {
+                    val correct = minOf(q.score, q.totalQuestions)
+                    val wrong = max(0, q.totalQuestions - correct)
+                    val existing = activityMap[key]
+                    if (existing == null) {
+                        activityMap[key] = DailyStudyActivityEntity(
+                            dateKey = key,
+                            questionsAttempted = q.totalQuestions,
+                            correctCount = correct,
+                            wrongCount = wrong,
+                            studyTimeSeconds = 120,
+                            examsCompleted = 1,
+                            practiceSessionsCompleted = 0
+                        )
+                    } else {
+                        activityMap[key] = existing.copy(
+                            questionsAttempted = existing.questionsAttempted + q.totalQuestions,
+                            correctCount = existing.correctCount + correct,
+                            wrongCount = existing.wrongCount + wrong,
+                            studyTimeSeconds = existing.studyTimeSeconds + 120,
+                            examsCompleted = existing.examsCompleted + 1
+                        )
+                    }
+                    backfilledTimestampsByDate.getOrPut(key) { mutableListOf() }.add(q.timestamp)
+                }
             }
         }
 
@@ -515,7 +768,7 @@ object LearningAnalyticsEngine {
             val qCount = entity?.questionsAttempted ?: 0
             val cCount = entity?.correctCount ?: 0
             val mins = ((entity?.studyTimeSeconds ?: 0) / 60.0).roundToInt()
-            val isActive = qCount > 0 || mins > 0
+            val isActive = qCount > 0 || (entity?.studyTimeSeconds ?: 0) > 0
             if (isActive) {
                 activeLast30++
                 if (offset < 7) activeLast7++
@@ -538,41 +791,41 @@ object LearningAnalyticsEngine {
             }
         }
 
-        // Current & best consecutive active day streak
+        // Unrestricted, DST-safe current & best consecutive active day streak across full history
+        val activeEpochDays = activityMap.values
+            .filter { it.questionsAttempted > 0 || it.studyTimeSeconds > 0 }
+            .mapNotNull { parseDateKeyToEpochDay(it.dateKey) }
+            .distinct()
+            .sorted()
+        val activeDaySet = activeEpochDays.toHashSet()
+        val todayEpochDay = parseDateKeyToEpochDay(todayKey)
+
         var currentStreak = 0
-        var checkOffset = 0
-        while (checkOffset < 365) {
-            cal.timeInMillis = nowMs
-            cal.add(Calendar.DAY_OF_YEAR, -checkOffset)
-            val key = sdf.format(cal.time)
-            val entity = activityMap[key]
-            val active = (entity?.questionsAttempted ?: 0) > 0 || (entity?.studyTimeSeconds ?: 0) > 0
-            if (active) {
+        if (todayEpochDay != null) {
+            var cursor: Long? = when {
+                activeDaySet.contains(todayEpochDay) -> todayEpochDay
+                activeDaySet.contains(todayEpochDay - 1L) -> todayEpochDay - 1L
+                else -> null
+            }
+            while (cursor != null && activeDaySet.contains(cursor)) {
                 currentStreak++
-                checkOffset++
-            } else {
-                if (checkOffset == 0) {
-                    // Today not active yet; check if yesterday had an active streak
-                    checkOffset++
-                    continue
-                }
-                break
+                cursor -= 1L
             }
         }
 
         var bestStreak = currentStreak
         var running = 0
-        for (offset in 90 downTo 0) {
-            cal.timeInMillis = nowMs
-            cal.add(Calendar.DAY_OF_YEAR, -offset)
-            val key = sdf.format(cal.time)
-            val entity = activityMap[key]
-            if ((entity?.questionsAttempted ?: 0) > 0 || (entity?.studyTimeSeconds ?: 0) > 0) {
+        var prevDay: Long? = null
+        for (day in activeEpochDays) {
+            if (prevDay != null && day == prevDay + 1L) {
                 running++
-                if (running > bestStreak) bestStreak = running
             } else {
-                running = 0
+                running = 1
             }
+            if (running > bestStreak) {
+                bestStreak = running
+            }
+            prevDay = day
         }
 
         val weeklyConsistency = ((activeLast7 / 7.0) * 100.0).roundToInt().coerceIn(0, 100)

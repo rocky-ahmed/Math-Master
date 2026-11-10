@@ -299,7 +299,10 @@ class MathRepository(private val dao: MathDao) {
     }
 
     suspend fun deleteExamAttempt(attemptId: String) {
-        dao.deleteExamAttemptById(attemptId)
+        val existing = dao.getExamAttemptById(attemptId) ?: return
+        val refTs = existing.completedAt ?: existing.updatedAt
+        val dateKey = if (refTs > 0L) todayDateKey(refTs) else ""
+        dao.deleteExamAttemptSafely(attemptId, dateKey)
     }
 
     suspend fun finalizeExamAttempt(
@@ -307,16 +310,21 @@ class MathRepository(private val dao: MathDao) {
         perTopicStats: List<TopicExamStat>
     ) {
         val now = completedAttempt.completedAt ?: System.currentTimeMillis()
-        dao.upsertExamAttempt(completedAttempt)
+        val finalAttempt = if (completedAttempt.completedAt != null) {
+            completedAttempt
+        } else {
+            completedAttempt.copy(completedAt = now)
+        }
+        dao.upsertExamAttempt(finalAttempt)
 
         // Also record into quiz_scores for backward compatibility with legacy consumers
-        val roundedPct = completedAttempt.percentage.roundToInt().coerceIn(0, 100)
+        val roundedPct = finalAttempt.percentage.roundToInt().coerceIn(0, 100)
         dao.insertQuizScore(
             QuizScoreEntity(
-                topic = completedAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
-                topicTitleBn = completedAttempt.examTitleBn,
-                score = completedAttempt.correctCount,
-                totalQuestions = completedAttempt.totalQuestions,
+                topic = finalAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
+                topicTitleBn = finalAttempt.examTitleBn,
+                score = finalAttempt.correctCount,
+                totalQuestions = finalAttempt.totalQuestions,
                 percentage = roundedPct,
                 timestamp = now
             )

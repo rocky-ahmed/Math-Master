@@ -1660,6 +1660,186 @@ class EcosystemUpgradeV7UnitTest {
         assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
         assertEquals(94, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
     }
+
+    @Test
+    fun adversarialAudit_bug48_pairedExamDeletionCollisionAndInProgressDiscardSafety() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val roomDb = Room.inMemoryDatabaseBuilder(context, MathDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val dao = roomDb.mathDao()
+        val repo = MathRepository(dao)
+
+        val t0 = 1_762_100_000_000L
+        val dateKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(t0))
+
+        // 1. Insert a COMPLETED exam at t0 with its paired quiz_scores, practice_history, and daily_study_activity
+        val completedAttempt = com.example.data.model.ExamAttemptEntity(
+            attemptId = "exam_completed_1",
+            examTitleBn = "টপিক কুইজ: মৌলিক সংখ্যা",
+            examType = "TOPIC",
+            selectedTopicsCsv = "PRIMES",
+            difficulty = "EASY",
+            questionType = "MCQ",
+            totalQuestions = 10,
+            durationLimitSeconds = 600,
+            marksPerCorrect = 1.0,
+            negativeMarksPerWrong = 0.0,
+            status = "COMPLETED",
+            currentQuestionIndex = 9,
+            elapsedSeconds = 120,
+            remainingSeconds = 480,
+            questionsJson = "[]",
+            answersJson = "{}",
+            markedForReviewCsv = "",
+            visitedIndicesCsv = "0,1,2,3,4,5,6,7,8,9",
+            questionTimeSecondsJson = "{}",
+            correctCount = 8,
+            wrongCount = 2,
+            unansweredCount = 0,
+            earnedMarks = 8.0,
+            negativeMarksDeducted = 0.0,
+            finalScore = 8.0,
+            percentage = 80.0,
+            accuracyPercent = 80.0,
+            startedAt = t0 - 120_000L,
+            updatedAt = t0,
+            completedAt = t0
+        )
+        dao.upsertExamAttempt(completedAttempt)
+        dao.insertQuizScore(
+            com.example.data.model.QuizScoreEntity(
+                topicId = "PRIMES",
+                topicTitleBn = "টপিক কুইজ: মৌলিক সংখ্যা",
+                score = 8,
+                totalQuestions = 10,
+                percentage = 80,
+                timestamp = t0 + 100L
+            )
+        )
+        dao.insertPracticeHistory(
+            com.example.data.model.PracticeHistoryEntity(
+                module = "QUIZ",
+                topicId = "PRIMES",
+                topicTitleBn = "টপিক কুইজ: মৌলিক সংখ্যা",
+                difficulty = "EASY",
+                mode = "TOPIC",
+                score = 80,
+                correctCount = 8,
+                wrongCount = 2,
+                totalQuestions = 10,
+                accuracyPercent = 80,
+                bestStreak = 5,
+                durationSeconds = 120,
+                timestamp = t0 + 120L
+            )
+        )
+        dao.upsertDailyStudyActivity(
+            com.example.data.model.DailyStudyActivityEntity(
+                dateKey = dateKey,
+                questionsAttempted = 10,
+                correctCount = 8,
+                wrongCount = 2,
+                studyTimeSeconds = 120,
+                examsCompleted = 1,
+                practiceSessionsCompleted = 0,
+                updatedAt = t0
+            )
+        )
+
+        // 2. User immediately starts a new IN_PROGRESS exam 400ms later (within ±2500ms!) and discards it
+        val inProgressAttempt = completedAttempt.copy(
+            attemptId = "exam_in_progress_2",
+            status = "IN_PROGRESS",
+            percentage = 0.0,
+            correctCount = 0,
+            wrongCount = 0,
+            startedAt = t0 + 400L,
+            updatedAt = t0 + 500L,
+            completedAt = null
+        )
+        dao.upsertExamAttempt(inProgressAttempt)
+        repo.deleteExamAttempt("exam_in_progress_2")
+
+        // CRITICAL: Discarding IN_PROGRESS exam must NEVER delete the completed exam's paired records!
+        assertEquals(1, dao.getAllQuizScores().first().size)
+        assertEquals(1, dao.getAllPracticeHistory().first().size)
+        assertEquals(10, dao.getDailyStudyActivityByDate(dateKey)?.questionsAttempted)
+
+        // 3. Another COMPLETED exam with identical score/topic is imported/saved 800ms after completedAttempt (collision in ±2500ms)
+        val collidingAttempt = completedAttempt.copy(
+            attemptId = "exam_completed_sibling",
+            updatedAt = t0 + 800L,
+            completedAt = t0 + 800L
+        )
+        dao.upsertExamAttempt(collidingAttempt)
+        repo.deleteExamAttempt("exam_completed_sibling")
+
+        // Because exam_completed_1 is within ±2500ms and exam_completed_sibling has no closer dedicated quiz_score than exam_completed_1,
+        // exam_completed_1's paired quiz_score (at t0+100L) and practice_history (at t0+120L) MUST NOT be deleted!
+        assertEquals("Colliding sibling deletion must not wipe exam_completed_1's quiz_score", 1, dao.getAllQuizScores().first().size)
+        assertEquals("Colliding sibling deletion must not wipe exam_completed_1's practice_history", 1, dao.getAllPracticeHistory().first().size)
+
+        // 4. Now delete exam_completed_1 itself (no remaining sibling collision) -> paired records and daily activity clean up
+        repo.deleteExamAttempt("exam_completed_1")
+        assertEquals(0, dao.getAllQuizScores().first().size)
+        assertEquals(0, dao.getAllPracticeHistory().first().size)
+        assertEquals(0, dao.getDailyStudyActivityByDate(dateKey)?.questionsAttempted)
+
+        roomDb.close()
+    }
+
+    @Test
+    fun adversarialAudit_bug49AndBug52_timerResumeUnder30SecondsAndNumericalSelectionIsolation() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = MathViewModel(app)
+
+        // BUG-52: Start a NUMERICAL quiz and submit an answer whose text matches one of the underlying options
+        vm.startQuiz(
+            topic = com.example.math.QuizTopic.MULTIPLICATION,
+            mode = com.example.math.QuizMode.TOPIC,
+            count = 5,
+            difficulty = com.example.math.PracticeDifficulty.EASY,
+            questionType = com.example.math.QuizQuestionType.NUMERICAL
+        )
+        val session0 = vm.quizSession.value
+        assertNotNull(session0)
+        val firstQ = session0!!.questions.first()
+        assertEquals(com.example.math.QuizQuestionType.NUMERICAL, firstQ.questionType)
+
+        // Type the exact correct answer (which also exists in firstQ.optionsBn)
+        vm.setQuizTypedAnswer(firstQ.correctAnswerText)
+        vm.submitQuizAnswer()
+
+        val afterSubmit = vm.quizSession.value!!
+        assertTrue(afterSubmit.isAnswerSubmitted)
+        assertEquals("NUMERICAL question must keep selectedOptionIndex null even when typed answer matches an MCQ option", null, afterSubmit.selectedOptionIndex)
+
+        // Navigate next and back to question 0 -> selectedOptionIndex must still be null while typedAnswer is restored
+        vm.nextQuizQuestion()
+        assertEquals(1, vm.quizSession.value!!.currentIndex)
+        vm.jumpToQuizQuestion(0)
+        val restoredQ0 = vm.quizSession.value!!
+        assertEquals(0, restoredQ0.currentIndex)
+        assertEquals(null, restoredQ0.selectedOptionIndex)
+        assertEquals(firstQ.correctAnswerText, restoredQ0.typedAnswer)
+
+        // BUG-44: Verify recommendation routing for BOOK_, VISUAL_, BCS, and GEOMETRY_MENSURATION
+        vm.executeLearningRecommendation(
+            com.example.math.LearningRecommendation(
+                id = "rec_vis",
+                priorityRank = 1,
+                badgeBn = "ভিজ্যুয়াল",
+                titleBn = "ভিজ্যুয়াল জ্যামিতি",
+                reasonBn = "টেস্ট",
+                actionLabelBn = "খুলুন",
+                actionType = com.example.math.RecommendationActionType.OPEN_QUIZ_TOPIC,
+                targetTopicId = "VISUAL_GEOMETRY"
+            )
+        )
+        assertEquals(Screen.VisualExplorer, vm.currentScreen)
+    }
 }
+
 
 

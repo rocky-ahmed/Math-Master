@@ -1000,7 +1000,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     // Pre-Submit Confirmation Modal
     if (session.showSubmitConfirmDialog && !session.isFinished) {
         val totalQ = session.questions.size
-        val answeredCount = session.userAnswers.count { ExamScoringEngine.isOptionAnswered(it.value) }
+        val answeredCount = session.effectiveAnswersMap.count { ExamScoringEngine.isOptionAnswered(it.value) }
         val unansweredCount = (totalQ - answeredCount).coerceAtLeast(0)
         val markedCount = session.markedForReviewIndices.size
 
@@ -1182,7 +1182,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             fontWeight = FontWeight.Bold
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val paletteAnsweredCount = session.userAnswers.count { ExamScoringEngine.isOptionAnswered(it.value) }
+                            val paletteAnsweredCount = session.effectiveAnswersMap.count { ExamScoringEngine.isOptionAnswered(it.value) }
                             TextButton(
                                 onClick = { showPaletteSheet = !showPaletteSheet },
                                 modifier = Modifier.testTag("btn_toggle_question_palette")
@@ -1231,7 +1231,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                         val pState = ExamScoringEngine.computePaletteState(
                                             questionIndex = qIdx,
                                             visitedIndices = session.visitedIndices,
-                                            selectedAnswers = session.userAnswers,
+                                            selectedAnswers = session.effectiveAnswersMap,
                                             markedForReview = session.markedForReviewIndices
                                         )
                                         val bgColor = when (pState) {

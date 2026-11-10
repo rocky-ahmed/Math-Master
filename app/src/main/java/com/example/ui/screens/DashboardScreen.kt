@@ -111,6 +111,10 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     val timeFilterScrollState = rememberManagedScrollState(viewModel, "dashboard:time_filter_row")
     val moduleFilterScrollState = rememberManagedScrollState(viewModel, "dashboard:module_filter_row")
 
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        viewModel.flushUnrecordedStudyTime()
+    }
+
     val analyticsData = remember(
         selectedTimeFilter,
         completedExams,
@@ -133,9 +137,11 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
         )
     }
 
-    val filteredHistory = remember(practiceHistory, selectedModuleFilter) {
-        if (selectedModuleFilter == "ALL") practiceHistory
-        else practiceHistory.filter { it.module == selectedModuleFilter }
+    val filteredHistory = remember(practiceHistory, selectedModuleFilter, selectedTimeFilter) {
+        val cutoffMs = LearningAnalyticsEngine.filterStartTimestamp(selectedTimeFilter)
+        val timeFiltered = practiceHistory.filter { it.timestamp >= cutoffMs }
+        if (selectedModuleFilter == "ALL") timeFiltered
+        else timeFiltered.filter { it.module == selectedModuleFilter }
     }
 
     val dateFormatter = remember {
@@ -759,7 +765,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "কোনো অধ্যায়ে দক্ষ (Mastered) স্বীকৃতি পেতে কমপক্ষে ১০টি প্রশ্নে ৮০%+ নির্ভুলতা প্রয়োজন।",
+                                text = "কোনো অধ্যায়ে দক্ষ (Mastered) স্বীকৃতি পেতে কমপক্ষে ৫টি প্রশ্নে ৮০%+ নির্ভুলতা প্রয়োজন।",
                                 style = MaterialTheme.typography.bodySmall,
                                 textAlign = TextAlign.Center,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -770,6 +776,68 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
             } else {
                 items(analyticsData.topicMasteryList, key = { "${it.topicId}_${it.topicTitleBn}" }) { report ->
                     TopicMasteryAnalyticsCard(report = report)
+                }
+            }
+
+            // 5B. Recent Exam & Quiz Performance Trend Card
+            if (analyticsData.examTrendPoints.isNotEmpty()) {
+                item(key = "dashboard_exam_trend_card") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("dashboard_exam_trend_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "সাম্প্রতিক পরীক্ষার ফলাফল ট্রেন্ড (Exam Trend)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                analyticsData.examTrendPoints.forEach { (label, scorePct) ->
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "${scorePct.toBengaliDigits()}%",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (scorePct >= 80) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .width(22.dp)
+                                                .height((scorePct.coerceIn(10, 100) * 0.7f).dp)
+                                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                                .background(
+                                                    if (scorePct >= 80) Color(0xFF2E7D32)
+                                                    else if (scorePct >= 50) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.error
+                                                )
+                                        )
+                                        Text(
+                                            text = label.takeLast(3).trim(),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -794,7 +862,9 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             "MENTAL_MATH" to "মেন্টাল ম্যাথ",
                             "QUIZ" to "কুইজ ও পরীক্ষা",
                             "NUMBER_SYSTEM" to "বাস্তব সংখ্যা",
-                            "BOOK" to "পাঠ্যবই অনুশীলন"
+                            "BOOK" to "পাঠ্যবই অনুশীলন",
+                            "BCS_PREP" to "বিসিএস প্রস্তুতি",
+                            "VISUAL_MATH" to "ভিজ্যুয়াল ম্যাথ"
                         ).forEach { (key, label) ->
                             FilterChip(
                                 selected = selectedModuleFilter == key,
