@@ -2,37 +2,38 @@
 
 **Validation Command**: `gradle :app:testDebugUnitTest`  
 **Execution Policy**: Strictly local JVM & Robolectric unit testing (`0` APK/AAB builds executed during audit).  
-**Latest Verified Result**: **`172 / 172` Passed** (`0` Failures, `0` Errors, `0` Skipped)
+**Latest Verified Result**: **`175 / 175` Passed** (`0` Failures, `0` Errors, `0` Skipped)
 
 ---
 
 ## 1. Historical Baseline vs. Latest Regression Test Progression
 
-| Audit Phase | Defects Covered | `EcosystemUpgradeV7UnitTest` Count | Total Automated Tests Across 8 Suites | Pass Rate | Evidence Reference |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `17` | **`165 / 165`** | `100%` | [`FINAL_DEFECT_REGISTER.md`](FINAL_DEFECT_REGISTER.md), [`../release/FINAL_RELEASE_CANDIDATE_REPORT.md`](../release/FINAL_RELEASE_CANDIDATE_REPORT.md) |
-| **Phase 2: Pre-Freeze Stabilization Baseline** | `BUG-22` – `BUG-28` (`+2` tests) | `19` | **`167 / 167`** | `100%` | `auditRegression_bug22_*` & `auditRegression_bug23_bug25_bug26_*` |
-| **Phase 3: Independent Adversarial Bug Hunt (Latest)** | `BUG-29` – `BUG-35` (`+5` tests) | `24` | **`172 / 172`** | `100%` | `adversarialAudit_bug29_*` through `adversarialAudit_bug35_*` |
+| Audit Phase | Defects Covered | `EcosystemUpgradeV7UnitTest` Count | `HomeNavigationAndOrderingUnitTest` Count | Total Automated Tests Across 8 Suites | Pass Rate | Evidence Reference |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `17` | `7` | **`165 / 165`** | `100%` | [`FINAL_DEFECT_REGISTER.md`](FINAL_DEFECT_REGISTER.md), [`../release/FINAL_RELEASE_CANDIDATE_REPORT.md`](../release/FINAL_RELEASE_CANDIDATE_REPORT.md) |
+| **Phase 2: Pre-Freeze Stabilization Baseline** | `BUG-22` – `BUG-28` (`+2` tests) | `19` | `7` | **`167 / 167`** | `100%` | `auditRegression_bug22_*` & `auditRegression_bug23_bug25_bug26_*` |
+| **Phase 3: Independent Adversarial Bug Hunt** | `BUG-29` – `BUG-35` (`+5` tests) | `24` | `7` | **`172 / 172`** | `100%` | `adversarialAudit_bug29_*` through `adversarialAudit_bug35_*` |
+| **Phase 4: Real-Device UX & Scroll Restoration (Latest)** | `BUG-36` (`+3` tests) | `25` | `9` | **`175 / 175`** | `100%` | `bug36_homeScreenScrollPosition*` & `testHomeScreen*Scroll*` |
 
 ---
 
 ## 2. Automated Test Suite Inventory (`app/src/test/java/com/example/`)
 
-| # | Test Suite File | Runner | Historical Baseline (`165`) | Pre-Adversarial Baseline (`167`) | Latest Verified (`172`) | Focus Area | Status |
+| # | Test Suite File | Runner | Historical Baseline (`165`) | Adversarial Baseline (`172`) | Latest Verified (`175`) | Focus Area | Status |
 | :- | :--- | :--- | :-: | :-: | :-: | :--- | :--- |
 | 01 | `ExampleRobolectricTest.kt` | Robolectric (`sdk = [36]`) | `53` | `53` | **`53`** | Core Modules 01–14, Room `v1 -> v9` migrations, Book PDF/curriculum/labs, early module regressions | **PASS** |
 | 02 | `MathProblemSolverUnitTest.kt` | JUnit4 | `41` | `41` | **`41`** | 14 Solver Topics (`LEARNING`, `SHORTCUT`, `BCS`), domain validation (`BUG-08`), non-linear & linear systems | **PASS** |
-| 03 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `19` | **`24`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-35` regressions | **PASS** |
+| 03 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `24` | **`25`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-36` regressions | **PASS** |
 | 04 | `NumberSystemUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | Base Converter, Divisibility (`2..19`), Euclidean GCD/LCM, Modular Arithmetic, `MCQ`/`KEYPAD`/`TRUE_FALSE` (`BUG-17`) | **PASS** |
 | 05 | `VisualMathExplorerUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | 14 Interactive Visual Labs, Geometry/Trig/Coordinate/Venn/Chart calculations | **PASS** |
 | 06 | `BcsPreparationCenterUnitTest.kt` | Robolectric (`sdk = [36]`) | `12` | `12` | **`12`** | 6 BCS Exam Profiles (`BUG-05`), 1,060+ BCS Questions, 50 Topic Guides, Provenance (`BUG-06`) & Profile Isolation (`BUG-13`) | **PASS** |
-| 07 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `7` | **`7`** | 14 Home Modules ordering (`BUG-11`), customization persistence, and backstack navigation (`BUG-12`) | **PASS** |
+| 07 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `7` | **`9`** | 14 Home Modules ordering (`BUG-11`), customization persistence, backstack navigation (`BUG-12`), and Home Screen scroll position & pixel offset restoration (`BUG-36`) | **PASS** |
 | 08 | `ExampleUnitTest.kt` | JUnit4 | `1` | `1` | **`1`** | Baseline JUnit sanity check | **PASS** |
-| **Total** | **8 Test Suites** | **JVM + Robolectric** | **`165`** | **`167`** | **`172`** | **100% Pass Rate (`0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
+| **Total** | **8 Test Suites** | **JVM + Robolectric** | **`165`** | **`172`** | **`175`** | **100% Pass Rate (`0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
 
 ---
 
-## 3. Stabilization (`+2`) & Adversarial (`+5`) Regression Tests Added in `EcosystemUpgradeV7UnitTest.kt`
+## 3. Stabilization (`+2`), Adversarial (`+5`) & Scroll Restoration (`+3`) Regression Tests Added
 
 ### 3.1 Phase 2 Stabilization Regression Tests (`165 -> 167`)
 1. **`auditRegression_bug22_bookPracticeBidirectionalNavigationPreservesStateAndPreventsScoreDoubleCounting`**:
@@ -56,3 +57,12 @@
    - Verifies unsubmitted draft selections in non-`isFullExamMode` quizzes are preserved across `jumpToQuizQuestion()` and `previousQuizQuestion()` and scored on timer expiry (`BUG-33`), and verifies `ExamScoringEngine.evaluateExam()` excludes skipped zero-attempt topics (`attemptedCount == 0`) from `weakTopicTitlesBn` (`BUG-34`).
 7. **`adversarialAudit_bug35_pdfRenderCacheAndSynchronizedOfflinePdfExtraction`**:
    - Verifies `BookPdfRenderCache` bounded `LruCache(12)` put/get/evictAll lifecycle and synchronized atomic extraction of bundled NCTB PDFs via `resolveOfflinePdfFile()` (`BUG-35`).
+
+### 3.3 Phase 4 Home Screen Scroll Position Restoration Regression Tests (`172 -> 175`)
+8. **`testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` (`HomeNavigationAndOrderingUnitTest.kt`)**:
+   - Verifies fresh launch starts at `(0, 0)` (Scenario G), scrolls to `(firstVisibleItemIndex = 9, firstVisibleItemScrollOffset = 128)`, navigates to all 14 Home Screen modules (`Tables`, `Primes`, `SquaresCubes`, `Formulas`, `FormulaLibrary`, `PracticeLab`, `MentalMath`, `NumberSystem`, `ProblemSolver`, `VisualExplorer`, `Quizzes`, `Dashboard`, `BcsPreparation`, and `BookHub`), returns via `navigateBack()` (Scenarios A, B, C), and traverses a 5-level deep stack (`Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> Back to Home`, Scenario D), confirming `(9, 128)` is preserved across every transition.
+9. **`testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` (`HomeNavigationAndOrderingUnitTest.kt`)**:
+   - Launches `MainActivity` under Robolectric (`sdk = [36]`), verifies `HomeScreen` leaves the live Compose composition tree during module navigation (`VisualExplorer` and `ProblemSolver`) and re-enters composition upon `navigateBack()` with both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 116` intact, and verifies normal recompositions (timer ticks, theme switches, Scenario E) do not reset the scroll state.
+10. **`bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` (`EcosystemUpgradeV7UnitTest.kt`)**:
+    - Verifies `LazyGridState.Saver` serialization/restoration (used by `SaveableStateHolder` in `MainAppContent`) and `MathViewModel.homeScrollPosition` restoration of both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 94` across module disposal and multi-screen BCS exam navigation.
+

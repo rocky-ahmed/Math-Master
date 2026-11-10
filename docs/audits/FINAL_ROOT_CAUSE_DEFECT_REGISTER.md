@@ -1,17 +1,18 @@
-# Math Master — Final Root-Cause Defect Register (`BUG-01` – `BUG-35`)
+# Math Master — Final Root-Cause Defect Register (`BUG-01` – `BUG-36`)
 
-This unified defect register preserves the exact historical identities of **`BUG-01` through `BUG-21`** (from [`ROOT_CAUSE_DEFECT_REGISTER.md`](ROOT_CAUSE_DEFECT_REGISTER.md)) and **`BUG-22` through `BUG-28`** (from the pre-freeze stabilization pass), and documents the **7 newly discovered and resolved defects (`BUG-29` through `BUG-35`)** from the final independent adversarial bug hunt. No historical Bug ID has been reused or reassigned.
+This unified defect register preserves the exact historical identities of **`BUG-01` through `BUG-21`** (from [`ROOT_CAUSE_DEFECT_REGISTER.md`](ROOT_CAUSE_DEFECT_REGISTER.md)), **`BUG-22` through `BUG-28`** (from the pre-freeze stabilization pass), **`BUG-29` through `BUG-35`** (from the independent adversarial bug hunt), and documents **`BUG-36`** (`Home Screen Scroll Position Loss After Module Navigation`). No historical Bug ID has been reused or reassigned.
 
 ---
 
-## 1. Summary by Phase & Severity (`BUG-01` – `BUG-35`)
+## 1. Summary by Phase & Severity (`BUG-01` – `BUG-36`)
 
 | Audit Phase | Defect ID Range | Total Defects | P0 (Critical) | P1 (High) | P2 (Medium) | P3 (Low) | Final Status |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **Phase 1: Core Engineering Audit** | `BUG-01` – `BUG-21` | `21` | `3` | `13` | `5` | `0` | **21 / 21 FIXED & VERIFIED** |
 | **Phase 2: Pre-Freeze Stabilization** | `BUG-22` – `BUG-28` | `7` | `0` | `2` | `4` | `1` | **7 / 7 FIXED & VERIFIED** |
 | **Phase 3: Independent Adversarial Hunt** | `BUG-29` – `BUG-35` | `7` | `0` | `4` | `3` | `0` | **7 / 7 FIXED & VERIFIED** |
-| **TOTAL (ALL PHASES)** | **`BUG-01` – `BUG-35`** | **`35`** | **`3`** | **`19`** | **`12`** | **`1`** | **35 / 35 FIXED & VERIFIED** |
+| **Phase 4: Real-Device UX & Scroll Restoration** | `BUG-36` | `1` | `1` | `0` | `0` | `0` | **1 / 1 FIXED & VERIFIED** |
+| **TOTAL (ALL PHASES)** | **`BUG-01` – `BUG-36`** | **`36`** | **`4`** | **`19`** | **`12`** | **`1`** | **36 / 36 FIXED & VERIFIED** |
 
 ---
 
@@ -68,3 +69,12 @@ This unified defect register preserves the exact historical identities of **`BUG
 | **`BUG-33`** | **P2 (Medium)** | Interactive Quiz State (`MathViewModel.kt`) | In non-`isFullExamMode` quizzes (`TOPIC`, `TIMED`, `PRACTICE`, `MIXED`), selecting an option or typing a numerical answer without pressing "উত্তর যাচাই করুন" only updated transient `selectedOptionIndex`/`typedAnswer`. Jumping to another question via palette or `previousQuizQuestion()` lost the unsubmitted draft, and timer expiry in `QuizMode.TIMED` dropped unsubmitted drafts on earlier visited questions. | Added `pendingOptionSelections` and `pendingTypedAnswers` to `QuizSessionState`, restored pending drafts in `jumpToQuizQuestion`/`previousQuizQuestion`/`nextQuizQuestion`, and merged pending drafts in `finishQuizSession()`. Verified by `adversarialAudit_bug33_and_bug34_unsubmittedDraftPreservationAndSkippedWeakTopics`. | **FIXED & VERIFIED** |
 | **`BUG-34`** | **P2 (Medium)** | Exam Scoring Engine (`ExamEngineModels.kt`) | `ExamScoringEngine.evaluateExam()` classified any topic with `accuracyPercent < 65.0` as a `weakTopic` even when `attemptedCount == 0` (all questions in that topic were skipped with `0` wrong answers), contradicting `strongTopics` which required `attemptedCount > 0`. | Added `it.attemptedCount > 0` guard to `weakTopics` filter in `ExamScoringEngine.evaluateExam()`. Verified by `adversarialAudit_bug33_and_bug34_unsubmittedDraftPreservationAndSkippedWeakTopics`. | **FIXED & VERIFIED** |
 | **`BUG-35`** | **P2 (Medium)** | Book PDF Reader (`BookReaderAndLabsScreens.kt`) | `BookPdfReaderScreen` allocated `ARGB_8888` bitmaps without `Mutex` serialization or bounded `LruCache` reuse, and `resolveOfflinePdfFile()` wrote to a shared `cached_${bookId.id}.pdf.tmp` without thread synchronization or per-extraction unique temporary filenames. | Implemented `BookPdfRenderCache` (`Mutex` serialization + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` + OOM cache-eviction fallback) and synchronized atomic temp-file extraction (`cached_${bookId.id}_${System.nanoTime()}.pdf.tmp`) in `resolveOfflinePdfFile()`. Verified by `adversarialAudit_bug35_pdfRenderCacheAndSynchronizedOfflinePdfExtraction`. | **FIXED & VERIFIED** |
+
+---
+
+## 5. Real-Device UX & Scroll Restoration Defect (`BUG-36`) — Newly Discovered & Resolved
+
+| ID | Severity | Module / File | Root Cause Analysis | Fix Implemented & Verified | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`BUG-36`** | **P0 (Critical)** | Home Screen Scroll Position Loss After Module Navigation (`MainActivity.kt`, `HomeScreen.kt`, `MathViewModel.kt`) | `MainAppContent` (`MainActivity.kt`) switched screens using a plain `when (currentScreen)` block without `rememberSaveableStateHolder()`, and `HomeScreen.kt` initialized `val gridState = rememberLazyGridState()` locally without ViewModel-backed state ownership. When navigating from `Screen.Home` to any module, `HomeScreen` left composition and its `LazyGridState` (`firstVisibleItemIndex` and `firstVisibleItemScrollOffset`) was unregistered and discarded. Returning via toolbar Back or system Back recreated `HomeScreen` from `(0, 0)`, scrolling to the top. | Added `HomeScrollPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset)` state ownership in `MathViewModel.kt`, wrapped `MainAppContent`'s `when (currentScreen)` in `saveableStateHolder.SaveableStateProvider(key = currentScreen.route)` (cleaning up popped non-Home routes), and initialized `HomeScreen`'s `LazyGridState` via `rememberSaveable(saver = LazyGridState.Saver)` seeded from `viewModel.homeScrollPosition` and synchronized via `snapshotFlow` and `DisposableEffect`. Verified by `testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios`, `testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration`, and `bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal`. | **FIXED & VERIFIED** |
+

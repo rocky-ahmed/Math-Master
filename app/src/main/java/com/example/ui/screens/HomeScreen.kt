@@ -20,9 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,10 +62,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,7 +117,7 @@ fun HomeScreen(
     val learnedTablesCount = progressList.count { it.itemId.startsWith("table_") && it.isLearned }
     val learnedPercentage = (learnedTablesCount * 100) / 40
 
-    val homeModules = remember {
+    val homeModules = remember(viewModel) {
         HomeScreenDefaults.createHomeModules(
             onOpenBookHub = { viewModel.openBookHub() },
             onNavigate = { viewModel.navigateTo(it) }
@@ -211,12 +215,62 @@ fun HomeScreen(
         } else {
             1
         }
-        val gridState = rememberLazyGridState()
+        val initialScrollPosition = remember(viewModel) { viewModel.homeScrollPosition.value }
+        val gridState = rememberSaveable(
+            initialScrollPosition.firstVisibleItemIndex,
+            initialScrollPosition.firstVisibleItemScrollOffset,
+            saver = LazyGridState.Saver
+        ) {
+            LazyGridState(
+                firstVisibleItemIndex = initialScrollPosition.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = initialScrollPosition.firstVisibleItemScrollOffset
+            )
+        }
+        val hasObservedNonZeroScroll = remember(gridState) {
+            mutableStateOf(
+                initialScrollPosition.firstVisibleItemIndex > 0 ||
+                    initialScrollPosition.firstVisibleItemScrollOffset > 0
+            )
+        }
+
+        LaunchedEffect(gridState, viewModel) {
+            snapshotFlow {
+                gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
+            }.collect { (index, offset) ->
+                if (index > 0 || offset > 0) {
+                    hasObservedNonZeroScroll.value = true
+                    viewModel.updateHomeScrollPosition(
+                        firstVisibleItemIndex = index,
+                        firstVisibleItemScrollOffset = offset
+                    )
+                } else if (hasObservedNonZeroScroll.value) {
+                    viewModel.updateHomeScrollPosition(
+                        firstVisibleItemIndex = 0,
+                        firstVisibleItemScrollOffset = 0
+                    )
+                }
+            }
+        }
+
+        DisposableEffect(gridState, viewModel) {
+            onDispose {
+                val index = gridState.firstVisibleItemIndex
+                val offset = gridState.firstVisibleItemScrollOffset
+                if (index > 0 || offset > 0 || hasObservedNonZeroScroll.value) {
+                    viewModel.updateHomeScrollPosition(
+                        firstVisibleItemIndex = index,
+                        firstVisibleItemScrollOffset = offset
+                    )
+                }
+            }
+        }
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             state = gridState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("home_module_grid"),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,

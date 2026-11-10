@@ -10,9 +10,9 @@
 
 ## 1. Executive Summary
 
-This report documents the final end-to-end engineering audit, independent adversarial bug hunt, root-cause bug fixing (`BUG-01` through `BUG-35`), mathematical accuracy verification, performance review, UI/UX refinement, database integrity verification, and documentation reconciliation of the **Math Master** Android application prior to development freeze and GitHub synchronization.
+This report documents the final end-to-end engineering audit, independent adversarial bug hunt, root-cause bug fixing (`BUG-01` through `BUG-36`), mathematical accuracy verification, performance review, UI/UX refinement, database integrity verification, and documentation reconciliation of the **Math Master** Android application prior to development freeze and GitHub synchronization.
 
-All **14 primary math modules**, **30 Compose screen destinations**, **20 Room database entities**, **4 bundled NCTB Class 6–10 textbooks (`894` PDF pages / `874` printed pages across `47` chapters, `31,193,087` bytes)**, **6 BCS exam profiles (`1,060+` questions)**, and **8 automated JVM/Robolectric test suites (`172 / 172` tests passing, up from the `167` pre-adversarial baseline and `165` initial audit baseline)** have been audited at the source-code level and verified.
+All **14 primary math modules**, **30 Compose screen destinations**, **20 Room database entities**, **4 bundled NCTB Class 6–10 textbooks (`894` PDF pages / `874` printed pages across `47` chapters, `31,193,087` bytes)**, **6 BCS exam profiles (`1,060+` questions)**, and **8 automated JVM/Robolectric test suites (`175 / 175` tests passing, up from the `172` adversarial baseline, `167` pre-adversarial baseline, and `165` initial audit baseline)** have been audited at the source-code level and verified.
 
 ---
 
@@ -56,7 +56,7 @@ All **14 primary math modules**, **30 Compose screen destinations**, **20 Room d
 
 ---
 
-## 3. Summary of Root-Cause Fixes Applied (`BUG-01` – `BUG-35`)
+## 3. Summary of Root-Cause Fixes Applied (`BUG-01` – `BUG-36`)
 
 ### 3.1 Phase 1 Historical Engineering Defects (`BUG-01` – `BUG-21`)
 - **`BUG-01` – `BUG-04`**: Exam Scoring Engine unanswered (`-1`) vs. wrong numerical (`-2`) sentinel separation; `ExamQuestionBank` stem deduplication & seeded shuffle; `v2` JSON question/typed-answer session persistence; `MonotonicClock` deadline tracking.
@@ -83,3 +83,6 @@ All **14 primary math modules**, **30 Compose screen destinations**, **20 Room d
 12. **`BUG-33` (P2 — Unsubmitted Draft Preservation Across Quiz Navigation & Timed Expiry)**: Added `pendingOptionSelections` and `pendingTypedAnswers` to `QuizSessionState` so unsubmitted choices in non-`isFullExamMode` quizzes are preserved across question jumps and evaluated on timer expiry.
 13. **`BUG-34` (P2 — Exclude Skipped Zero-Attempt Topics from `weakTopics`)**: Guarded `weakTopics` in `ExamScoringEngine.evaluateExam()` with `it.attemptedCount > 0` so topics where all questions were skipped (`0` wrong answers) are not misclassified as weak areas.
 14. **`BUG-35` (P2 — PDF Reader `Mutex` + `LruCache(12)` + `RGB_565` & Synchronized Extraction)**: Implemented `BookPdfRenderCache` (`Mutex` serialization, bounded `LruCache<String, Bitmap>(12)`, `RGB_565` allocation, OOM cache-eviction fallback) and synchronized atomic temp-file extraction in `resolveOfflinePdfFile()`.
+
+### 3.4 Phase 4 Real-Device UX & Scroll Restoration (`BUG-36`)
+15. **`BUG-36` (P0 — Home Screen Scroll Position Loss After Module Navigation)**: Fixed Home Screen scroll reset when returning from modules by introducing `HomeScrollPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset)` in `MathViewModel.kt`, wrapping `MainAppContent`'s `when (currentScreen)` destination switch in `saveableStateHolder.SaveableStateProvider(key = currentScreen.route)` in `MainActivity.kt`, and initializing `LazyGridState` in `HomeScreen.kt` via `rememberSaveable(saver = LazyGridState.Saver)` seeded from `viewModel.homeScrollPosition` and continuously synchronized via `snapshotFlow` and `DisposableEffect`.

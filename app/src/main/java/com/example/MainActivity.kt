@@ -20,7 +20,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -90,6 +93,21 @@ class MainActivity : ComponentActivity() {
 fun MainAppContent(viewModel: MathViewModel) {
     val screenStack by viewModel.screenStack.collectAsStateWithLifecycle()
     val currentScreen = screenStack.lastOrNull() ?: Screen.Home
+    val saveableStateHolder = rememberSaveableStateHolder()
+    val activeRoutes = remember(screenStack) { screenStack.map { it.route }.toSet() }
+    val previousRoutes = remember { mutableSetOf<String>() }
+
+    DisposableEffect(activeRoutes) {
+        val removedRoutes = previousRoutes - activeRoutes
+        removedRoutes.forEach { route ->
+            if (route != Screen.Home.route) {
+                saveableStateHolder.removeState(route)
+            }
+        }
+        previousRoutes.clear()
+        previousRoutes.addAll(activeRoutes)
+        onDispose { }
+    }
 
     BackHandler(enabled = screenStack.size > 1) {
         viewModel.navigateBack()
@@ -149,38 +167,40 @@ fun MainAppContent(viewModel: MathViewModel) {
         }
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
-        when (currentScreen) {
-            is Screen.Home -> HomeScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Tables -> TablesScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.TableDetail -> TableDetailScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Primes -> PrimesScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.SquaresCubes -> SquaresCubesScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Formulas -> FormulasScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.FormulaDetail -> FormulaDetailScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.FormulaLibrary -> FormulaLibraryScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.PracticeLab -> PracticeLabScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.PracticeLabPlay -> PracticeLabPlayScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.MentalMath -> MentalMathScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.MentalMathPlay -> MentalMathPlayScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.NumberSystem -> NumberSystemScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.NumberSystemPractice -> NumberSystemPracticePlayScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Quizzes -> QuizzesScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.QuizPlay -> QuizPlayScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Bookmarks -> BookmarksScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.PracticeTutor -> PracticeTutorScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Dashboard -> DashboardScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.Customize -> CustomizeScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.ProblemSolver -> ProblemSolverScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.VisualExplorer -> com.example.ui.screens.VisualExplorerScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BcsPreparation -> com.example.ui.screens.BcsPreparationScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookHub -> BookHubScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookDetail -> BookDetailScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookChapterOverview -> BookChapterOverviewScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookLesson -> BookLessonScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookPractice -> BookPracticeScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookInteractiveLab -> BookInteractiveLabScreen(viewModel = viewModel, modifier = modifier)
-            is Screen.BookRevision -> BookRevisionScreen(viewModel = viewModel, modifier = modifier)
+        saveableStateHolder.SaveableStateProvider(key = currentScreen.route) {
+            when (currentScreen) {
+                is Screen.Home -> HomeScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Tables -> TablesScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.TableDetail -> TableDetailScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Primes -> PrimesScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.SquaresCubes -> SquaresCubesScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Formulas -> FormulasScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.FormulaDetail -> FormulaDetailScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.FormulaLibrary -> FormulaLibraryScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.PracticeLab -> PracticeLabScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.PracticeLabPlay -> PracticeLabPlayScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.MentalMath -> MentalMathScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.MentalMathPlay -> MentalMathPlayScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.NumberSystem -> NumberSystemScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.NumberSystemPractice -> NumberSystemPracticePlayScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Quizzes -> QuizzesScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.QuizPlay -> QuizPlayScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Bookmarks -> BookmarksScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.PracticeTutor -> PracticeTutorScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Dashboard -> DashboardScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.Customize -> CustomizeScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.ProblemSolver -> ProblemSolverScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.VisualExplorer -> com.example.ui.screens.VisualExplorerScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BcsPreparation -> com.example.ui.screens.BcsPreparationScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookHub -> BookHubScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookDetail -> BookDetailScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookChapterOverview -> BookChapterOverviewScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookLesson -> BookLessonScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookPractice -> BookPracticeScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookInteractiveLab -> BookInteractiveLabScreen(viewModel = viewModel, modifier = modifier)
+                is Screen.BookRevision -> BookRevisionScreen(viewModel = viewModel, modifier = modifier)
+            }
         }
     }
 }

@@ -1,22 +1,23 @@
 # Math Master — Final Bug Fix and Refinement Report
 
-**Phase**: Final Independent Adversarial Bug Hunt & Pre-Freeze Stabilization Pass  
-**Scope**: Complete traceability for `BUG-01` through `BUG-35` (referencing [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md) for historical `BUG-01`–`BUG-21` and detailing all root-cause fixes for `BUG-22`–`BUG-35` across Domain Engines, ViewModel State Management, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization).
+**Phase**: Final Independent Adversarial Bug Hunt, Real-Device UX Stabilization & Pre-Freeze Pass  
+**Scope**: Complete traceability for `BUG-01` through `BUG-36` (referencing [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md) for historical `BUG-01`–`BUG-21` and detailing all root-cause fixes for `BUG-22`–`BUG-36` across Domain Engines, ViewModel State Management, Home Screen Scroll Restoration, Repository Mistake Synchronization, Compose PDF Rendering, and Repository Organization).
 
 ---
 
 ## 1. Engineering Principles & Traceability
 
-1. **Preserved Historical Bug IDs (`BUG-01` – `BUG-28`)**:
+1. **Preserved Historical Bug IDs (`BUG-01` – `BUG-35`)**:
    - `BUG-01` through `BUG-21` preserve their exact historical definitions documented in [`../audits/ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/ROOT_CAUSE_DEFECT_REGISTER.md) and [`BUG_FIX_IMPLEMENTATION_REPORT.md`](BUG_FIX_IMPLEMENTATION_REPORT.md).
    - `BUG-22` through `BUG-28` preserve their exact pre-freeze stabilization definitions.
-   - `BUG-29` through `BUG-35` represent the 7 newly discovered defects from the final independent adversarial bug hunt (with `BUG-35` exclusively tracking `BookPdfRenderCache` `Mutex` + `LruCache(12)` + `RGB_565` + synchronized PDF extraction).
+   - `BUG-29` through `BUG-35` represent the 7 defects from the independent adversarial bug hunt (with `BUG-35` exclusively tracking `BookPdfRenderCache` `Mutex` + `LruCache(12)` + `RGB_565` + synchronized PDF extraction).
+   - `BUG-36` tracks the real-device Home Screen scroll position restoration fix (`Home Screen Scroll Position Loss After Module Navigation`).
 2. **Strict Module & Data Preservation**: Protected Modules 01–04 (`Tables`, `Primes`, `Squares`, `Formulas`), Room Database `v9` (`20` tables, `MIGRATION_1_2`..`MIGRATION_8_9`), and all 4 bundled NCTB PDFs (`894` pages: `161 + 181 + 190 + 362`, `31,193,087` bytes) remain 100% untouched.
-3. **Deterministic State & Scoring**: All session counters (`correctCount`, `wrongCount`, `currentStreak`, `highestStreak`, `elapsedSeconds`, `pendingOptionSelections`, `pendingTypedAnswers`) are derived deterministically from authoritative session state.
+3. **Deterministic State & Scoring**: All session counters (`correctCount`, `wrongCount`, `currentStreak`, `highestStreak`, `elapsedSeconds`, `pendingOptionSelections`, `pendingTypedAnswers`, `homeScrollPosition`) are derived deterministically from authoritative session state.
 
 ---
 
-## 2. Detailed Root-Cause Fixes Implemented (`BUG-22` – `BUG-35`)
+## 2. Detailed Root-Cause Fixes Implemented (`BUG-22` – `BUG-36`)
 
 ### 2.1 `BUG-22` — Book Practice Bidirectional Navigation & Score Deduplication
 - **Files Modified**:
@@ -130,3 +131,20 @@
   - `BookPdfReaderScreen` rendered `ARGB_8888` bitmaps without `Mutex` serialization or `LruCache(12)`, and `resolveOfflinePdfFile()` wrote to a shared `cached_${bookId.id}.pdf.tmp` without synchronization.
 - **Fix**:
   - Added `BookPdfRenderCache` (`Mutex` + bounded `LruCache<String, Bitmap>(12)` + `Bitmap.Config.RGB_565` + OOM cache-eviction fallback) and synchronized atomic temp-file extraction (`cached_${bookId.id}_${System.nanoTime()}.pdf.tmp`) in `resolveOfflinePdfFile()`.
+
+### 2.15 `BUG-36` — Home Screen Scroll Position Loss After Module Navigation
+- **Files Modified**:
+  - `app/src/main/java/com/example/MainActivity.kt`
+  - `app/src/main/java/com/example/ui/MathViewModel.kt`
+  - `app/src/main/java/com/example/ui/screens/HomeScreen.kt`
+- **Root Cause**:
+  - `MainAppContent` (`MainActivity.kt`) switched screens using a plain `when (currentScreen)` conditional block without `rememberSaveableStateHolder()`, while `HomeScreen.kt` created `val gridState = rememberLazyGridState()` locally inside `HomeScreen`.
+  - When a user scrolled down on the Home Screen and opened any module, `currentScreen` changed from `Screen.Home` to the module destination, causing `HomeScreen` to leave composition. Because the ambient `LocalSaveableStateRegistry` belonged directly to the `ComponentActivity` (which only saves state on Activity `onSaveInstanceState`, not during in-memory composable disposal), `rememberLazyGridState()` unregistered and discarded its `LazyGridState` upon disposal.
+  - When returning to `Screen.Home` via the module toolbar Back button or Android system Back button (`viewModel.navigateBack()`), `HomeScreen` re-entered composition from scratch and initialized a new `LazyGridState(0, 0)`, resetting the scroll position to the top.
+- **State Preservation Strategy & Fix**:
+  - **ViewModel State Ownership (`MathViewModel.kt`)**: Added `HomeScrollPosition(firstVisibleItemIndex: Int = 0, firstVisibleItemScrollOffset: Int = 0)`, `homeScrollPosition: StateFlow<HomeScrollPosition>`, `updateHomeScrollPosition()`, and `resetHomeScrollPosition()` so the exact item index and pixel offset survive `HomeScreen` composition disposal across single-module, multi-module, and deep multi-screen navigation.
+  - **Backstack-Scoped `SaveableStateHolder` (`MainActivity.kt`)**: Wrapped `MainAppContent`'s `when (currentScreen)` block in `saveableStateHolder.SaveableStateProvider(key = currentScreen.route)` and cleaned up popped non-Home routes via `DisposableEffect(activeRoutes)` while always preserving `Screen.Home.route`.
+  - **Synchronous First-Frame `LazyGridState` Restoration (`HomeScreen.kt`)**: Initialized `gridState` via `rememberSaveable(initialScrollPosition.firstVisibleItemIndex, initialScrollPosition.firstVisibleItemScrollOffset, saver = LazyGridState.Saver)` seeded with `viewModel.homeScrollPosition.value`, and synchronized scroll updates via `snapshotFlow` (`LaunchedEffect`) and `DisposableEffect` (`onDispose`) without `scrollToItem()` delays or visual flicker.
+- **Regression Verification**:
+  - Verified by `testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` and `testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` in `HomeNavigationAndOrderingUnitTest.kt`, and `bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` in `EcosystemUpgradeV7UnitTest.kt` (`175 / 175` total tests passing).
+

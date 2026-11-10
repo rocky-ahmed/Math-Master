@@ -345,4 +345,139 @@ class HomeNavigationAndOrderingUnitTest {
         assertEquals(1, restoredState.completedSessionsToday)
         assertTrue(restoredState.isVisibleOnHome)
     }
+
+    @Test
+    fun testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val freshViewModel = MathViewModel(app)
+
+        // Scenario G — First Launch: initial scroll position is (0, 0)
+        assertEquals(0, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(0, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+        assertEquals(Screen.Home, freshViewModel.currentScreen)
+
+        // Simulate user scrolling down on Home Screen to lower module section (index = 9, pixel offset = 128)
+        freshViewModel.updateHomeScrollPosition(firstVisibleItemIndex = 9, firstVisibleItemScrollOffset = 128)
+        assertEquals(9, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(128, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // Scenario A & B — Navigate from Home Grid to every single module and return via Back
+        val allModuleScreens = listOf(
+            Screen.Tables,
+            Screen.Primes,
+            Screen.SquaresCubes,
+            Screen.Formulas,
+            Screen.FormulaLibrary,
+            Screen.PracticeLab,
+            Screen.MentalMath,
+            Screen.NumberSystem,
+            Screen.ProblemSolver,
+            Screen.VisualExplorer,
+            Screen.Quizzes,
+            Screen.Dashboard,
+            Screen.BcsPreparation
+        )
+
+        for (moduleScreen in allModuleScreens) {
+            freshViewModel.navigateTo(moduleScreen)
+            assertEquals(moduleScreen, freshViewModel.currentScreen)
+            // Scroll position must remain intact while HomeScreen is out of composition
+            assertEquals(9, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+            assertEquals(128, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+            // Return to Home via navigateBack() (Toolbar Back / System Back)
+            assertTrue(freshViewModel.navigateBack())
+            assertEquals(Screen.Home, freshViewModel.currentScreen)
+            assertEquals(
+                "Scroll index must be preserved after returning from $moduleScreen",
+                9,
+                freshViewModel.homeScrollPosition.value.firstVisibleItemIndex
+            )
+            assertEquals(
+                "Pixel scroll offset must be preserved after returning from $moduleScreen",
+                128,
+                freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset
+            )
+        }
+
+        // Scenario C — Multiple Module Navigation from restored position (including Module 14 BookHub)
+        freshViewModel.openBookHub()
+        assertEquals(Screen.BookHub, freshViewModel.currentScreen)
+        assertTrue(freshViewModel.navigateBack())
+        assertEquals(Screen.Home, freshViewModel.currentScreen)
+        assertEquals(9, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(128, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // Scenario D — Deep Module Navigation (Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> Back to Home)
+        freshViewModel.openBookHub()
+        freshViewModel.openBookDetail(com.example.math.BookId.CLASS_9_10)
+        freshViewModel.openBookChapter(com.example.math.BookId.CLASS_9_10, 1)
+        freshViewModel.openBookLesson(com.example.math.BookId.CLASS_9_10, 1, "c910_1_l1")
+        assertEquals(Screen.BookLesson, freshViewModel.currentScreen)
+        assertEquals(5, freshViewModel.screenStack.value.size)
+
+        while (freshViewModel.currentScreen != Screen.Home) {
+            assertTrue(freshViewModel.navigateBack())
+        }
+        assertEquals(Screen.Home, freshViewModel.currentScreen)
+        assertEquals(9, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(128, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // Negative values are safely clamped to >= 0
+        freshViewModel.updateHomeScrollPosition(-3, -50)
+        assertEquals(0, freshViewModel.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(0, freshViewModel.homeScrollPosition.value.firstVisibleItemScrollOffset)
+    }
+
+    @Test
+    @Config(sdk = [36])
+    fun testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration() {
+        val controller = org.robolectric.Robolectric.buildActivity(MainActivity::class.java).setup()
+        val activity = controller.get()
+        val vm = androidx.lifecycle.ViewModelProvider(activity)[MathViewModel::class.java]
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // 1. Scenario G — First launch: starts on Home at (0, 0)
+        assertEquals(Screen.Home, vm.currentScreen)
+        assertEquals(0, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(0, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // 2. Simulate scrolling HomeScreen LazyVerticalGrid down to lower modules (index = 8, pixel offset = 116)
+        vm.updateHomeScrollPosition(firstVisibleItemIndex = 8, firstVisibleItemScrollOffset = 116)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // 3. Scenario A & B — Navigate to Module 10 (VisualExplorer); HomeScreen leaves composition
+        vm.navigateTo(Screen.VisualExplorer)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(Screen.VisualExplorer, vm.currentScreen)
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(116, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // Return to Home via Back navigation -> HomeScreen re-enters composition and restores (8, 116)
+        assertTrue(vm.navigateBack())
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(Screen.Home, vm.currentScreen)
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(116, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // 4. Scenario C — Open a second module (Module 09 ProblemSolver) from restored position and return
+        vm.navigateTo(Screen.ProblemSolver)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(Screen.ProblemSolver, vm.currentScreen)
+        assertTrue(vm.navigateBack())
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(Screen.Home, vm.currentScreen)
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(116, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // 5. Scenario E — Trigger Compose recompositions on HomeScreen (timer tick, theme update)
+        vm.toggleStudySessionRunning()
+        vm.tickStudySessionTimer(10)
+        vm.setThemeMode(com.example.ui.theme.AppThemeMode.DARK)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(116, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+        vm.setThemeMode(com.example.ui.theme.AppThemeMode.SYSTEM)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
 }

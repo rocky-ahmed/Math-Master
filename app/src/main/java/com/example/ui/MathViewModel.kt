@@ -130,6 +130,15 @@ data class WeeklyDayStat(
 )
 
 /**
+ * In-memory Home Screen vertical scroll position (first visible item index and exact pixel offset)
+ * preserved across module navigation and configuration changes within the active app session.
+ */
+data class HomeScrollPosition(
+    val firstVisibleItemIndex: Int = 0,
+    val firstVisibleItemScrollOffset: Int = 0
+)
+
+/**
  * Persistent state for the Home Screen 'Study Session' learning timer component.
  */
 data class StudySessionTimerState(
@@ -250,6 +259,26 @@ class MathViewModel @JvmOverloads constructor(
 
     val currentScreen: Screen
         get() = _screenStack.value.lastOrNull() ?: Screen.Home
+
+    // Home Screen Scroll Position State (preserves firstVisibleItemIndex and exact pixel offset across module navigation)
+    private val _homeScrollPosition = MutableStateFlow(HomeScrollPosition())
+    val homeScrollPosition: StateFlow<HomeScrollPosition> = _homeScrollPosition.asStateFlow()
+
+    fun updateHomeScrollPosition(firstVisibleItemIndex: Int, firstVisibleItemScrollOffset: Int) {
+        val safeIndex = firstVisibleItemIndex.coerceAtLeast(0)
+        val safeOffset = firstVisibleItemScrollOffset.coerceAtLeast(0)
+        val current = _homeScrollPosition.value
+        if (current.firstVisibleItemIndex != safeIndex || current.firstVisibleItemScrollOffset != safeOffset) {
+            _homeScrollPosition.value = HomeScrollPosition(
+                firstVisibleItemIndex = safeIndex,
+                firstVisibleItemScrollOffset = safeOffset
+            )
+        }
+    }
+
+    fun resetHomeScrollPosition() {
+        _homeScrollPosition.value = HomeScrollPosition(0, 0)
+    }
 
     // Active Selection State
     private val _selectedTableNumber = MutableStateFlow(1)

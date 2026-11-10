@@ -1595,6 +1595,71 @@ class EcosystemUpgradeV7UnitTest {
         assertNotNull("Bundled Class 6 PDF must extract cleanly via synchronized atomic extraction", extracted)
         assertTrue(extracted!!.exists() && extracted.length() > 4_096L)
     }
+
+    @Test
+    fun bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal() {
+        val app = ApplicationProvider.getApplicationContext<Application>()
+        val vm = MathViewModel(app)
+
+        // 1. Fresh launch starts at (0, 0)
+        assertEquals(0, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(0, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // 2. Simulate scrolling down to Module 10 / Module 13 area (index = 8, pixel offset = 94)
+        val scrolledGridState = androidx.compose.foundation.lazy.grid.LazyGridState(
+            firstVisibleItemIndex = 8,
+            firstVisibleItemScrollOffset = 94
+        )
+        vm.updateHomeScrollPosition(
+            firstVisibleItemIndex = scrolledGridState.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = scrolledGridState.firstVisibleItemScrollOffset
+        )
+
+        // Verify LazyGridState.Saver preserves both index and exact pixel offset when saved by SaveableStateHolder
+        @Suppress("UNCHECKED_CAST")
+        val saver = androidx.compose.foundation.lazy.grid.LazyGridState.Saver as androidx.compose.runtime.saveable.Saver<androidx.compose.foundation.lazy.grid.LazyGridState, Any>
+        val allowAllSaverScope = androidx.compose.runtime.saveable.SaverScope { true }
+        val savedBundle = with(saver) {
+            allowAllSaverScope.save(scrolledGridState)
+        }
+        assertNotNull("LazyGridState.Saver must serialize non-null state", savedBundle)
+
+        // 3. Navigate to Module 10 (VisualExplorer) — HomeScreen leaves composition
+        vm.navigateTo(Screen.VisualExplorer)
+        assertEquals(Screen.VisualExplorer, vm.currentScreen)
+        assertEquals(listOf(Screen.Home, Screen.VisualExplorer), vm.screenStack.value)
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(94, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+
+        // 4. Return to Home via navigateBack() — HomeScreen re-enters composition
+        assertTrue(vm.navigateBack())
+        assertEquals(Screen.Home, vm.currentScreen)
+
+        // Verify restoration via LazyGridState.Saver (SaveableStateHolder path)
+        val restoredFromSaver = saver.restore(savedBundle!!)
+        assertNotNull(restoredFromSaver)
+        assertEquals(8, restoredFromSaver!!.firstVisibleItemIndex)
+        assertEquals(94, restoredFromSaver.firstVisibleItemScrollOffset)
+
+        // Verify restoration via MathViewModel state holder (ViewModel fallback path after composition disposal)
+        val restoredFromViewModel = androidx.compose.foundation.lazy.grid.LazyGridState(
+            firstVisibleItemIndex = vm.homeScrollPosition.value.firstVisibleItemIndex,
+            firstVisibleItemScrollOffset = vm.homeScrollPosition.value.firstVisibleItemScrollOffset
+        )
+        assertEquals(8, restoredFromViewModel.firstVisibleItemIndex)
+        assertEquals(94, restoredFromViewModel.firstVisibleItemScrollOffset)
+
+        // 5. Multiple module cycles + deep navigation (Module 13 BCS -> QuizPlay -> Back -> Home)
+        vm.navigateTo(Screen.BcsPreparation)
+        vm.startBcsMockExam()
+        assertEquals(Screen.QuizPlay, vm.currentScreen)
+        assertTrue(vm.navigateBack())
+        assertEquals(Screen.BcsPreparation, vm.currentScreen)
+        assertTrue(vm.navigateBack())
+        assertEquals(Screen.Home, vm.currentScreen)
+        assertEquals(8, vm.homeScrollPosition.value.firstVisibleItemIndex)
+        assertEquals(94, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
+    }
 }
 
 
