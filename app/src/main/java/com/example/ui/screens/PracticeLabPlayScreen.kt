@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -77,6 +78,7 @@ import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
+import com.example.ui.theme.MathSpacing
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -124,7 +126,11 @@ fun PracticeLabPlayScreen(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -132,7 +138,10 @@ fun PracticeLabPlayScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
                             IconButton(
                                 onClick = { viewModel.exitPracticeToCategories() },
                                 modifier = Modifier.testTag("btn_exit_practice")
@@ -238,9 +247,8 @@ fun PracticeLabPlayScreen(
                     state = playListState,
                     modifier = Modifier
                         .fillMaxSize()
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
-                    contentPadding = PaddingValues(vertical = 14.dp),
+                        .weight(1f),
+                    contentPadding = MathSpacing.screenListContentPadding(),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Question Counter, Hint Button & Score
@@ -857,9 +865,8 @@ private fun PracticeSessionSummary(
         LazyColumn(
             state = summaryListState,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
+                .fillMaxSize(),
+            contentPadding = MathSpacing.screenListContentPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Victory / Result Card
@@ -1077,7 +1084,8 @@ private fun PracticeSessionSummary(
                                 Text(
                                     text = "প্রশ্ন ${BengaliNumberFormatter.toBn(idx + 1)}: ${q.expression}",
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
                                 )
                                 Icon(
                                     imageVector = if (isCorrect) Icons.Default.CheckCircle else Icons.Default.Close,

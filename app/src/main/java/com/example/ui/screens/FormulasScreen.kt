@@ -54,6 +54,7 @@ import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.BookmarkIconButton
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.theme.MathSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,7 +116,7 @@ fun FormulasScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .testTag("formulas_list"),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            contentPadding = MathSpacing.screenListContentPadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Formula Library Gateway Banner
@@ -216,7 +217,10 @@ fun FormulasScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Surface(
                                     shape = RoundedCornerShape(6.dp),
                                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -232,10 +236,12 @@ fun FormulasScreen(
                                 Text(
                                     text = formula.nameBn,
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.weight(1f)
                                 )
                             }
 
+                            Spacer(modifier = Modifier.width(4.dp))
                             BookmarkIconButton(
                                 isBookmarked = isBookmarked,
                                 onToggle = {
@@ -426,9 +432,8 @@ fun FormulaDetailScreen(
             state = detailListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
                 .testTag("formula_detail_list"),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = MathSpacing.screenListContentPadding(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Formula Hero Box

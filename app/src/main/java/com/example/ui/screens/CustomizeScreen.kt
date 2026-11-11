@@ -85,6 +85,7 @@ import com.example.ui.customization.SectionKey
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
 import com.example.ui.theme.AppThemeMode
+import com.example.ui.theme.MathSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -234,9 +235,8 @@ fun CustomizeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
-                .padding(horizontal = 16.dp)
                 .testTag("customize_list"),
-            contentPadding = PaddingValues(vertical = 16.dp),
+            contentPadding = MathSpacing.screenListContentPadding(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             when (selectedTabIndex) {
@@ -774,7 +774,7 @@ fun SectionAppearanceCustomizationSection(
 
                     Surface(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = hexStr) }
@@ -945,7 +945,7 @@ fun GlobalThemeCustomizationSection(
 
                     Surface(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customPrimaryActionHex = hexStr, customAccentHex = hexStr) }
@@ -985,7 +985,7 @@ fun GlobalThemeCustomizationSection(
                     val isSelected = global.customLightBackgroundHex.equals(hexStr, ignoreCase = true)
                     Surface(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customLightBackgroundHex = hexStr) }
@@ -1023,7 +1023,7 @@ fun GlobalThemeCustomizationSection(
                     val isSelected = global.customDarkBackgroundHex.equals(hexStr, ignoreCase = true)
                     Surface(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customDarkBackgroundHex = hexStr) }

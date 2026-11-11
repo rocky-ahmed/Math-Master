@@ -1335,13 +1335,20 @@ class ExampleRobolectricTest {
             viewModel1.saveCustomization()
 
             // Allow background coroutines to flush to Room SQLite database
-            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-            kotlinx.coroutines.delay(150)
+            val dao = com.example.data.db.MathDatabase.getDatabase(app).mathDao()
+            repeat(15) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (dao.getAllTopicAnalytics().first().any { it.topicId == PracticeCategory.RATIOS.id }) {
+                    return@repeat
+                }
+                kotlinx.coroutines.delay(50)
+            }
 
             // 5. Simulate Activity restart and new ViewModel instance
             controller.recreate()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             val viewModel2 = com.example.ui.MathViewModel(app)
-            val dao = com.example.data.db.MathDatabase.getDatabase(app).mathDao()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
 
             val savedBookmarks = dao.getAllBookmarks().first()
             assertTrue("Bookmark must persist across restart", savedBookmarks.any { it.id == formula.id })
@@ -1364,6 +1371,7 @@ class ExampleRobolectricTest {
                 viewModel2.customizationState.value.global.layoutType
             )
             controller.pause().stop().destroy()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         }
     }
 

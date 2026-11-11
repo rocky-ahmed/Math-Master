@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -98,6 +99,7 @@ import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
+import com.example.ui.theme.MathSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1014,7 +1016,7 @@ fun LearningModeSelector(
     ElevatedCard(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.7f)
         ),
         modifier = Modifier.fillMaxWidth().testTag("learning_mode_card")
     ) {
@@ -1226,8 +1228,8 @@ fun TopicInputCard(
                         ).forEach { sample ->
                             OutlinedButton(
                                 onClick = { onArithmeticChange(sample) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.heightIn(min = 38.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1266,7 +1268,7 @@ fun TopicInputCard(
                                         shape = RoundedCornerShape(8.dp),
                                         color = if (isSelected) topic.primaryColor else MaterialTheme.colorScheme.surfaceVariant,
                                         modifier = Modifier
-                                            .size(32.dp)
+                                            .size(38.dp)
                                             .clickable {
                                                 onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
                                             }
@@ -1710,8 +1712,8 @@ fun TopicInputCard(
                         listOf("3x + 12 = 45", "5x - 8 = 2x + 16", "4x + 10 = 34", "7x - 5 = 3x + 15").forEach { sample ->
                             OutlinedButton(
                                 onClick = { onLinearEqChange(sample) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.heightIn(min = 38.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1765,8 +1767,8 @@ fun TopicInputCard(
                         listOf("x² - 5x + 6", "x² - 9", "2x² + 7x + 3", "360").forEach { sample ->
                             OutlinedButton(
                                 onClick = { onFactorChange(sample) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.heightIn(min = 38.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1789,8 +1791,8 @@ fun TopicInputCard(
                         listOf("√72", "45/60", "3x + 5y + 4x - 2y", "(24 + 12) ÷ 6").forEach { sample ->
                             OutlinedButton(
                                 onClick = { onSimplifyChange(sample) },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.heightIn(min = 38.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1906,7 +1908,7 @@ fun SolutionDisplayCard(
                     Row {
                         IconButton(
                             onClick = onCopySolution,
-                            modifier = Modifier.size(36.dp).testTag("solver_copy_btn")
+                            modifier = Modifier.size(40.dp).testTag("solver_copy_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
@@ -1916,7 +1918,7 @@ fun SolutionDisplayCard(
                         }
                         IconButton(
                             onClick = onToggleBookmark,
-                            modifier = Modifier.size(36.dp).testTag("solver_bookmark_btn")
+                            modifier = Modifier.size(40.dp).testTag("solver_bookmark_btn")
                         ) {
                             Icon(
                                 imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,

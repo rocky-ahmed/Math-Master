@@ -10,9 +10,11 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -484,7 +486,8 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                             text = "${selectedShape.titleBn} (${selectedShape.formulaSummaryBn})",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
                         )
 
                         // Zoom Controls
@@ -494,7 +497,7 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                         ) {
                             IconButton(
                                 onClick = { zoomScale = (zoomScale - 0.15f).coerceAtLeast(0.6f) },
-                                modifier = Modifier.size(32.dp).testTag("geo_zoom_out")
+                                modifier = Modifier.size(38.dp).testTag("geo_zoom_out")
                             ) {
                                 Icon(Icons.Default.Remove, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
                             }
@@ -505,7 +508,7 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                             )
                             IconButton(
                                 onClick = { zoomScale = (zoomScale + 0.15f).coerceAtMost(1.6f) },
-                                modifier = Modifier.size(32.dp).testTag("geo_zoom_in")
+                                modifier = Modifier.size(38.dp).testTag("geo_zoom_in")
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
                             }
@@ -1114,7 +1117,9 @@ fun Interactive3DSolidStudioCard(
 
             // 6. 3D Mensuration Metrics Row
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 MetricHighlightBox(
@@ -1123,7 +1128,10 @@ fun Interactive3DSolidStudioCard(
                     unit = "ঘন একক",
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_volume")
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .testTag("solid_3d_metric_volume")
                 )
                 MetricHighlightBox(
                     title = "সমগ্রতলের ক্ষেত্রফল (TSA)",
@@ -1131,7 +1139,10 @@ fun Interactive3DSolidStudioCard(
                     unit = "বর্গ একক",
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_tsa")
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .testTag("solid_3d_metric_tsa")
                 )
                 MetricHighlightBox(
                     title = mensuration.secondaryMetricLabelBn,
@@ -1139,7 +1150,10 @@ fun Interactive3DSolidStudioCard(
                     unit = "একক",
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.weight(1f).testTag("solid_3d_metric_aux")
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .testTag("solid_3d_metric_aux")
                 )
             }
 

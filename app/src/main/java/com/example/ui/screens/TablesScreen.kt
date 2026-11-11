@@ -49,6 +49,7 @@ import com.example.ui.MathViewModel
 import com.example.ui.components.BookmarkIconButton
 import com.example.ui.components.LearnedStatusBadge
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.theme.MathSpacing
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -103,11 +104,10 @@ fun TablesScreen(
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
                 .testTag("tables_grid"),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            contentPadding = MathSpacing.screenListContentPadding(),
+            horizontalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing)
         ) {
             items(tables) { table ->
                 val itemId = "table_${table.number}"
@@ -119,10 +119,13 @@ fun TablesScreen(
                         .fillMaxWidth()
                         .clickable { viewModel.openTable(table.number) }
                         .testTag("table_item_${table.number}"),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = MathSpacing.cornerShapeStandard,
                     colors = CardDefaults.elevatedCardColors(
-                        containerColor = if (isLearned) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        else MaterialTheme.colorScheme.surface
+                        containerColor = if (isLearned) {
+                            MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.primaryContainer, 0.45f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
                     )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -256,9 +259,8 @@ fun TableDetailScreen(
             state = detailListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
                 .testTag("table_detail_list"),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = MathSpacing.screenListContentPadding(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Header Card with Quick Practice action and Mastery toggle

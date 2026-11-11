@@ -315,7 +315,10 @@ fun PrimesScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Calculate,
                                     contentDescription = null,
@@ -323,7 +326,7 @@ fun PrimesScreen(
                                     modifier = Modifier.size(22.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "ম্যাজিক কোড শর্টকাট গণক (Range Calculator)",
                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
@@ -335,6 +338,7 @@ fun PrimesScreen(
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Icon(
                                 imageVector = if (showCalculator) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                 contentDescription = null,
@@ -477,7 +481,10 @@ fun PrimesScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -492,7 +499,7 @@ fun PrimesScreen(
                                     }
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "${decade.rangeLabelBn} এর মধ্যে",
                                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
@@ -504,6 +511,7 @@ fun PrimesScreen(
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             // Digit Badge
                             Surface(

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -105,6 +106,7 @@ import com.example.ui.components.BanglaNumericKeypad
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedScrollState
 import com.example.ui.rememberManagedUiState
+import com.example.ui.theme.MathSpacing
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -142,6 +144,8 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     var examImmediateFeedback by rememberManagedUiState(viewModel, "quizzes:examImmediateFeedback", false)
 
     Scaffold(
+        modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -1039,6 +1043,8 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     }
 
     Scaffold(
+        modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -1574,9 +1580,8 @@ private fun QuizCompletedContent(
     LazyColumn(
         state = completedListState,
         modifier = modifier
-            .padding(horizontal = 16.dp)
             .testTag("quiz_completed_list"),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        contentPadding = MathSpacing.screenListContentPadding(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {

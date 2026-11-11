@@ -57,6 +57,7 @@ import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
+import com.example.ui.theme.MathSpacing
 
 @Composable
 fun NumberSystemPracticePlayScreen(
@@ -487,7 +488,7 @@ fun PracticeSessionSummary(
         ElevatedCard(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.55f)
             ),
             modifier = Modifier.fillMaxWidth()
         ) {

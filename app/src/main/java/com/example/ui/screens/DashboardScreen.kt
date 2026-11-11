@@ -6,12 +6,16 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,6 +88,7 @@ import com.example.ui.Screen
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedScrollState
 import com.example.ui.rememberManagedUiState
+import com.example.ui.theme.MathSpacing
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -208,6 +213,8 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
     }
 
     Scaffold(
+        modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -240,8 +247,8 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(padding)
                 .testTag("dashboard_list"),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = MathSpacing.screenListContentPadding(),
+            verticalArrangement = Arrangement.spacedBy(MathSpacing.lg)
         ) {
             // 1. Time-Based Analytics Filter Bar
             item {
@@ -292,7 +299,10 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     Icons.Default.LocalFireDepartment,
                                     contentDescription = null,
@@ -300,7 +310,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     modifier = Modifier.size(28.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "দৈনিক লক্ষ্যমাত্রা ও ধারাবাহিকতা",
                                         style = MaterialTheme.typography.titleMedium,
@@ -314,6 +324,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     )
                                 }
                             }
+                            Spacer(modifier = Modifier.width(4.dp))
                             IconButton(
                                 onClick = { showGoalConfigDialog = true },
                                 modifier = Modifier.testTag("btn_configure_daily_goals")
@@ -430,7 +441,9 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     )
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         KpiMetricCard(
@@ -440,6 +453,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             subtitleBn = "মোট ${kpi.totalExamsCompleted.toBengaliDigits()}টি পরীক্ষা • সেরা ${kpi.examBestScorePercent.toBengaliDigits()}%",
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .testTag("kpi_exam_avg_score")
                         )
                         KpiMetricCard(
@@ -449,12 +463,15 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             subtitleBn = "${kpi.examCorrectAnswers.toBengaliDigits()}/${kpi.examQuestionsAttempted.toBengaliDigits()}টি সঠিক উত্তর",
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .testTag("kpi_exam_accuracy")
                         )
                     }
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         KpiMetricCard(
@@ -464,6 +481,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             subtitleBn = "${kpi.totalPracticeSessions.toBengaliDigits()}টি সেশন • ${kpi.practiceQuestionsAttempted.toBengaliDigits()}টি প্রশ্ন",
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .testTag("kpi_practice_accuracy")
                         )
                         KpiMetricCard(
@@ -473,6 +491,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             subtitleBn = "শেখা আইটেম: ${kpi.learnedItemsCount.toBengaliDigits()}টি • বুকমার্ক: ${bookmarks.size.toBengaliDigits()}টি",
                             modifier = Modifier
                                 .weight(1f)
+                                .fillMaxHeight()
                                 .testTag("kpi_best_streak")
                         )
                     }
@@ -497,14 +516,17 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Icon(
                                     Icons.Default.School,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "পাঠ্যবই শিক্ষা অগ্রগতি (৬ষ্ঠ – ৯ম-১০ম শ্রেণি)",
                                         style = MaterialTheme.typography.titleMedium,
@@ -517,7 +539,12 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     )
                                 }
                             }
-                            TextButton(onClick = { viewModel.openBookHub() }) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TextButton(
+                                onClick = { viewModel.openBookHub() },
+                                modifier = Modifier.testTag("dashboard_open_book_hub_btn"),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
                                 Text("খুলুন", fontWeight = FontWeight.Bold)
                             }
                         }
@@ -567,26 +594,44 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("dashboard_ecosystem_mastery_card"),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = MathSpacing.cornerShapeHero,
                     colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                        containerColor = MathSpacing.blendedContainerColor(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            fraction = 0.55f
+                        )
                     )
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.padding(MathSpacing.cardPaddingStandard),
+                        verticalArrangement = Arrangement.spacedBy(MathSpacing.md)
                     ) {
                         Text(
                             text = "ইকোসিস্টেম সমন্বিত অগ্রগতি ও স্পেসড রিভিশন (Room v7)",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                        Text(
-                            text = "• বিসিএস গাইড সম্পন্ন: ${bcsDone.toBengaliDigits()}/${bcsTotal.toBengaliDigits()}টি পাঠ\n" +
-                                    "• চর্চাকৃত সূত্র (Formula Mastery): ${practicedFormulasCount.toBengaliDigits()}টি সূত্র\n" +
-                                    "• অমীমাংসিত ভুল প্রশ্ন (Spaced Mistake Queue): ${unresolvedUnified.size.toBengaliDigits()}টি",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "• বিসিএস গাইড সম্পন্ন: ${bcsDone.toBengaliDigits()}/${bcsTotal.toBengaliDigits()}টি পাঠ",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "• চর্চাকৃত সূত্র (Formula Mastery): ${practicedFormulasCount.toBengaliDigits()}টি সূত্র",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "• অমীমাংসিত ভুল প্রশ্ন (Spaced Mistake Queue): ${unresolvedUnified.size.toBengaliDigits()}টি",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
                         if (unresolvedUnified.isNotEmpty()) {
                             unresolvedUnified.take(3).forEach { mistake ->
                                 Surface(
@@ -597,7 +642,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(10.dp),
+                                            .padding(12.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -614,6 +659,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                                 color = MaterialTheme.colorScheme.primary
                                             )
                                         }
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         TextButton(
                                             onClick = { viewModel.resolveUnifiedMistakeItem(mistake.mistakeKey) },
                                             modifier = Modifier.testTag("btn_resolve_mistake_${mistake.mistakeKey}")
@@ -626,19 +672,29 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.BcsPreparation) },
-                                modifier = Modifier.weight(1f).testTag("btn_dashboard_to_bcs")
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 42.dp)
+                                    .testTag("btn_dashboard_to_bcs"),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
-                                Text("বিসিএস প্রস্তুতি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text("বিসিএস প্রস্তুতি", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.FormulaLibrary) },
-                                modifier = Modifier.weight(1f).testTag("btn_dashboard_to_formula_lib")
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 42.dp)
+                                    .testTag("btn_dashboard_to_formula_lib"),
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                             ) {
-                                Text("সূত্র লাইব্রেরি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text("সূত্র লাইব্রেরি", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -652,14 +708,17 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("dashboard_recommendations_card"),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = MathSpacing.cornerShapeHero,
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f)
+                            containerColor = MathSpacing.blendedContainerColor(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                fraction = 0.65f
+                            )
                         )
                     ) {
                         Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier.padding(MathSpacing.cardPaddingStandard),
+                            verticalArrangement = Arrangement.spacedBy(MathSpacing.md)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -683,7 +742,10 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                         .fillMaxWidth()
                                         .testTag("recommendation_item_${rec.id}")
                                 ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
+                                    Column(
+                                        modifier = Modifier.padding(14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -695,14 +757,16 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                             ) {
                                                 Text(
                                                     text = rec.badgeBn,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                                 )
                                             }
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             TextButton(
                                                 onClick = { viewModel.executeLearningRecommendation(rec) },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                                 modifier = Modifier.testTag("btn_rec_action_${rec.id}")
                                             ) {
                                                 Text(rec.actionLabelBn, fontWeight = FontWeight.Bold)
@@ -715,7 +779,6 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
                                         Text(
                                             text = rec.reasonBn,
                                             style = MaterialTheme.typography.bodySmall,

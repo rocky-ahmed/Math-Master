@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BookmarkRemove
@@ -60,6 +61,7 @@ import com.example.math.BookId
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.theme.MathSpacing
 
 @Composable
 fun BookmarksScreen(
@@ -115,9 +117,8 @@ fun BookmarksScreen(
                 state = bookmarksListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp)
                     .testTag("bookmarks_list"),
-                contentPadding = PaddingValues(vertical = 12.dp),
+                contentPadding = MathSpacing.screenListContentPadding(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(bookmarks, key = { it.id }) { bm ->
@@ -262,161 +263,162 @@ fun PracticeTutorScreen(
             }
         )
 
-        val tutorListState = com.example.ui.rememberManagedLazyListState(
+        val tutorScrollState = com.example.ui.rememberManagedScrollState(
             viewModel = viewModel,
             stateKey = "practice_tutor:$number"
         )
 
-        LazyColumn(
-            state = tutorListState,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .verticalScroll(tutorScrollState)
+                .padding(
+                    start = MathSpacing.screenHorizontal,
+                    end = MathSpacing.screenHorizontal,
+                    top = MathSpacing.screenTop,
+                    bottom = MathSpacing.screenBottom
+                )
                 .testTag("practice_tutor_list"),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Tutor Progress Step indicator
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "ধাপ: ${BengaliNumberFormatter.toBn(step)} / ১০",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                            )
-                            Text(
-                                text = "${BengaliNumberFormatter.toBn(step * 10)}% সম্পন্ন",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(
-                            progress = { step / 10f },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(4.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "ধাপ: ${BengaliNumberFormatter.toBn(step)} / ১০",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "${BengaliNumberFormatter.toBn(step * 10)}% সম্পন্ন",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { step / 10f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    )
                 }
             }
 
             // Interactive Math Step Challenge
-            item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(
+                    Text(
+                        text = "নিচের সমস্যাটির সমাধান করুন:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Big Math Equation Prompt
+                    Text(
+                        text = "${BengaliNumberFormatter.toBn(number)}  ×  ${BengaliNumberFormatter.toBn(step)}  =  ?",
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 36.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Number input
+                    OutlinedTextField(
+                        value = userAnswer,
+                        onValueChange = { viewModel.setTutorAnswerInput(it) },
+                        enabled = !tutorCompleted,
+                        label = { Text("উত্তর লিখুন (যেমন: ${number * step})") },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { viewModel.checkTutorStep() }
+                        ),
+                        singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = "নিচের সমস্যাটির সমাধান করুন:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            .testTag("tutor_answer_input")
+                    )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                        // Big Math Equation Prompt
-                        Text(
-                            text = "${BengaliNumberFormatter.toBn(number)}  ×  ${BengaliNumberFormatter.toBn(step)}  =  ?",
-                            style = MaterialTheme.typography.headlineLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 36.sp
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Number input
-                        OutlinedTextField(
-                            value = userAnswer,
-                            onValueChange = { viewModel.setTutorAnswerInput(it) },
-                            enabled = !tutorCompleted,
-                            label = { Text("উত্তর লিখুন (যেমন: ${number * step})") },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = { viewModel.checkTutorStep() }
-                            ),
-                            singleLine = true,
+                    if (tutorCompleted) {
+                        Button(
+                            onClick = { viewModel.setTutorNumber(if (number < 40) number + 1 else 1) },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .testTag("tutor_answer_input")
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        if (tutorCompleted) {
-                            Button(
-                                onClick = { viewModel.setTutorNumber(if (number < 40) number + 1 else 1) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(50.dp)
-                                    .testTag("tutor_next_table_btn")
-                            ) {
-                                Text(
-                                    text = "পরবর্তী নামতা অনুশীলন করুন (${BengaliNumberFormatter.toBn(if (number < 40) number + 1 else 1)})",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
-                        } else {
-                            Button(
-                                onClick = { viewModel.checkTutorStep() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(50.dp)
-                                    .testTag("tutor_check_btn")
-                            ) {
-                                Text(
-                                    text = if (step < 10) "উত্তর যাচাই ও পরবর্তী ধাপ" else "সম্পন্ন করুন",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
+                                .height(50.dp)
+                                .testTag("tutor_next_table_btn")
+                        ) {
+                            Text(
+                                text = "পরবর্তী নামতা অনুশীলন করুন (${BengaliNumberFormatter.toBn(if (number < 40) number + 1 else 1)})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
                         }
+                    } else {
+                        Button(
+                            onClick = { viewModel.checkTutorStep() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                                .testTag("tutor_check_btn")
+                        ) {
+                            Text(
+                                text = if (step < 10) "উত্তর যাচাই ও পরবর্তী ধাপ" else "সম্পন্ন করুন",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
 
-                        // Feedback message
-                        if (feedback != null) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            val isCorrect = feedback!!.startsWith("সঠিক") || feedback!!.startsWith("অভিনন্দন")
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isCorrect) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                    // Feedback message
+                    if (feedback != null) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        val isCorrect = feedback!!.startsWith("সঠিক") || feedback!!.startsWith("অভিনন্দন")
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isCorrect) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isCorrect) Icons.Default.Check else Icons.Default.RestartAlt,
-                                        contentDescription = null,
-                                        tint = if (isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = feedback!!,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                        color = if (isCorrect) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
+                                Icon(
+                                    imageVector = if (isCorrect) Icons.Default.Check else Icons.Default.RestartAlt,
+                                    contentDescription = null,
+                                    tint = if (isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = feedback!!,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = if (isCorrect) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                )
                             }
                         }
                     }
@@ -424,34 +426,30 @@ fun PracticeTutorScreen(
             }
 
             // Quick table picker for practicing another number (1 to 40)
-            item {
-                Text(
-                    text = "অন্য যেকোনো ঘরের নামতা অনুশীলন করুন:",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
+            Text(
+                text = "অন্য যেকোনো ঘরের নামতা অনুশীলন করুন:",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.padding(top = 8.dp)
+            )
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(3, 7, 12, 17, 25).forEach { sampleNum ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (number == sampleNum) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .clickable { viewModel.setTutorNumber(sampleNum) }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "${BengaliNumberFormatter.toBn(sampleNum)} এর ঘর",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = if (number == sampleNum) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                            )
-                        }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(3, 7, 12, 17, 25).forEach { sampleNum ->
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (number == sampleNum) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .clickable { viewModel.setTutorNumber(sampleNum) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "${BengaliNumberFormatter.toBn(sampleNum)} এর ঘর",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (number == sampleNum) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
                     }
                 }
             }

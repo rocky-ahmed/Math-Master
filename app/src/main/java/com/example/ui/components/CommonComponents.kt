@@ -94,9 +94,14 @@ fun MathTopAppBar(
 fun MathSectionHeader(
     title: String,
     subtitle: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = horizontalPadding, vertical = 6.dp)
+    ) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -86,6 +87,7 @@ fun BookPracticeScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -577,6 +579,7 @@ fun BookRevisionScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = {
@@ -814,7 +817,8 @@ fun BookRevisionScreen(
                                             text = "${BookId.fromId(mistake.bookId).shortLabelBn} • অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(mistake.chapterNumber)} • ভুল হয়েছে ${BengaliNumberFormatter.toBengaliDigits(mistake.mistakeCount)} বার",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (mistake.isResolved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                                            color = if (mistake.isResolved) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.weight(1f)
                                         )
                                         IconButton(onClick = { viewModel.deleteBookMistake(mistake.mistakeId) }) {
                                             Icon(Icons.Default.Delete, contentDescription = "মুছুন")
@@ -953,7 +957,8 @@ fun BookRevisionScreen(
                                         text = "${BookId.fromId(note.bookId).shortLabelBn} • অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(note.chapterNumber)}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f)
                                     )
                                     IconButton(onClick = { viewModel.deleteBookPersonalNote(note.id) }) {
                                         Icon(Icons.Default.Delete, contentDescription = "মুছুন")
@@ -1009,7 +1014,10 @@ fun BookRevisionScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.weight(1f)
+                                    ) {
                                         Icon(
                                             Icons.Default.Bookmark,
                                             contentDescription = null,

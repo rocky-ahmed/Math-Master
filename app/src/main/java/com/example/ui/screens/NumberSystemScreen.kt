@@ -99,6 +99,7 @@ import com.example.ui.components.MathSectionHeader
 import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
+import com.example.ui.theme.MathSpacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -204,7 +205,7 @@ fun NumberClassificationTab(
                     .testTag("real_numbers_guided_explorer_card"),
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                    containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.secondaryContainer, 0.55f)
                 )
             ) {
                 Column(
@@ -382,7 +383,7 @@ fun NumberClassificationTab(
         item {
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.primaryContainer, 0.45f)
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
@@ -769,7 +770,7 @@ fun DivisibilityRulesTab(
         item {
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.45f)
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
@@ -1145,7 +1146,7 @@ fun GcdLcmCalculatorTab(
                 }
                 ElevatedCard(
                     colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                        containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.secondaryContainer, 0.40f)
                     ),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
@@ -1214,7 +1215,7 @@ fun NumberSystemPracticeHubTab(
         item {
             ElevatedCard(
                 colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.primaryContainer, 0.50f)
                 ),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()

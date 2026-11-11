@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -69,6 +70,7 @@ import com.example.math.MentalMathSessionState
 import com.example.math.QuestionInputFormat
 import com.example.ui.MathViewModel
 import com.example.ui.rememberManagedLazyListState
+import com.example.ui.theme.MathSpacing
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -511,6 +513,7 @@ fun MentalMathPlayHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .statusBarsPadding()
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -669,8 +672,9 @@ fun MentalMathSummaryView(
         state = summaryListState,
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .testTag("mm_summary_view"),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = MathSpacing.screenListContentPadding(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -868,7 +872,10 @@ fun MentalMathSummaryView(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (item.isCorrect) Color(0xFFECFDF5) else Color(0xFFFFF1F2)
+                        containerColor = MathSpacing.blendedContainerColor(
+                            if (item.isCorrect) Color(0xFF10B981) else MaterialTheme.colorScheme.errorContainer,
+                            if (item.isCorrect) 0.18f else 0.45f
+                        )
                     )
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -880,7 +887,8 @@ fun MentalMathSummaryView(
                             Text(
                                 text = "প্রশ্ন ${BengaliNumberFormatter.toBn(index + 1)}: ${item.question.expressionBn}",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
                             )
                             Icon(
                                 imageVector = if (item.isCorrect) Icons.Default.Check else Icons.Default.Close,

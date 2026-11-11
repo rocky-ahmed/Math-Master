@@ -144,9 +144,15 @@ fun MathMasterTheme(
         labelSmall = Typography.labelSmall.copy(fontWeight = baseWeight, fontSize = (Typography.labelSmall.fontSize.value * scaleFactor).sp)
     )
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = typography,
-        content = content
-    )
+    val spacingSystem = androidx.compose.runtime.remember { MathSpacingSystem() }
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalMathSpacing provides spacingSystem
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = typography,
+            content = content
+        )
+    }
 }
