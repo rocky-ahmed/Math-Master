@@ -1,94 +1,141 @@
-# Math Master — Final Project Audit Report
+# Math Master — Final Project Audit, Canonical Traceability & Three-Tier Verification Report (Visual Math Explorer 2.0)
 
-**Project**: Math Master (`com.aistudio.applet.ghqqzu`, namespace `com.example`)  
+**Project**: Math Master — Visual Math Explorer 2.0 (`com.aistudio.applet.ghqqzu`, namespace `com.example`)  
 **Workspace Root**: `/app/applet` (Google AI Studio Cloud Environment)  
-**Target GitHub Repository**: `https://github.com/rocky-ahmed/Math-Master` (`main` branch via Codex)  
-**Room Schema Version**: `v9` (`20` `@Entity` tables, non-destructive migrations `MIGRATION_1_2`..`MIGRATION_8_9`)  
-**Audit Phase**: Final Independent Adversarial Bug Hunt, Root-Cause Fixing & Regression Validation
+**Target GitHub Repository**: `https://github.com/rocky-ahmed/Math-Master` (`main` branch)  
+**Room Schema Version**: `v9` (`20` `@Entity` tables, non-destructive migrations `MIGRATION_1_2`..`MIGRATION_8_9` under `BUG-10`)  
+**Automated Regression Status**: **`215 / 215` Unit & Robolectric Tests Passing (`0` Failures, `0` Errors, `0` Skipped) across 10 Test Suites**  
+**Canonical Defect Register Scope**: **`BUG-01` through `BUG-73` (With Restored Original Definitions for `BUG-40`, `BUG-46`, `BUG-57`, `BUG-65`, `BUG-66`, `BUG-67`, `BUG-72` & `BUG-73`) + `BUG-74` through `BUG-77` (4 Newly Assigned Unused Canonical IDs for Split Bundled Root Causes = 77 Total Canonical Defects) + Explicit `UNRESOLVED` Provenance Disclosure (`UNRESOLVED-PROV-01..03`)**
 
 ---
 
-## 1. Executive Summary
+## 1. Executive Summary & Three-Tier Verification Status
 
-This report documents the final end-to-end engineering audit, independent adversarial bug hunt, root-cause bug fixing (`BUG-01` through `BUG-39`), application-wide navigation and scroll state restoration architecture, mathematical accuracy verification, performance review, UI/UX refinement, database integrity verification, and documentation reconciliation of the **Math Master** Android application prior to development freeze and GitHub synchronization.
+This report provides the final source-backed **Canonical Defect Traceability & Three-Tier Verification Audit** for **Math Master — Visual Math Explorer 2.0**:
 
-All **14 primary math modules**, **30 Compose screen destinations**, **20 Room database entities**, **4 bundled NCTB Class 6–10 textbooks (`894` PDF pages / `874` printed pages across `47` chapters, `31,193,087` bytes)**, **6 BCS exam profiles (`1,060+` questions)**, and **9 automated JVM/Robolectric test suites (`184 / 184` tests passing, up from the `175` BUG-36 baseline, `172` adversarial baseline, `167` pre-adversarial baseline, and `165` initial audit baseline)** have been audited at the source-code level and verified.
-
----
-
-## 2. Complete Inventory of Audited Subsystems
-
-### 2.1 Application Identity & Build Configuration
-- **App Name**: `Math Master` (`metadata.json` & `app/src/main/res/values/strings.xml`)
-- **Application ID**: `com.aistudio.applet.ghqqzu`
-- **Namespace**: `com.example`
-- **SDK Configuration**: `compileSdk = 36`, `minSdk = 24`, `targetSdk = 36`, Java/Kotlin `17`
-- **Architecture**: Single-Activity Jetpack Compose (`MainActivity.kt`) + reactive `StateFlow` coordinator (`MathViewModel.kt`) + offline Room `v9` persistence (`MathRepository.kt`, `MathDatabase.kt`, `MathDao.kt`) + pure Kotlin math/curriculum engines (`com.example.math.*`).
-
-### 2.2 Verified Bundled NCTB PDF Assets (`app/src/main/assets/books/`)
-
-| BookId | Asset Path | Exact Bytes | SHA-256 Checksum | PDF Pages | Printed Pages (`+5` Offset) | Chapters |
-| :--- | :--- | ---: | :--- | :-: | :-: | :-: |
-| **`CLASS_6`** | `app/src/main/assets/books/class_6.pdf` | `5,372,426` | `124f9e02f1acc31cc54cbec797c1efbe7cf823c2e63050492581634bb174e5db` | **`161`** | `156` (`1–149` + Ans `150–155`) | `8` |
-| **`CLASS_7`** | `app/src/main/assets/books/class_7.pdf` | `6,391,697` | `39e50f015d1eb328824a6ce1b8df7dcafac834a748e4f1af07ad523b830a4871` | **`181`** | `176` (`1–169` + Ans `170–175`) | `11` |
-| **`CLASS_8`** | `app/src/main/assets/books/class_8.pdf` | `6,459,157` | `7b2e5b1dd718ed5684a0bacdfd9970d9eb99dbaa015feb07a88cddfbca6a1574` | **`190`** | `185` (`1–174` + Ans `175–184`) | `11` |
-| **`CLASS_9_10`** | `app/src/main/assets/books/class_9_10.pdf` | `12,969,807` | `df1cbcf4f4451de94e3a57b7fbed3cf94fd4dbe031a571b85999a9591d2d65c0` | **`362`** | `357` (`1–344` + Ans `345–354`) | `17` |
-| **Total** | **4 Bundled NCTB PDFs** | **`31,193,087`** | **All 4 SHA-256 Digests Verified** | **`894`** | **`874`** | **`47`** |
-
-### 2.3 All 14 Primary Math Modules Audited
-
-| # | SectionKey | Module Title (BN) | Domain Engine(s) | UI Screen(s) | Audit Status |
-| :- | :--- | :--- | :--- | :--- | :--- |
-| 01 | `TABLES` | নামতা ও গুণন (`1`–`40`) | `MultiplicationModels.kt` | `TablesScreen.kt` | **PASS (Protected)** |
-| 02 | `PRIMES` | মৌলিক সংখ্যা (`1`–`200`) | `PrimeNumberModels.kt` | `PrimesScreen.kt` | **PASS (Protected)** |
-| 03 | `SQUARES` | বর্গ, ঘন ও মূল (`1`–`20`) | `SquareCubeModels.kt` | `SquaresCubesScreen.kt` | **PASS (Protected)** |
-| 04 | `FORMULAS` | বীজগণিতের সূত্র | `AlgebraFormulaModels.kt` | `FormulasScreen.kt` | **PASS (Protected)** |
-| 05 | `FORMULA_LIBRARY` | সূত্র ভাণ্ডার (`65+` formulas) | `FormulaLibraryModels.kt`, `SecondaryModuleUpgrades.kt` | `FormulaLibraryScreen.kt` | **PASS (`BUG-19`)** |
-| 06 | `PRACTICE_LAB` | অনুশীলন ল্যাব (`9` categories) | `PracticeLabModels.kt`, `SharedMathEngine.kt` | `PracticeLabScreen.kt`, `PracticeLabPlayScreen.kt` | **PASS (`BUG-07`, `BUG-24`, `BUG-29`)** |
-| 07 | `MENTAL_MATH` | মানসিক গণিত (`10` categories, `9` modes) | `MentalMathModels.kt` | `MentalMathScreen.kt`, `MentalMathPlayScreen.kt` | **PASS (`BUG-24`)** |
-| 08 | `NUMBER_SYSTEM` | সংখ্যা পদ্ধতি ও বিভাজ্যতা | `NumberSystemModels.kt`, `SharedMathEngine.kt` | `NumberSystemScreen.kt`, `NumberSystemPracticePlayScreen.kt` | **PASS (`BUG-17`, `BUG-23`)** |
-| 09 | `PROBLEM_SOLVER` | অংক সমাধানকারী (`14` solvers) | `MathProblemSolverEngine.kt`, `SolverModels.kt` | `ProblemSolverScreen.kt` | **PASS (`BUG-08`, `BUG-30`)** |
-| 10 | `VISUAL_EXPLORER` | চিত্র ও জ্যামিতি (`14` visual labs) | `VisualMathModels.kt`, `SecondaryModuleUpgrades.kt` | `VisualExplorerScreen.kt` | **PASS** |
-| 11 | `QUIZZES` | কুইজ ও পরীক্ষা (`8` presets, `12` topics) | `QuizModels.kt`, `ExamEngineModels.kt` | `QuizzesScreen.kt` | **PASS (`BUG-01`..`BUG-04`, `BUG-14`..`BUG-16`, `BUG-32`..`BUG-34`)** |
-| 12 | `DASHBOARD` | ড্যাশবোর্ড ও বিশ্লেষণ | `LearningAnalyticsEngine.kt` | `DashboardScreen.kt` | **PASS (`BUG-20`, `BUG-25`)** |
-| 13 | `BCS_MATH` | বিসিএস প্রস্তুতি (`6` profiles, `50` guides) | `BcsCurriculumAndGuideRepository.kt`, `BcsExamProfileModels.kt`, `BcsPreparationModels.kt` | `BcsPreparationScreen.kt` (`6` screens) | **PASS (`BUG-05`, `BUG-06`, `BUG-13`, `BUG-21`, `BUG-32`)** |
-| 14 | `BOOK` | পাঠ্যবই (`6`–`10`, `4` PDFs, `47` chapters) | `BookModels.kt`, `BookCurriculumRepository.kt`, `BookQuestionEngine.kt`, `BookCurriculumClass6..910.kt` | `BookHubAndDetailScreens.kt`, `BookReaderAndLabsScreens.kt`, `BookPracticeAndRevisionScreens.kt` | **PASS (`BUG-09`, `BUG-22`, `BUG-26`, `BUG-27`, `BUG-29`, `BUG-31`, `BUG-35`)** |
+| Verification Tier | Scope | Current Status | Source / Execution Evidence |
+| :--- | :--- | :---: | :--- |
+| **Tier 1: Source-Level Architecture & GPU Renderer Verification** | All 14 modules, 30 destinations, 20 Room `v9` tables (`MIGRATION_1_2`..`MIGRATION_8_9`), `Math3DGlViewport.kt` (`GLSurfaceView`, `DepthBuffer24FallbackConfigChooser`, `Math3DGlRenderer`), `Math3DEngine.kt`, `VisualMathStudioEngine.kt`, `MathSpacingSystem` (`Spacing.kt`), and `NavigationStateRestoration.kt` | **VERIFIED IN SOURCE** | Direct source audit of `app/src/main/java/com/example/` & `app/src/main/assets/books/` (`4` NCTB PDFs, `894` pages, `31,193,087` bytes) |
+| **Tier 2: Automated Unit & Robolectric Verification** | All 10 automated test suites in `app/src/test/java/com/example/` (`ExampleRobolectricTest` `54`, `MathProblemSolverUnitTest` `41`, `VisualMathExplorerUnitTest` `36`, `EcosystemUpgradeV7UnitTest` `27`, `NumberSystemUnitTest` `17`, `BcsPreparationCenterUnitTest` `12`, `ApplicationWideScrollRestorationUnitTest` `10`, `HomeNavigationAndOrderingUnitTest` `9`, `UiSpacingAndLayoutAuditUnitTest` `8`, `ExampleUnitTest` `1`) | **PASS (`215 / 215` TESTS ACROSS 10 SUITES)** | `gradle :app:testDebugUnitTest` (`0` failures, `0` errors, `0` skipped). In Robolectric (`Build.FINGERPRINT` contains `"robolectric"`), `Math3DStudioViewport` uses deterministic software projection (`Math3DEngine.projectScene`) while JVM unit tests verify `Math3DGlRenderer` MVP matrices, projection alignment, `DepthBuffer24FallbackConfigChooser`, and GLSL shaders |
+| **Tier 3: Physical-Device Hardware GPU Validation** | Real hardware `EGLContext` creation, ES 2.0/3.0 driver selection, hardware 24-bit/16-bit depth-buffer negotiation, on-device GLSL shader compilation/linking, hardware rasterization of all 10 solids / $SO(3)$ nets / cross-sections / volume fill, lifecycle rotation recovery, Android GPU Inspector (AGI) profiling, `dumpsys gfxinfo` frame timing, and idle `RENDERMODE_WHEN_DIRTY` draw-call verification | **PENDING (`NOT VERIFIED ON PHYSICAL DEVICE`)** | No physical Android handset or hardware GPU is attached to the cloud container. The repaired 11-point hardware testing guide in [`../qa/FINAL_DEVICE_QA_REPORT.md`](../qa/FINAL_DEVICE_QA_REPORT.md) Section 5 defines the mandatory physical-device validation still required before hardware sign-off |
 
 ---
 
-## 3. Summary of Root-Cause Fixes Applied (`BUG-01` – `BUG-36`)
+## 2. Final Historical Conflict & Mapping Reconciliation Summary (`BUG-01` – `BUG-73` + Split IDs `BUG-74` – `BUG-77`)
 
-### 3.1 Phase 1 Historical Engineering Defects (`BUG-01` – `BUG-21`)
-- **`BUG-01` (Numerical Keypad Scoring and Negative Marking)**: Exam Scoring Engine unanswered sentinel (`-1`) vs. wrong non-distractor numerical keypad input sentinel (`-2`) separation (`ExamScoringEngine.isOptionAnswered()` / `isOptionUnanswered()`), ensuring skipped items incur `0.0` penalty while wrong numerical inputs incur standard negative marking (`-0.25` / `-0.50`).
-- **`BUG-02` – `BUG-04`**: `ExamQuestionBank` stem deduplication & seeded shuffle (`BUG-02`); `v2` JSON question/typed-answer session persistence (`BUG-03`); `MonotonicClock` deadline tracking (`BUG-04`).
+Full 8-column chronological traceability for every defect (`BUG-01` through `BUG-73` plus newly assigned split IDs `BUG-74` through `BUG-77`) is documented in [`FINAL_ROOT_CAUSE_DEFECT_REGISTER.md`](FINAL_ROOT_CAUSE_DEFECT_REGISTER.md). Below is the summary of all historical mapping conflicts investigated and resolved using earliest surviving reports, source code, and regression test evidence:
+
+| Investigated Item | Earliest Report & Source/Test Evidence | Historical Conflict & Classification | Final Canonical Resolution Applied |
+| :--- | :--- | :--- | :--- |
+| **Conflict 1: `BUG-40` vs. `BUG-74`** | • `docs/qa/ADVERSARIAL_QA_EXECUTION_REPORT.md:19` (`2026-11-11`): `BUG-40` = `"Dashboard Initial Streak State (0 current & best streak on empty history)"`.<br>• `LearningAnalyticsEngine.kt:631–848`; `VisualMathExplorerUnitTest.kt:532, 775–789`.<br>• `MathViewModel.kt:4030–4137`; `DashboardScreen.kt:119–121` (`flushUnrecordedStudyTime()`). | **Original Defect (`BUG-40`) + Bundled/Overwriting Phase 5A Defect (`BUG-74`)**. Later Phase 5A reconciliation overwrote `BUG-40`'s original empty-history `0`-streak definition with Study Timer auto-flush. Exact pre-overwrite standalone Phase 5A draft text is marked **`UNRESOLVED` (`UNRESOLVED-PROV-01`)** because `/app/applet` has no `.git` history. | • **Restored `BUG-40` to its earliest dated definition (`2026-11-11`)**: **Dashboard Initial Streak State (`0` Current & Best Streak on Empty History)** (`LearningAnalyticsEngine.kt:631–848`).<br>• **Assigned new unused `BUG-74`**: **Study Session Timer Unrecorded Elapsed Time Auto-Flush on Pause, Reset, Finish, 30s Tick & Dashboard Entry** (`MathViewModel.kt:4030–4137`, `DashboardScreen.kt:119–121`). |
+| **Conflict 2: `BUG-46` vs. `BUG-75`** | • `docs/qa/ADVERSARIAL_QA_EXECUTION_REPORT.md:20` (`2026-11-11`): `BUG-46` = `"Dashboard Exam Trend Chart Rendering (dashboard_exam_trend_card)"`.<br>• `DashboardScreen.kt:845–905`; `LearningAnalyticsEngine.kt:250–278`; `ExampleRobolectricTest.kt:1895–1917`.<br>• `DashboardScreen.kt:114, 156–213, 328–337`; `MathViewModel.kt:3083–3096` (`updateDailyStudyTargets`). | **Original Defect (`BUG-46`) + Bundled/Overwriting Phase 5A Defect (`BUG-75`)**. Later Phase 5A reconciliation reassigned `BUG-46` to the Daily Goal Configuration Dialog. Exact pre-overwrite standalone Phase 5A draft text is marked **`UNRESOLVED` (`UNRESOLVED-PROV-02`)**. | • **Restored `BUG-46` to its earliest dated definition (`2026-11-11`)**: **Dashboard Exam Performance Trend Chart Rendering (`dashboard_exam_trend_card`)** (`DashboardScreen.kt:845–905`).<br>• **Assigned new unused `BUG-75`**: **Interactive Daily Study Goal Configuration Dialog (`btn_configure_daily_goals`) & Custom Target Persistence (`updateDailyStudyTargets`)** (`DashboardScreen.kt:114, 156–213, 328–337`, `MathViewModel.kt:3083–3096`). |
+| **Conflict 3: `BUG-57` vs. `BUG-76`** | • `docs/qa/VISUAL_MATH_EXPLORER_VALIDATION_REPORT.md:38–39` (`2026-11-11`): `BUG-57` = `"Theme-Aware Canvas Label Colors"` & `"Algebra Balance Beam Tilt Angle"`.<br>• `VisualExplorerScreen.kt:417–418, 1790–1807, 1921–1925, 2287–2380`.<br>• `Math3DEngine.kt:82, 106, 336–501` (`rotateAroundAxis` $SO(3)$ hinge unfolding & `calculateVolumeFill()`). | **Original Bundled Sub-Defects (`BUG-57`) + Later Overwriting Phase 6A Defect (`BUG-76`)**. Later Phase 6A reconciliation overwrote `BUG-57` with 3D rigid-body net unfolding & non-linear volume-fill math. Exact pre-overwrite standalone Phase 6A draft text is marked **`UNRESOLVED` (`UNRESOLVED-PROV-03`)**. | • **Restored `BUG-57` to its earliest dated definition (`2026-11-11`)**: **Visual Math Theme-Aware Canvas Label Colors (`onSurface.toArgb()`) & Algebra Balance Scale Beam-Tilt Behavior (`drawBalanceScale` / `tiltAngleDeg`)** (`VisualExplorerScreen.kt:417–418, 1790–1807, 1921–1925, 2287–2380`).<br>• **Assigned new unused `BUG-76`**: **3D Solid Studio Rigid-Body $SO(3)$ Hinge Net Unfolding (`rotateAroundAxis`) & Exact Non-Linear Volume-Fill Mathematics (`calculateVolumeFill`)** (`Math3DEngine.kt:82, 106, 336–501`). |
+| **Preserved `BUG-65`, `BUG-66` & `BUG-67`** | • `DashboardScreen.kt:605–634, 673–699` (`dashboard_ecosystem_mastery_card`); `ProblemSolverScreen.kt:1219–1237, 1708–1800`; `BcsPreparationScreen.kt:1191–1200`; `Spacing.kt:15–124`; `UiSpacingAndLayoutAuditUnitTest.kt:43–67, 201–229`. | Verified against primary source and `UiSpacingAndLayoutAuditUnitTest.kt`. | **Preserved `BUG-65`, `BUG-66` & `BUG-67` unchanged**:<br>• **`BUG-65`**: Dashboard Ecosystem Mastery Card bullet-list spacing & action-button geometry (`btn_dashboard_to_bcs`, `btn_dashboard_to_formula_lib`).<br>• **`BUG-66`**: Compact touch-target sizing (`heightIn(min = 38.dp)`, `minTouchTarget = 48.dp`) & crowded chip/control row spacing.<br>• **`BUG-67`**: Centralized `MathSpacingSystem` & `LocalMathSpacing` semantic design tokens. |
+| **Room `v8`-to-`v9` Migration (`BUG-10`)** | `MathDatabase.kt:30–55, 63–493` (`MIGRATION_1_2`..`MIGRATION_8_9`, specifically `lines 461–467` for `MIGRATION_8_9`); `Entities.kt:12–16, 31–34`; `ROOT_CAUSE_DEFECT_REGISTER.md` (`#BUG-10`). | Stream 1A (`MASTER_ENGINEERING_AUDIT_REPORT.md`) locally numbered `MIGRATION_8_9` as `BUG-07` in an 8-item table, whereas canonical registers place `MIGRATION_1_2`..`MIGRATION_8_9` under `BUG-10`. | **Preserved `MIGRATION_8_9` (`v8 -> v9`) under canonical `BUG-10`** and documented Stream 1A's `BUG-07` as a local 8-item report alias so canonical `BUG-07` (`SharedMathEngine` `Rational` equivalence & `BigInteger` overflow guards) is never overwritten. |
+| **Local Test Method Aliases in `ExampleRobolectricTest.kt` (`lines 2474–2600`) & `BUG-77`** | `ExampleRobolectricTest.kt:2474` (`regression BUG-01`), `2512` (`regression BUG-02`), `2546` (`regression BUG-03` & `BUG-04`), `2580`, `2600` (`regression BUG-05`: `MathViewModel.kt:1532, 2321`). | Local test names reused `BUG-01..BUG-05` labels for later Book/Bookmark/BCS/Digit regression checks; `regression BUG-05` (`line 2600`) tests ViewModel-level Bengali digit normalization in `analyzeNumberInLab` and `checkPrimeInput`. | Mapped local `regression BUG-01` $\to$ **`BUG-31`**, preserved **`BUG-69`** (`BOOK_PAGE`/`BCS_PREP`/`book_formula_` bookmark routing), **`BUG-70`** (BCS cold-start profile restoration), **`BUG-71`** (`isBookLessonCompleted` isolation by `bookId`), and assigned new unused **`BUG-77`** to ViewModel Bengali numeral normalization in Number System Lab & Prime Checker (`MathViewModel.kt:1532, 2321`). |
+| **Preserved Split `BUG-72` & `BUG-73`** | `MathViewModel.kt:4139–4178` (`_completedVisualCheckpointIds`); `Math3DGlViewport.kt:307–365` (`DepthBuffer24FallbackConfigChooser`); `ExampleRobolectricTest.kt:2615–2646`; `VisualMathExplorerUnitTest.kt:760–788`. | Verified against primary source and unit/Robolectric tests. | **Preserved `BUG-72` & `BUG-73` unchanged**:<br>• **`BUG-72`**: Visual Math Explorer 2.0 `_completedVisualCheckpointIds` duplicate checkpoint & analytics inflation guard.<br>• **`BUG-73`**: OpenGL ES 3D Viewport `DepthBuffer24FallbackConfigChooser` 24-bit to 16-bit EGL depth-buffer fallback. |
+
+---
+
+## 3. Reconciled Canonical Defect Groupings (`BUG-01` – `BUG-73` + Split IDs `BUG-74` – `BUG-77`)
+
+### 3.1 Phase 1: Core Engineering Audit (`BUG-01` – `BUG-21`)
+- **`BUG-01` (P0)**: Numerical Keypad Scoring and Negative Marking (`-1` unanswered sentinel vs. `-2` wrong numerical sentinel).
+- **`BUG-02` – `BUG-04`**: `ExamQuestionBank` stem deduplication, seeded shuffle & full-exam numerical input persistence (`BUG-02`); `v2` JSON question/typed-answer session persistence (`BUG-03`); `MonotonicClock` deadline tracking (`BUG-04`).
 - **`BUG-05` – `BUG-06`, `BUG-13`, `BUG-21`**: 6 official BPSC exam profiles (50th BCS Prelim 35 marks default), question provenance badges, profile-scoped progress/mistake keys (`"$examProfileId::$id"`), and multi-profile mistake resolution.
-- **`BUG-07` – `BUG-08`**: Exact `BigInteger` `Rational` answer equivalence, divisor/totient and modular exponentiation overflow protection, and 14-topic Problem Solver domain & zero-coefficient contradiction guards.
-- **`BUG-09` – `BUG-10`**: Uniform `+5` printed-to-PDF page offset across all 894 NCTB PDF pages and non-destructive Room `v1 -> v9` migrations across all 20 `@Entity` tables.
-- **`BUG-11` – `BUG-12`, `BUG-18`**: Font-scale-aware Home Grid cards, `BackHandler` coverage across secondary screens, and 100% `collectAsStateWithLifecycle()` adoption.
-- **`BUG-14` – `BUG-17`, `BUG-19` – `BUG-20`**: Untimed quiz/practice upward elapsed timer, Review Incorrect unanswered exclusion, strict `NUMERICAL`/`TRUE_FALSE` enforcement, Number System `MCQ`/`KEYPAD`/`TRUE_FALSE` practice, Formula Library bookmark deep-link, and Dashboard BCS `rawTopicId` deduplication.
+- **`BUG-07` – `BUG-08`**: Exact `BigInteger` `Rational` answer equivalence, bilingual digit normalization, divisor/totient and modular exponentiation overflow protection (`BUG-07`), and 14-topic Problem Solver domain & zero-coefficient contradiction guards (`BUG-08`).
+- **`BUG-09` – `BUG-10`**: Uniform `+5` printed-to-PDF page offset across all 894 NCTB PDF pages (`BUG-09`) and non-destructive Room `v1 -> v9` migrations (`MIGRATION_1_2`..`MIGRATION_8_9`, including `v8 -> v9` secondary indexes on `bookmarks` and `quiz_scores`) across all 20 `@Entity` tables (`BUG-10`).
+- **`BUG-11` – `BUG-12`, `BUG-18`**: Font-scale-aware Home Grid cards (`BUG-11`), `BackHandler` coverage across secondary screens (`BUG-12`), and 100% `collectAsStateWithLifecycle()` adoption + unused library cleanup (`BUG-18`).
+- **`BUG-14` – `BUG-17`, `BUG-19` – `BUG-20`**: Untimed quiz/practice upward elapsed timer (`BUG-14`), Review Incorrect unanswered exclusion (`BUG-15`), strict `NUMERICAL`/`TRUE_FALSE` enforcement (`BUG-16`), Number System `MCQ`/`KEYPAD`/`TRUE_FALSE` practice (`BUG-17`), Formula Library bookmark deep-link (`BUG-19`), and Dashboard BCS `rawTopicId` deduplication & `BOOK` filter chip (`BUG-20`).
 
-### 3.2 Phase 2 Stabilization Audit Defects (`BUG-22` – `BUG-28`)
-1. **`BUG-22` (P1 — Book Practice Navigation State Preservation & Score Deduplication)**: Restored per-question `selectedOptionsByIndex` and `userTextInputsByIndex` across `previousBookPracticeQuestion()` and `nextBookPracticeQuestion()` and prevented re-submitting answered questions.
-2. **`BUG-23` (P1 — Number System Practice True Streak, Duration & Mistake Logging)**: Added `currentStreak`, `highestStreak`, and `sessionStartEpochMs` to `NumberSystemPracticeState` and logged wrong answers to `unified_mistake_notebook`.
-3. **`BUG-24` (P2 — Cross-Module Unified Mistake Notebook Synchronization & Auto-Resolution)**: Synchronized `PRACTICE_LAB`, `MENTAL_MATH`, `NUMBER_SYSTEM`, and `BOOK` practice flows with `unified_mistake_notebook`.
-4. **`BUG-25` (P2 — Dashboard KPI Deduplication for `BOOK_` Legacy Quiz Scores)**: Excluded `BOOK_` prefixed legacy `quiz_scores` from `standaloneLegacyQuizzes` in `LearningAnalyticsEngine.computeSeparatedKpis()`.
-5. **`BUG-26` (P2 — Textbook Question Engine Fractional & Numeric Equivalence)**: Connected `BookQuestionEngine.isTextEquivalent()` to `SharedMathEngine.isAnswerCorrect()`.
-6. **`BUG-27` (P2 — Multi-Book Filter Bar in `BookRevisionScreen`)**: Added a horizontal textbook filter chip bar (`সব বই` + `BookId.entries`) to `BookRevisionScreen`.
-7. **`BUG-28` (P3 — Repository Hygiene & Unified Documentation Index)**: Added `/public/assets/aistudio/` to `.gitignore` and indexed all project documentation under `docs/`.
+### 3.2 Phase 2: Pre-Freeze Stabilization (`BUG-22` – `BUG-28`)
+- **`BUG-22` (P1)**: Book Practice bidirectional navigation state preservation (`selectedOptionsByIndex`, `userTextInputsByIndex`) & score deduplication.
+- **`BUG-23` (P1)**: Number System Practice true consecutive streak (`currentStreak`, `highestStreak`), elapsed duration, and mistake logging.
+- **`BUG-24` (P2)**: Cross-module `unified_mistake_notebook` synchronization and auto-resolution across `PRACTICE_LAB`, `MENTAL_MATH`, `NUMBER_SYSTEM`, and `BOOK`.
+- **`BUG-25` (P2)**: Dashboard KPI deduplication for `BOOK_` legacy quiz scores in `computeSeparatedKpis()`.
+- **`BUG-26` (P2)**: Textbook Question Engine fractional, ratio, and unit equivalence via `SharedMathEngine.isAnswerCorrect()`.
+- **`BUG-27` (P2)**: Multi-book filter chip bar (`সব বই` + `BookId.entries`) in `BookRevisionScreen`.
+- **`BUG-28` (P3)**: Repository `.gitignore` hygiene (`/public/assets/aistudio/`) & unified documentation index.
 
-### 3.3 Phase 3 Independent Adversarial Bug Hunt Defects (`BUG-29` – `BUG-35`)
-8. **`BUG-29` (P1 — Dotless Textbook Unit Suffixes & Mixed Fraction Normalization)**: Expanded `SharedMathEngine.stripCommonUnitSuffixes()` with dotless textbook units (`সেমি`, `বর্গসেমি`, `ঘনসেমি`, `মিটার`, `বর্গমিটার`, `কিমি`, etc.) and normalized mixed fractions (`"1 1/2"`, `"১ ১/২"`, `"১ সমস্ত ১/২"`, `"১ পূর্ণ ১/২"`) into improper fractions before whitespace stripping.
-9. **`BUG-30` (P1 — Distributive Parenthesized Linear & Quadratic Algebraic Simplification)**: Added `expandAlgebraicParentheses()` in `SharedMathEngine` so expressions like `2(x + 3) + 4x - 1`, `3(2x - 1) - 2(x - 4)`, and `2(x^2 + 3x - 1) - x^2` expand and simplify accurately.
-10. **`BUG-31` (P1 — Book Mistake & Spaced Revision ID Normalization + Cross-Table Resolution)**: Normalized `rawId` and `revItemId = "mistake_$rawId"` across `recordBookQuestionMistake`, `markBookMistakeResolved`, and `deleteBookMistake` and synchronized Book mistakes with `unified_mistake_notebook` (`"BOOK_$rawId"`).
-11. **`BUG-32` (P1 — Canonical BCS Question ID Resolution & Unified Mistake Sync)**: Added `extractCanonicalBcsQuestionId()` in `MathRepository` to normalize mode-prefixed BCS question IDs (`bcs_exam_`, `bcs_prev_`, `bcs_mistake_retry_`, `bcs_ma_exam_`) and synchronized Quiz and BCS mistakes/resolutions with `unified_mistake_notebook`.
-12. **`BUG-33` (P2 — Unsubmitted Draft Preservation Across Quiz Navigation & Timed Expiry)**: Added `pendingOptionSelections` and `pendingTypedAnswers` to `QuizSessionState` so unsubmitted choices in non-`isFullExamMode` quizzes are preserved across question jumps and evaluated on timer expiry.
-13. **`BUG-34` (P2 — Exclude Skipped Zero-Attempt Topics from `weakTopics`)**: Guarded `weakTopics` in `ExamScoringEngine.evaluateExam()` with `it.attemptedCount > 0` so topics where all questions were skipped (`0` wrong answers) are not misclassified as weak areas.
-14. **`BUG-35` (P2 — Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization)**: Implemented `BookPdfRenderCache` (`Mutex` serialization, bounded `LruCache<String, Bitmap>(12)`, `Bitmap.Config.RGB_565` bitmap memory management, OOM cache-eviction fallback) and synchronized atomic temp-file extraction in `resolveOfflinePdfFile()`.
+### 3.3 Phase 3: Independent Adversarial Bug Hunt (`BUG-29` – `BUG-35`)
+- **`BUG-29` (P1)**: Dotless textbook unit suffixes (`সেমি`, `বর্গসেমি`, `ঘনসেমি`, `মিটার`, `বর্গমিটার`, `কিমি`) & mixed fraction (`"1 1/2"`, `"১ ১/২"`, `"১ সমস্ত ১/২"`, `"১ পূর্ণ ১/২"`) normalization.
+- **`BUG-30` (P1)**: Distributive parenthesized linear & quadratic algebraic simplification (`expandAlgebraicParentheses()`).
+- **`BUG-31` (P1)**: Book mistake & spaced revision ID normalization (`revItemId = "mistake_$rawId"`) + unresolve toggle (`resolved = false`) + cross-table resolution with `unified_mistake_notebook`.
+- **`BUG-32` (P1)**: Canonical BCS question ID extraction (`extractCanonicalBcsQuestionId()`) & Quiz/BCS unified mistake synchronization.
+- **`BUG-33` (P2)**: Unsubmitted quiz draft preservation (`pendingOptionSelections`, `pendingTypedAnswers`) across question jumps and timer expiry.
+- **`BUG-34` (P2)**: Exclude skipped zero-attempt topics (`attemptedCount == 0`) from `weakTopics` in `ExamScoringEngine.evaluateExam()`.
+- **`BUG-35` (P2)**: Book PDF Reader concurrency, bitmap memory management (`Bitmap.Config.RGB_565`), `Mutex` serialization, bounded `LruCache<String, Bitmap>(12)`, and synchronized atomic PDF extraction (`BookPdfRenderCache`).
 
-### 3.4 Phase 4 Real-Device UX & Application-Wide Scroll Restoration (`BUG-36` – `BUG-39`)
-15. **`BUG-36` (P0 — Home Screen Scroll Position Restoration)**: Fixed Home Screen scroll reset when returning from modules by introducing `HomeScrollPosition(firstVisibleItemIndex, firstVisibleItemScrollOffset)` in `MathViewModel.kt`, wrapping `MainAppContent`'s `when (currentScreen)` destination switch in `saveableStateHolder.SaveableStateProvider` in `MainActivity.kt`, and initializing `LazyGridState` in `HomeScreen.kt` via `rememberSaveable(saver = LazyGridState.Saver)` seeded from `viewModel.homeScrollPosition` and continuously synchronized via `snapshotFlow` and `DisposableEffect`.
-16. **`BUG-37` (P0 — Application-Wide Nested Navigation Scroll State Loss)**: Implemented reusable `NavigationStateRestoration.kt` (`rememberManagedLazyListState`, `rememberManagedLazyGridState`, `rememberManagedScrollState`), bounded LRU `_scrollPositions` and `_navigationContextStack` (`NavigationContextSnapshot` push/pop) + argument-scoped `getDestinationStateKey(screen)` in `MathViewModel.kt`, and wired all 19 Compose screen files so every parent, child, and grandchild screen restores its exact visible item index, pixel scroll offset, and parent arguments on Back return.
-17. **`BUG-38` (P1 — Internal Tab, Subsection, and Filter Context Reset on Re-Entry)**: Implemented `rememberManagedUiState` backed by `MathViewModel`'s bounded `_uiContextStates` store so active internal tabs, filter chips, search queries, and expanded item cards across all multi-tab modules (`BcsPreparation`, `NumberSystem`, `Quizzes`, `VisualExplorer`, `ProblemSolver`, `Customize`, `BookChapterOverview`, `BookRevision`, `Tables`, `Primes`, `SquaresCubes`, `Formulas`, `Dashboard`) survive composition disposal and restore per-tab scroll positions.
-18. **`BUG-39` (P1 — Bottom-Navigation Tab State Eviction on Tab Switch)**: Updated `MainAppContent`'s `DisposableEffect(activeKeys)` in `MainActivity.kt` to retain all 5 core Bottom-Navigation tab keys (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`) across tab switches.
+### 3.4 Phase 4: Real-Device UX & Application-Wide Navigation, Scroll & Context State Restoration (`BUG-36` – `BUG-39`)
+- **`BUG-36` (P0)**: Home Screen scroll position & pixel offset restoration (`HomeScrollPosition` + `SaveableStateHolder` + `LazyGridState.Saver`).
+- **`BUG-37` (P0)**: Application-wide nested navigation scroll state restoration (`NavigationStateRestoration.kt`, bounded LRU `_scrollPositions`, argument-scoped `getDestinationStateKey(screen)`, `_navigationContextStack` push/pop across all 19 screen files).
+- **`BUG-38` (P1)**: Internal tab, subsection, and filter context restoration (`rememberManagedUiState` backed by `_uiContextStates` and per-tab scroll keys `tab_$selectedTab`).
+- **`BUG-39` (P1)**: Bottom-Navigation tab state retention across all 5 core tabs (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`) in `MainActivity.kt`.
 
+### 3.5 Phase 5A: Progress & Statistics Dashboard, Study Timer & Learning Analytics Engine Hardening (`BUG-40` – `BUG-46`, plus Split IDs `BUG-74` & `BUG-75`)
+- **`BUG-40` (P1, Restored Original Definition)**: **Dashboard Initial Streak State (`0` Current & Best Streak on Empty History)** — `LearningAnalyticsEngine.computeDailyGoalsAndStreaks()` (`LearningAnalyticsEngine.kt:631–848`) returns `currentStreakDays = 0` and `bestStreakDays = 0` when no study activity exists (`VisualMathExplorerUnitTest.kt:532, 775–789`).
+- **`BUG-41` (P1)**: Dashboard Exam KPI deduplication for both `BOOK_` and `VISUAL_` legacy quiz scores (plus `±2500ms` paired exam timestamp deduplication) in `buildDashboardAnalytics()` and `computeSeparatedKpis()`.
+- **`BUG-42` (P2)**: Exam Performance Trend chronological merging of `ExamAttemptEntity` and standalone `QuizScoreEntity` (`RawTrendItem` sorted by timestamp).
+- **`BUG-43` (P1)**: Time-windowed Topic Mastery isolation (`buildWindowedTopicAnalytics()` computing mastery strictly within `[cutoffMs, nowMs]` for `TODAY`, `LAST_7_DAYS`, `THIS_MONTH`, `LAST_30_DAYS`, and `LAST_90_DAYS`).
+- **`BUG-44` (P1)**: Bengali topic title normalization (`LearningAnalyticsEngine.normalizeTopicTitleBn()`) and Smart Recommendation action routing (`executeLearningRecommendation()` for `BOOK_*`, `VISUAL_*`, `BCS*`, `GEOMETRY_MENSURATION`, `NumberSystemTopic`, and `PracticeCategory`).
+- **`BUG-45` (P1)**: Multi-session same-day backfill accumulation in `computeDailyGoalsAndStreaks()` and unbounded (`>365`-day, DST-safe UTC epoch-day) `currentStreakDays` / `bestStreakDays` calculation (`getAllDailyStudyActivity()`).
+- **`BUG-46` (P1, Restored Original Definition)**: **Dashboard Exam Performance Trend Chart Rendering (`dashboard_exam_trend_card`)** — `ExamPerformanceTrendCard` (`DashboardScreen.kt:845–905`, `LearningAnalyticsEngine.kt:250–278`) renders the 10-attempt bar chart and empty-state feedback (`ExampleRobolectricTest.kt:1895–1917`).
+- **`BUG-74` (P1, Split from `BUG-40`)**: **Study Session Timer Unrecorded Elapsed Time Auto-Flush (`unrecordedDbSeconds` & `flushUnrecordedStudyTime()`)** on pause, reset, finish, 30s tick, and `DashboardScreen` entry (`MathViewModel.kt:4030–4137`, `DashboardScreen.kt:119–121`, `ExampleRobolectricTest.kt:1985–2013`).
+- **`BUG-75` (P2, Split from `BUG-46`)**: **Interactive Daily Study Goal Configuration Dialog (`btn_configure_daily_goals`) & Custom Target Persistence (`updateDailyStudyTargets`)** (`DashboardScreen.kt:114, 156–213, 328–337`, `MathViewModel.kt:3083–3096`, `ExampleRobolectricTest.kt:2015–2030`).
 
+### 3.6 Phase 5B: Interactive Quiz & Full-Exam Engine Hardening (`BUG-47` – `BUG-52`)
+- **`BUG-47` (P1)**: Uncommitted/pending answer inclusion in OMR Question Palette and Pre-Submit Confirmation modal via `QuizSessionState.effectiveAnswersMap`.
+- **`BUG-48` (P1)**: Safe transactional exam history deletion (`MathDao.deleteExamAttemptSafely`) with `IN_PROGRESS` discard guard (`existing.status != "COMPLETED"`) and sibling completed-exam collision protection in `±2500ms` windows.
+- **`BUG-49` (P1)**: Exam timer resume under 30 seconds without artificial `.coerceAtLeast(30)` inflation in `resumeActiveExamAttempt()`.
+- **`BUG-50` (P1)**: Declarative Bengali `TRUE_FALSE` statement formatting (`QuizGenerator.formatTrueFalseStatementBn()`) stripping interrogative words (`"কত?"`, `"কত"`, `"কোনটি"`, `"?"`) while preserving polarity.
+- **`BUG-51` (P2)**: Content-prefixed unique question IDs across all 12 `QuizTopic` generators in `QuizModels.kt`.
+- **`BUG-52` (P1)**: Numerical question `selectedOptionIndex = null` isolation when a typed numerical answer matches an underlying MCQ option string.
+
+### 3.7 Phase 6A: Visual Math Explainer & 3D Solid Studio Defect Fixes (`BUG-53` – `BUG-58`, plus Split ID `BUG-76`)
+- **`BUG-53` (P1)**: True 3D projected cube (`drawCubeVolume3DVisual`) in Formula Visualizer (`vis_cube_vol`).
+- **`BUG-54` (P1)**: Multi-whole improper fraction pie and bar visualization (`numerator > denominator`, up to 4 wholes) in `FractionPieAndBarCanvas`.
+- **`BUG-55` (P1)**: Interactive 2D Coordinate Transformation Explorer card (`CoordinateTransformation2DCard` in Tab 5) and migration of volatile visual states to `rememberManagedUiState`.
+- **`BUG-56` (P1)**: 2D Geometry Canvas `zoomScale` (`0.75f..1.6f`) application across all 6 shape types and `useExactTriangleSides` perimeter mode with triangle inequality validation.
+- **`BUG-57` (P1, Restored Original Definition)**: **Visual Math Theme-Aware Canvas Label Colors (`onSurface.toArgb()`) & Algebra Balance Scale Beam-Tilt Behavior (`drawBalanceScale` / `tiltAngleDeg`)** (`VisualExplorerScreen.kt:417–418, 1790–1807, 1921–1925, 2287–2380`, `VisualMathExplorerUnitTest.kt:1318–1331`, `ExampleRobolectricTest.kt:2383–2405`).
+- **`BUG-58` (P1)**: Visual Algebra Balance Scale custom $a, b, c$ sliders, Trial-$x$ physical beam tilt dynamics, and `recordVisualMathCheckpoint()` integration.
+- **`BUG-76` (P1, Split from `BUG-57`)**: **3D Solid Studio Rigid-Body $SO(3)$ Hinge Net Unfolding (`rotateAroundAxis` with zero lerp face shrinkage, `CONE` base fold into net plane, `SPHERE` Gauss *Theorema Egregium* gore net) & Exact Non-Linear Volume-Fill Mathematics (`Math3DEngine.calculateVolumeFill()`)** (`Math3DEngine.kt:82, 106, 336–501`, `VisualMathExplorerUnitTest.kt:849, 890, 948, 1149, 1261`).
+
+### 3.8 Phase 6B: Application-Wide UI Spacing, Padding, `WindowInsets`, Card Alignment & Dark-Theme Contrast System (`BUG-59` – `BUG-67`)
+- **`BUG-59` (P1)**: Nested `Scaffold` `contentWindowInsets = WindowInsets(0, 0, 0, 0)` deduplication, `modifier = modifier.fillMaxSize()` propagation, and `.statusBarsPadding()` on full-screen play headers.
+- **`BUG-60` (P1)**: `Arrangement.SpaceBetween` card header `Modifier.weight(1f)` on leading title columns to prevent trailing action button clipping.
+- **`BUG-61` (P1)**: Opaque `MathSpacing.blendedContainerColor` replacing translucent `ElevatedCard` `.copy(alpha = ...)` to eliminate shadow bleed artifacts.
+- **`BUG-62` (P2)**: `MathSectionHeader` default `horizontalPadding = 0.dp` deduplication and standardized `MathSpacing.screenListContentPadding()` (`horizontal = 16.dp, top = 12.dp, bottom = 24.dp`).
+- **`BUG-63` (P2)**: Uniform peer metric card heights via `Modifier.height(IntrinsicSize.Max)` and `Modifier.fillMaxHeight()`.
+- **`BUG-64` (P1)**: `MentalMathSummaryView` review card dark-mode contrast fix using theme-aware `MathSpacing.blendedContainerColor`.
+- **`BUG-65` (P2)**: **Dashboard Ecosystem Mastery Card Bullet-List Spacing (`Arrangement.spacedBy(4.dp)` / `MathSpacing.md`) & Action-Button Geometry Improvements (`btn_dashboard_to_bcs` and `btn_dashboard_to_formula_lib` with `Modifier.weight(1f).heightIn(min = 42.dp)`, `RoundedCornerShape(12.dp)`, `Arrangement.spacedBy(10.dp)`)** (`DashboardScreen.kt:605–634, 673–699`).
+- **`BUG-66` (P2)**: **Compact Touch-Target Sizing (`Modifier.heightIn(min = 38.dp)`, `minTouchTarget = 48.dp`) & Crowded Chip/Control Row Spacing (`Arrangement.spacedBy(6.dp / 8.dp)`)** (`ProblemSolverScreen.kt:1219–1237, 1708–1721, 1763–1776, 1787–1800`, `BcsPreparationScreen.kt:1191–1200`, `CommonComponents.kt:207`, `DashboardScreen.kt:270–315, 922–950`, `Spacing.kt:52–56`).
+- **`BUG-67` (P1)**: **Centralized `MathSpacingSystem` & `LocalMathSpacing` Semantic Design Token Architecture** (`Spacing.kt:15–124`, `Theme.kt:147–157`).
+
+### 3.9 Phase 7: Newly Assigned Canonical IDs for Disambiguated & Split Root-Cause Defects (`BUG-68` – `BUG-77`)
+- **`BUG-68` (P1)**: Dashboard Practice History time-window filtering (`selectedTimeFilter` on `filteredHistory`), `BCS_PREP`/`VISUAL_MATH` module filter chips, and removal of `LIMIT 200` truncation in `MathDao.getAllPracticeHistory()` (`DashboardScreen.kt:145–150, 922–931`, `MathDao.kt:74–76`).
+- **`BUG-69` (P2)**: Bookmarks multi-category deep-link routing for `BOOK_PAGE`, `BCS_PREP`, and `book_formula_` items (`BookmarksAndTutorScreens.kt:135–165`, `ExampleRobolectricTest.kt:2512`).
+- **`BUG-70` (P1)**: BCS Exam Profile cold-start persistence restoration (`selectedBcsExamProfile` & `selectedBcsSyllabusVersion` sync on `MathViewModel` init, `MathViewModel.kt:309–321`, `ExampleRobolectricTest.kt:2546`).
+- **`BUG-71` (P1)**: NCTB Book lesson completion isolation by `bookId` (`isBookLessonCompleted(lessonId, bookId)`, `MathViewModel.kt:3571–3573`, `ExampleRobolectricTest.kt:2580`).
+- **`BUG-72` (P1)**: Visual Math Explorer 2.0 duplicate checkpoint recording & analytics inflation guard (`_completedVisualCheckpointIds` in `MathViewModel.kt:4139–4178`, `ExampleRobolectricTest.kt:2615–2643`).
+- **`BUG-73` (P1)**: OpenGL ES 3D Viewport hardware EGL depth-buffer compatibility & 24-bit to 16-bit fallback chooser (`DepthBuffer24FallbackConfigChooser` in `Math3DGlViewport.kt:307–365`, `ExampleRobolectricTest.kt:2644–2645`, `VisualMathExplorerUnitTest.kt:760–788`).
+- **`BUG-74` (P1)**: Study Session Timer unrecorded elapsed time auto-flush (`unrecordedDbSeconds` & `flushUnrecordedStudyTime()`, `MathViewModel.kt:4030–4137`, `DashboardScreen.kt:119–121`, `ExampleRobolectricTest.kt:1985–2013`).
+- **`BUG-75` (P2)**: Interactive Daily Study Goal Configuration Dialog (`btn_configure_daily_goals` & `updateDailyStudyTargets`, `DashboardScreen.kt:114, 156–213, 328–337`, `MathViewModel.kt:3083–3096`, `ExampleRobolectricTest.kt:2015–2030`).
+- **`BUG-76` (P1)**: 3D Solid Studio rigid-body $SO(3)$ hinge net unfolding (`rotateAroundAxis`) & exact non-linear volume-fill math (`calculateVolumeFill`, `Math3DEngine.kt:82, 106, 336–501`, `VisualMathExplorerUnitTest.kt:849, 890, 948, 1149, 1261`).
+- **`BUG-77` (P2)**: ViewModel Bengali numeral input normalization in Number System Lab (`analyzeNumberInLab`) & Prime Checker (`checkPrimeInput`) (`MathViewModel.kt:1532, 2321`, `ExampleRobolectricTest.kt:2600`).
+
+---
+
+## 4. Physical-Device GPU Validation Requirements (`STATUS: PENDING PHYSICAL HARDWARE`)
+
+Physical GPU validation remains **`PENDING`** until executed on physical Android hardware. See [`../qa/FINAL_DEVICE_QA_REPORT.md`](../qa/FINAL_DEVICE_QA_REPORT.md) Section 5 for the **Repaired 11-Point Physical-Device GPU Validation Execution Guide** that must be run on a physical handset:
+1. **EGL Context Creation & Surface Binding** (`adb logcat` verification of `eglCreateContext` / `eglCreateWindowSurface` with zero `EGL_BAD_*` errors).
+2. **OpenGL ES 2.0 / 3.0 Client Selection** (`supportsEs30` via `reqGlEsVersion >= 0x00030000` and hardware `GL_VERSION` / `GL_RENDERER` readout).
+3. **Hardware Depth Buffer Verification (`BUG-73`)** (`DepthBuffer24FallbackConfigChooser`: `24-bit` primary / `16-bit` fallback negotiation on physical GPU drivers, `GL_DEPTH_TEST`, `GL_LEQUAL`).
+4. **Hardware GLSL Shader Compilation & Linking** (`surfaceProgram` and `lineProgram` compilation on device GPU drivers & `glDetachShader`/`glDeleteShader` cleanup).
+5. **All 10 Solids Hardware Rendering Matrix** (`CUBE`, `CUBOID`, `CYLINDER`, `CONE`, `SPHERE`, `TRIANGULAR_PRISM`, `HEMISPHERE`, `SQUARE_PYRAMID`, `HEXAGONAL_PRISM`, `FRUSTUM`).
+6. **Rigid-Body $SO(3)$ Net Unfolding (`BUG-76`)** (`0%..100%` area-invariant hinge rotation, Cone base fold, Sphere *Theorema Egregium* gore net).
+7. **3D Plane Cross-Section Slicing** (`HORIZONTAL`, `VERTICAL`, `ANGLED` cuts with translucent red intersection fill & analytical slice area).
+8. **Linear & Non-Linear Volume-Fill Rendering (`BUG-76`)** ($1-(1-p)^3$, $p^3$, $p^2(3-2p)$, $p(3-p^2)/2$, $2p-p^2$, and translucent cyan `glDepthMask(false)` pass).
+9. **Lifecycle Recreation & Orientation Change** (`ON_PAUSE` / `ON_RESUME`, rotation, screen lock/unlock, `releaseClientBuffers()`).
+10. **Android GPU Inspector (AGI) OpenGL ES / ANGLE System & Frame Profiling** (verifying the 4 batched `glDrawArrays` passes per dirty frame and `<= 4.0ms` GPU execution time).
+11. **UI Frame Statistics (`dumpsys gfxinfo`) & Instrumented Renderer Draw-Call Count for Idle `RENDERMODE_WHEN_DIRTY` Behavior** (verifying p95 `<= 16.67ms` during active gestures and `0` `onDrawFrame` / `glDrawArrays` / `eglSwapBuffers` calls during a 10-second idle window).

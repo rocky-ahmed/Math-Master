@@ -148,6 +148,21 @@ fun MainAppContent(viewModel: MathViewModel) {
         onDispose { }
     }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                androidx.lifecycle.Lifecycle.Event.ON_START -> viewModel.onAppForegrounded()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     BackHandler(enabled = screenStack.size > 1) {
         viewModel.navigateBack()
     }

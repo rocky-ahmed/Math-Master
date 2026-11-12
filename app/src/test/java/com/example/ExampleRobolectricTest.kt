@@ -2610,6 +2610,41 @@ class ExampleRobolectricTest {
         assertEquals(12L, gcdRes.gcd)
         assertEquals(72L, gcdRes.lcm)
     }
+
+    @Test
+    fun `adversarial Visual Math 2_0 duplicate checkpoint guard and 24-bit EGL depth fallback`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val vm = com.example.ui.MathViewModel(app)
+
+        // First completion of checkpoint records true
+        val firstRecord = vm.recordVisualMathCheckpoint(
+            topicId = "visual_stage7_CONE",
+            topicTitleBn = "কোণক — অনুশীলন যাচাই",
+            isCorrect = true
+        )
+        assertTrue("First correct checkpoint submission must be recorded", firstRecord)
+        assertTrue(vm.completedVisualCheckpointIds.contains("visual_stage7_CONE"))
+
+        // Duplicate submission of the same checkpoint ID must be blocked
+        val duplicateRecord = vm.recordVisualMathCheckpoint(
+            topicId = "visual_stage7_CONE",
+            topicTitleBn = "কোণক — অনুশীলন যাচাই",
+            isCorrect = true
+        )
+        assertFalse("Duplicate correct checkpoint submission must be prevented", duplicateRecord)
+
+        // Different checkpoint ID must succeed
+        val secondTopicRecord = vm.recordVisualMathCheckpoint(
+            topicId = "visual_stage8_kc_CONE",
+            topicTitleBn = "কোণক — কুইজ যাচাই",
+            isCorrect = true
+        )
+        assertTrue("Distinct checkpoint ID must be recorded", secondTopicRecord)
+
+        val chooser = com.example.ui.components.DepthBuffer24FallbackConfigChooser()
+        assertEquals(24, chooser.negotiatedDepthBits)
+    }
 }
+
 
 

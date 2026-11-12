@@ -164,17 +164,30 @@ data class NavigationContextSnapshot(
 )
 
 /**
+ * Concise Bengali display statuses for Study Timer 2.0 (BUG-78).
+ */
+enum class StudyTimerDisplayStatus(val labelBn: String) {
+    OFF("বন্ধ"),
+    READY("প্রস্তুত"),
+    RUNNING("চলমান"),
+    PAUSED("বিরতি"),
+    COMPLETED("সম্পন্ন")
+}
+
+/**
  * Persistent state for the Home Screen 'Study Session' learning timer component.
+ * Initializes in the compact OFF state (isVisibleOnHome = false, isRunning = false) on every cold process launch (BUG-78).
  */
 data class StudySessionTimerState(
-    val isVisibleOnHome: Boolean = true,
+    val isVisibleOnHome: Boolean = false,
     val isRunning: Boolean = false,
     val currentSessionSeconds: Int = 0,
     val todayTotalSeconds: Int = 0,
     val allTimeTotalSeconds: Int = 0,
     val dailyGoalMinutes: Int = 30,
     val completedSessionsToday: Int = 0,
-    val unrecordedDbSeconds: Int = 0
+    val unrecordedDbSeconds: Int = 0,
+    val lastSessionCompleted: Boolean = false
 ) {
     val dailyGoalSeconds: Int
         get() = dailyGoalMinutes * 60
@@ -184,6 +197,18 @@ data class StudySessionTimerState(
 
     val isDailyGoalReached: Boolean
         get() = todayTotalSeconds >= dailyGoalSeconds
+
+    val displayStatus: StudyTimerDisplayStatus
+        get() = when {
+            !isVisibleOnHome -> StudyTimerDisplayStatus.OFF
+            isRunning -> StudyTimerDisplayStatus.RUNNING
+            currentSessionSeconds > 0 -> StudyTimerDisplayStatus.PAUSED
+            lastSessionCompleted -> StudyTimerDisplayStatus.COMPLETED
+            else -> StudyTimerDisplayStatus.READY
+        }
+
+    val statusLabelBn: String
+        get() = displayStatus.labelBn
 }
 
 data class QuizSessionState(
@@ -3918,82 +3943,208 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     // =========================================================================
-    // PERSISTENT 'STUDY SESSION' TIMER COMPONENT
+    // PERSISTENT 'STUDY SESSION' TIMER 2.0 COMPONENT (BUG-78)
     // =========================================================================
 
+    private var studyTimerJob: kotlinx.coroutines.Job? = null
+    private var lastTickElapsedRealtimeMs: Long = 0L
+
+    val isStudyTimerJobActive: Boolean
+        get() = studyTimerJob?.isActive == true
+
+    var activeStudyTimerJobCount: Int = 0
+        private set
+
+    private fun startStudyTimerJobIfNeeded() {
+        if (studyTimerJob?.isActive == true) return
+        studyTimerJob?.cancel()
+        lastTickElapsedRealtimeMs = clock.elapsedRealtime()
+        activeStudyTimerJobCount = 1
+        studyTimerJob = viewModelScope.launch {
+            try {
+                while (_studySessionTimer.value.isRunning) {
+                    kotlinx.coroutines.delay(1000L)
+                    if (!_studySessionTimer.value.isRunning) break
+                    val nowRealtime = clock.elapsedRealtime()
+                    val elapsedDeltaSec = if (
+                        lastTickElapsedRealtimeMs > 0L &&
+                        nowRealtime >= lastTickElapsedRealtimeMs + 1000L
+                    ) {
+                        ((nowRealtime - lastTickElapsedRealtimeMs) / 1000L).toInt().coerceIn(1, 14400)
+                    } else {
+                        1
+                    }
+                    tickStudySessionTimer(elapsedDeltaSec)
+                }
+            } finally {
+                activeStudyTimerJobCount = 0
+            }
+        }
+    }
+
+    private fun stopStudyTimerJob() {
+        studyTimerJob?.cancel()
+        studyTimerJob = null
+        activeStudyTimerJobCount = 0
+        lastTickElapsedRealtimeMs = 0L
+    }
+
+    /**
+     * Cold-process initialization for Study Timer 2.0 (BUG-78):
+     * - Always initializes in the compact OFF state (isVisibleOnHome = false, isRunning = false).
+     * - Ignores and sanitizes any stale persisted enabled/running flags from previous sessions.
+     * - Never counts closed-app downtime.
+     * - Safely flushes any persisted unrecorded elapsed study seconds from an interrupted session at most once.
+     */
     private fun initStudySessionTimer() {
+        stopStudyTimerJob()
         val today = getTodayDateStr()
-        val isVisible = prefs.getBoolean("study_timer_visible_on_home", true)
-        val isRunning = prefs.getBoolean("study_timer_is_running", false)
-        val savedSessionSec = prefs.getInt("study_timer_current_session_sec", 0)
-        val savedTodaySec = prefs.getInt("study_timer_today_sec_$today", 0)
-        val savedAllTimeSec = prefs.getInt("study_timer_all_time_sec", 0)
+        val savedTodaySec = prefs.getInt("study_timer_today_sec_$today", 0).coerceAtLeast(0)
+        val savedAllTimeSec = prefs.getInt("study_timer_all_time_sec", 0).coerceAtLeast(0)
         val savedGoalMin = prefs.getInt("study_timer_daily_goal_min", 30).coerceIn(5, 240)
-        val savedSessionsCount = prefs.getInt("study_timer_sessions_$today", 0)
-        val lastWallMs = prefs.getLong("study_timer_last_wall_ms", 0L)
+        val savedSessionsCount = prefs.getInt("study_timer_sessions_$today", 0).coerceAtLeast(0)
+        val persistedUnrecordedSec = prefs.getInt("study_timer_unrecorded_db_sec", 0).coerceIn(0, 3600)
 
-        // Recover elapsed wall-clock seconds if the timer was left running
-        val nowWallMs = System.currentTimeMillis()
-        val recoveredDeltaSec = if (isRunning && lastWallMs > 0L && nowWallMs > lastWallMs) {
-            ((nowWallMs - lastWallMs) / 1000L).toInt().coerceIn(0, 14400)
-        } else {
-            0
-        }
-
-        val currentSessionSec = savedSessionSec + recoveredDeltaSec
-        val todayTotalSec = savedTodaySec + recoveredDeltaSec
-        val allTimeTotalSec = savedAllTimeSec + recoveredDeltaSec
-
-        if (recoveredDeltaSec > 0) {
-            prefs.edit()
-                .putInt("study_timer_current_session_sec", currentSessionSec)
-                .putInt("study_timer_today_sec_$today", todayTotalSec)
-                .putInt("study_timer_all_time_sec", allTimeTotalSec)
-                .putLong("study_timer_last_wall_ms", nowWallMs)
-                .apply()
-        }
+        // Reset process-scoped activation flags in SharedPreferences so old ON/running flags never persist
+        prefs.edit()
+            .putBoolean("study_timer_visible_on_home", false)
+            .putBoolean("study_timer_is_running", false)
+            .putInt("study_timer_current_session_sec", 0)
+            .putInt("study_timer_unrecorded_db_sec", 0)
+            .putLong("study_timer_last_wall_ms", 0L)
+            .apply()
 
         _studySessionTimer.value = StudySessionTimerState(
-            isVisibleOnHome = isVisible,
-            isRunning = isRunning,
-            currentSessionSeconds = currentSessionSec,
-            todayTotalSeconds = todayTotalSec,
-            allTimeTotalSeconds = allTimeTotalSec,
+            isVisibleOnHome = false,
+            isRunning = false,
+            currentSessionSeconds = 0,
+            todayTotalSeconds = savedTodaySec,
+            allTimeTotalSeconds = savedAllTimeSec,
             dailyGoalMinutes = savedGoalMin,
             completedSessionsToday = savedSessionsCount,
-            unrecordedDbSeconds = recoveredDeltaSec
+            unrecordedDbSeconds = 0,
+            lastSessionCompleted = false
         )
+
+        if (persistedUnrecordedSec > 0) {
+            viewModelScope.launch {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 0,
+                    correctDelta = 0,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = persistedUnrecordedSec,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 0
+                )
+            }
+        }
     }
 
     fun toggleStudyTimerVisibility() {
-        val current = _studySessionTimer.value
-        val nextVisible = !current.isVisibleOnHome
-        prefs.edit().putBoolean("study_timer_visible_on_home", nextVisible).apply()
-        _studySessionTimer.value = current.copy(isVisibleOnHome = nextVisible)
+        setStudyTimerVisibility(!_studySessionTimer.value.isVisibleOnHome)
     }
 
     fun setStudyTimerVisibility(visible: Boolean) {
         val current = _studySessionTimer.value
-        prefs.edit().putBoolean("study_timer_visible_on_home", visible).apply()
-        _studySessionTimer.value = current.copy(isVisibleOnHome = visible)
+        if (visible) {
+            if (current.isVisibleOnHome) return
+            prefs.edit().putBoolean("study_timer_visible_on_home", true).apply()
+            _studySessionTimer.value = current.copy(
+                isVisibleOnHome = true,
+                isRunning = false,
+                lastSessionCompleted = false
+            )
+        } else {
+            if (!current.isVisibleOnHome && !current.isRunning && current.unrecordedDbSeconds == 0 && current.currentSessionSeconds == 0) {
+                return
+            }
+            stopStudyTimerJob()
+            val unrecorded = current.unrecordedDbSeconds
+            val hadActiveSession = current.isRunning || current.currentSessionSeconds > 0
+            val today = getTodayDateStr()
+            val nextCompleted = if (hadActiveSession && current.currentSessionSeconds > 0) {
+                current.completedSessionsToday + 1
+            } else {
+                current.completedSessionsToday
+            }
+
+            prefs.edit()
+                .putBoolean("study_timer_visible_on_home", false)
+                .putBoolean("study_timer_is_running", false)
+                .putInt("study_timer_current_session_sec", 0)
+                .putInt("study_timer_unrecorded_db_sec", 0)
+                .putInt("study_timer_sessions_$today", nextCompleted)
+                .putLong("study_timer_last_wall_ms", 0L)
+                .apply()
+
+            _studySessionTimer.value = current.copy(
+                isVisibleOnHome = false,
+                isRunning = false,
+                currentSessionSeconds = 0,
+                completedSessionsToday = nextCompleted,
+                unrecordedDbSeconds = 0,
+                lastSessionCompleted = false
+            )
+
+            if (unrecorded > 0 || (hadActiveSession && current.currentSessionSeconds > 0)) {
+                if (hadActiveSession && current.currentSessionSeconds > 0) {
+                    recordDailyActivity(1)
+                }
+                viewModelScope.launch {
+                    repository.recordDailyStudyDelta(
+                        questionsAttemptedDelta = 0,
+                        correctDelta = 0,
+                        wrongDelta = 0,
+                        studyTimeSecondsDelta = unrecorded,
+                        examsCompletedDelta = 0,
+                        practiceSessionsCompletedDelta = if (hadActiveSession && current.currentSessionSeconds > 0) 1 else 0
+                    )
+                }
+            }
+        }
     }
 
-    fun toggleStudySessionRunning() {
+    fun startStudySession() {
         val current = _studySessionTimer.value
-        val nextRunning = !current.isRunning
+        if (current.isRunning) {
+            startStudyTimerJobIfNeeded()
+            return
+        }
         val nowWallMs = System.currentTimeMillis()
         prefs.edit()
-            .putBoolean("study_timer_is_running", nextRunning)
-            .putLong("study_timer_last_wall_ms", if (nextRunning) nowWallMs else 0L)
+            .putBoolean("study_timer_visible_on_home", true)
+            .putBoolean("study_timer_is_running", true)
+            .putLong("study_timer_last_wall_ms", nowWallMs)
             .apply()
 
-        val unrecorded = current.unrecordedDbSeconds
         _studySessionTimer.value = current.copy(
-            isRunning = nextRunning,
-            unrecordedDbSeconds = if (!nextRunning) 0 else unrecorded
+            isVisibleOnHome = true,
+            isRunning = true,
+            lastSessionCompleted = false
+        )
+        startStudyTimerJobIfNeeded()
+    }
+
+    fun pauseStudySession() {
+        val current = _studySessionTimer.value
+        if (!current.isRunning && current.unrecordedDbSeconds == 0) {
+            stopStudyTimerJob()
+            return
+        }
+        stopStudyTimerJob()
+        val unrecorded = current.unrecordedDbSeconds
+        prefs.edit()
+            .putBoolean("study_timer_is_running", false)
+            .putInt("study_timer_unrecorded_db_sec", 0)
+            .putLong("study_timer_last_wall_ms", 0L)
+            .apply()
+
+        _studySessionTimer.value = current.copy(
+            isRunning = false,
+            unrecordedDbSeconds = 0
         )
 
-        if (!nextRunning && unrecorded > 0) {
+        if (unrecorded > 0) {
             viewModelScope.launch {
                 repository.recordDailyStudyDelta(
                     questionsAttemptedDelta = 0,
@@ -4007,31 +4158,43 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
+    fun toggleStudySessionRunning() {
+        if (_studySessionTimer.value.isRunning) {
+            pauseStudySession()
+        } else {
+            startStudySession()
+        }
+    }
+
     fun tickStudySessionTimer(deltaSeconds: Int = 1) {
         if (deltaSeconds <= 0) return
         val current = _studySessionTimer.value
         if (!current.isRunning) return
 
+        lastTickElapsedRealtimeMs = clock.elapsedRealtime()
         val today = getTodayDateStr()
         val nextSessionSec = current.currentSessionSeconds + deltaSeconds
         val nextTodaySec = current.todayTotalSeconds + deltaSeconds
         val nextAllTimeSec = current.allTimeTotalSeconds + deltaSeconds
         val nextUnrecorded = current.unrecordedDbSeconds + deltaSeconds
 
+        // Flush to Room DB every 30 seconds of accumulated study time (BUG-74)
+        val shouldFlushToDb = nextUnrecorded >= 30
+        val remainingUnrecorded = if (shouldFlushToDb) 0 else nextUnrecorded
+
         prefs.edit()
             .putInt("study_timer_current_session_sec", nextSessionSec)
             .putInt("study_timer_today_sec_$today", nextTodaySec)
             .putInt("study_timer_all_time_sec", nextAllTimeSec)
+            .putInt("study_timer_unrecorded_db_sec", remainingUnrecorded)
             .putLong("study_timer_last_wall_ms", System.currentTimeMillis())
             .apply()
 
-        // Flush to Room DB every 30 seconds of accumulated study time
-        val shouldFlushToDb = nextUnrecorded >= 30
         _studySessionTimer.value = current.copy(
             currentSessionSeconds = nextSessionSec,
             todayTotalSeconds = nextTodaySec,
             allTimeTotalSeconds = nextAllTimeSec,
-            unrecordedDbSeconds = if (shouldFlushToDb) 0 else nextUnrecorded
+            unrecordedDbSeconds = remainingUnrecorded
         )
 
         if (shouldFlushToDb) {
@@ -4052,6 +4215,7 @@ class MathViewModel @JvmOverloads constructor(
         val current = _studySessionTimer.value
         if (current.currentSessionSeconds <= 0 && !current.isRunning) return
 
+        stopStudyTimerJob()
         val today = getTodayDateStr()
         val nextCompleted = current.completedSessionsToday + 1
         val unrecorded = current.unrecordedDbSeconds
@@ -4059,6 +4223,7 @@ class MathViewModel @JvmOverloads constructor(
         prefs.edit()
             .putBoolean("study_timer_is_running", false)
             .putInt("study_timer_current_session_sec", 0)
+            .putInt("study_timer_unrecorded_db_sec", 0)
             .putInt("study_timer_sessions_$today", nextCompleted)
             .putLong("study_timer_last_wall_ms", 0L)
             .apply()
@@ -4067,7 +4232,8 @@ class MathViewModel @JvmOverloads constructor(
             isRunning = false,
             currentSessionSeconds = 0,
             completedSessionsToday = nextCompleted,
-            unrecordedDbSeconds = 0
+            unrecordedDbSeconds = 0,
+            lastSessionCompleted = true
         )
 
         recordDailyActivity(1)
@@ -4085,17 +4251,24 @@ class MathViewModel @JvmOverloads constructor(
 
     fun resetCurrentStudySession() {
         val current = _studySessionTimer.value
+        if (current.currentSessionSeconds <= 0 && !current.isRunning && current.unrecordedDbSeconds <= 0) {
+            stopStudyTimerJob()
+            return
+        }
+        stopStudyTimerJob()
         val unrecorded = current.unrecordedDbSeconds
         prefs.edit()
             .putBoolean("study_timer_is_running", false)
             .putInt("study_timer_current_session_sec", 0)
+            .putInt("study_timer_unrecorded_db_sec", 0)
             .putLong("study_timer_last_wall_ms", 0L)
             .apply()
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
             currentSessionSeconds = 0,
-            unrecordedDbSeconds = 0
+            unrecordedDbSeconds = 0,
+            lastSessionCompleted = false
         )
 
         if (unrecorded > 0) {
@@ -4123,6 +4296,7 @@ class MathViewModel @JvmOverloads constructor(
         val current = _studySessionTimer.value
         val unrecorded = current.unrecordedDbSeconds
         if (unrecorded <= 0) return
+        prefs.edit().putInt("study_timer_unrecorded_db_sec", 0).apply()
         _studySessionTimer.value = current.copy(unrecordedDbSeconds = 0)
         viewModelScope.launch {
             repository.recordDailyStudyDelta(
@@ -4136,16 +4310,53 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
+    fun onAppBackgrounded() {
+        if (!_studySessionTimer.value.isRunning) return
+        lastTickElapsedRealtimeMs = clock.elapsedRealtime()
+        flushUnrecordedStudyTime()
+    }
+
+    fun onAppForegrounded() {
+        val current = _studySessionTimer.value
+        if (!current.isRunning || !current.isVisibleOnHome) return
+        val nowRealtime = clock.elapsedRealtime()
+        if (lastTickElapsedRealtimeMs > 0L && nowRealtime >= lastTickElapsedRealtimeMs + 1000L) {
+            val deltaSec = ((nowRealtime - lastTickElapsedRealtimeMs) / 1000L).toInt().coerceIn(1, 14400)
+            tickStudySessionTimer(deltaSec)
+        }
+        startStudyTimerJobIfNeeded()
+    }
+
+    override fun onCleared() {
+        stopStudyTimerJob()
+        super.onCleared()
+    }
+
+    private val _completedVisualCheckpointIds = mutableSetOf<String>()
+    val completedVisualCheckpointIds: Set<String>
+        get() = synchronized(_completedVisualCheckpointIds) { _completedVisualCheckpointIds.toSet() }
+
     fun recordVisualMathCheckpoint(
         topicId: String,
         topicTitleBn: String,
         isCorrect: Boolean
-    ) {
+    ): Boolean {
+        val cleanId = topicId.trim()
+        if (cleanId.isEmpty()) return false
+        if (isCorrect) {
+            val isNewCompletion = synchronized(_completedVisualCheckpointIds) {
+                _completedVisualCheckpointIds.add(cleanId)
+            }
+            if (!isNewCompletion) {
+                // Prevent duplicate checkpoint inflation when the same stage/question is re-submitted
+                return false
+            }
+        }
         recordDailyActivity(1)
         viewModelScope.launch {
             repository.recordSessionAndAnalytics(
                 moduleType = "VISUAL_MATH",
-                categoryId = topicId,
+                categoryId = cleanId,
                 categoryTitleBn = topicTitleBn,
                 difficulty = "MEDIUM",
                 mode = "interactive_lab",
@@ -4159,5 +4370,6 @@ class MathViewModel @JvmOverloads constructor(
                 highestStreak = if (isCorrect) 1 else 0
             )
         }
+        return true
     }
 }

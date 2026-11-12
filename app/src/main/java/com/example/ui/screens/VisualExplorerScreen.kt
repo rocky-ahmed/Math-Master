@@ -76,9 +76,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.math.BengaliNumberFormatter
 import com.example.math.CameraPreset3D
+import com.example.math.CrossSectionSliceMode
 import com.example.math.GeoShapeType
+import com.example.math.LearningStageType
 import com.example.math.Math3DEngine
 import com.example.math.OrbitCameraState
 import com.example.math.ProjectedScene2D
@@ -86,11 +89,14 @@ import com.example.math.Solid3DShapeType
 import com.example.math.SolidAnatomyHighlight
 import com.example.math.VisualKnowledgeCheckProvider
 import com.example.math.VisualMathEngine
+import com.example.math.VisualMathStudioEngine
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
+import com.example.ui.components.Math3DStudioViewport
 import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
+import com.example.ui.theme.AppThemeMode
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -762,6 +768,24 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                 accentColorArgb = primaryArgb
             )
         }
+
+        // 6. Trigonometry Unit Circle & Height-Distance Studio Card
+        item {
+            TrigonometryUnitCircleLabCard(viewModel = viewModel)
+        }
+
+        // 7. 3D Coordinate & Vector Studio Card (X, Y, Z)
+        item {
+            val isDark = when (viewModel.themeMode.value) {
+                AppThemeMode.DARK -> true
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+            Coordinate3DVectorStudioCard(
+                viewModel = viewModel,
+                isDarkTheme = isDark
+            )
+        }
     }
 }
 
@@ -799,6 +823,9 @@ fun Interactive3DSolidStudioCard(
     var unfoldProgress by rememberManagedUiState(viewModel, "$statePrefix:unfold", 0.0f)
     var volumeFillRatio by rememberManagedUiState(viewModel, "$statePrefix:fill", 0.0f)
     var highlightMode by rememberManagedUiState(viewModel, "$statePrefix:highlight", SolidAnatomyHighlight.ALL)
+    var sliceMode by rememberManagedUiState(viewModel, "$statePrefix:sliceMode", CrossSectionSliceMode.NONE)
+    var slicePosition by rememberManagedUiState(viewModel, "$statePrefix:slicePos", 0.5f)
+    var useHardwareGl by rememberManagedUiState(viewModel, "$statePrefix:useGl", true)
 
     // Dimension parameters
     var param1 by rememberManagedUiState(viewModel, "$statePrefix:p1", selectedSolid.defaultP1)
@@ -808,9 +835,45 @@ fun Interactive3DSolidStudioCard(
     val mensuration = remember(selectedSolid, param1, param2, param3) {
         Math3DEngine.calculateSolidMetrics(selectedSolid, param1, param2, param3)
     }
-
-    val onSurfaceArgb = MaterialTheme.colorScheme.onSurface.toArgb()
-    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+    val crossSectionAnalysis = remember(selectedSolid, param1, param2, param3, sliceMode, slicePosition) {
+        Math3DEngine.calculateCrossSection(
+            shape = selectedSolid,
+            p1 = param1,
+            p2 = param2,
+            p3 = param3,
+            sliceMode = sliceMode,
+            slicePosition = slicePosition
+        )
+    }
+    val nineStageGuide = remember(selectedSolid, param1, param2, param3) {
+        VisualMathStudioEngine.buildNineStageGuideForSolid(selectedSolid, param1, param2, param3)
+    }
+    val (meshFaces, meshLines) = remember(
+        selectedSolid,
+        param1,
+        param2,
+        param3,
+        unfoldProgress,
+        volumeFillRatio,
+        sliceMode,
+        slicePosition
+    ) {
+        Math3DEngine.buildSolidMesh(
+            shape = selectedSolid,
+            p1 = param1,
+            p2 = param2,
+            p3 = param3,
+            unfoldProgress = unfoldProgress,
+            volumeFillFraction = volumeFillRatio,
+            sliceMode = sliceMode,
+            slicePosition = slicePosition
+        )
+    }
+    val isDarkTheme = when (viewModel.themeMode.value) {
+        AppThemeMode.DARK -> true
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
 
     ElevatedCard(
         shape = RoundedCornerShape(20.dp),
@@ -830,20 +893,32 @@ fun Interactive3DSolidStudioCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "ইন্টারঅ্যাক্টিভ ৩ডি ঘনবস্তু ও নেট স্টুডিও (3D Solid Studio)",
+                        text = "ইন্টারঅ্যাক্টিভ ৩ডি ঘনবস্তু ও নেট স্টুডিও (3D Solid Studio 2.0)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "৩৬০° ঘূর্ণন, ৩ডি→২ডি নেট আনফোল্ডিং, আয়তন পূর্ণতা এবং পরিমিতি বিশ্লেষণ",
+                        text = "১০টি ঘনবস্তু, ৩৬০° ঘূর্ণন, কব্জা নেট আনফোল্ডিং, প্রস্থচ্ছেদ স্লাইসার ও ৯-ধাপের গাইড",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                FilterChip(
+                    selected = useHardwareGl,
+                    onClick = { useHardwareGl = !useHardwareGl },
+                    label = {
+                        Text(
+                            text = if (useHardwareGl) "GPU 3D" else "2D Canvas",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    modifier = Modifier.testTag("solid_3d_renderer_toggle")
+                )
             }
 
-            // 1. 3D Solid Type Selector Chips
+            // 1. 3D Solid Type Selector Chips (10 Solids)
             LazyRow(
                 modifier = Modifier.fillMaxWidth().testTag("solid_3d_selector_row"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -898,6 +973,8 @@ fun Interactive3DSolidStudioCard(
                             unfoldProgress = 0.0f
                             volumeFillRatio = 0.0f
                             highlightMode = SolidAnatomyHighlight.ALL
+                            sliceMode = CrossSectionSliceMode.NONE
+                            slicePosition = 0.5f
                         },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier.testTag("solid_3d_reset_btn")
@@ -907,7 +984,7 @@ fun Interactive3DSolidStudioCard(
                 }
             }
 
-            // 3. Interactive 3D Viewport Canvas (Drag-to-Orbit + Perspective + Painter's Algorithm)
+            // 3. Pinned Interactive 3D Viewport (Hybrid OpenGL ES 3D GPU + Compose 2D Canvas)
             val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
             val primaryColor = MaterialTheme.colorScheme.primary
             val secondaryColor = MaterialTheme.colorScheme.secondary
@@ -929,37 +1006,24 @@ fun Interactive3DSolidStudioCard(
                     }
                     .testTag("solid_3d_viewport_canvas")
             ) {
-                Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                    drawGridBackground(gridColor)
-                    val (faces, internalLines) = Math3DEngine.buildSolidMesh(
-                        shape = selectedSolid,
-                        p1 = param1,
-                        p2 = param2,
-                        p3 = param3,
-                        unfoldProgress = unfoldProgress,
-                        volumeFillFraction = volumeFillRatio
-                    )
-                    val scene = Math3DEngine.projectScene(
-                        faces = faces,
-                        internalLines = internalLines,
-                        camera = OrbitCameraState(
-                            pitchDeg = pitchDeg,
-                            yawDeg = yawDeg,
-                            zoom = zoom3D
-                        ),
-                        canvasWidth = size.width,
-                        canvasHeight = size.height
-                    )
-                    drawProjected3DScene(
-                        scene = scene,
-                        highlightMode = highlightMode,
-                        primaryColor = primaryColor,
-                        secondaryColor = secondaryColor,
-                        tertiaryColor = tertiaryColor,
-                        labelColorArgb = onSurfaceArgb,
-                        accentColorArgb = primaryArgb
-                    )
-                }
+                Math3DStudioViewport(
+                    faces = meshFaces,
+                    internalLines = meshLines,
+                    camera = OrbitCameraState(
+                        pitchDeg = pitchDeg,
+                        yawDeg = yawDeg,
+                        zoom = zoom3D
+                    ),
+                    highlightMode = highlightMode,
+                    primaryColor = primaryColor,
+                    secondaryColor = secondaryColor,
+                    tertiaryColor = tertiaryColor,
+                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    gridColor = gridColor,
+                    isDarkTheme = isDarkTheme,
+                    useHardwareGl = useHardwareGl,
+                    modifier = Modifier.fillMaxSize()
+                )
 
                 // Overlay badge showing current rotation & mode
                 Surface(
@@ -1009,6 +1073,20 @@ fun Interactive3DSolidStudioCard(
                     )
                 }
             }
+
+            // 4B. Interactive 3D Plane Cross-Section Slicer & 2D Contour Inspector
+            CrossSectionSlicerControlsAndInspector(
+                sliceMode = sliceMode,
+                onSliceModeChange = {
+                    sliceMode = it
+                    if (it != CrossSectionSliceMode.NONE && unfoldProgress > 0.05f) {
+                        unfoldProgress = 0.0f
+                    }
+                },
+                slicePosition = slicePosition,
+                onSlicePositionChange = { slicePosition = it },
+                analysis = crossSectionAnalysis
+            )
 
             // 5. 3D-to-2D Net Unfolding & Volume Fill Sliders + Accessible Pitch/Yaw Sliders
             Card(
@@ -1205,6 +1283,36 @@ fun Interactive3DSolidStudioCard(
             mensuration.calculationStepsBn.forEachIndexed { idx, step ->
                 StepItemRow(stepNumber = idx + 1, stepText = step)
             }
+
+            // 7. 9-Stage Guided Bengali Learning Stepper (Introduce -> Recap)
+            VisualNineStageStepperCard(
+                guide = nineStageGuide,
+                viewModel = viewModel,
+                statePrefix = "$statePrefix:nine_stage",
+                onApplyRecommendedPreset = { stage ->
+                    when (stage) {
+                        LearningStageType.INTRODUCE -> {
+                            pitchDeg = CameraPreset3D.ISOMETRIC.pitchDeg
+                            yawDeg = CameraPreset3D.ISOMETRIC.yawDeg
+                            unfoldProgress = 0.0f
+                            sliceMode = CrossSectionSliceMode.NONE
+                        }
+                        LearningStageType.VISUALIZE -> {
+                            sliceMode = CrossSectionSliceMode.NONE
+                            if (selectedSolid.supportsNetUnfold) {
+                                unfoldProgress = 0.5f
+                            }
+                        }
+                        LearningStageType.EXPLORE -> {
+                            unfoldProgress = 0.0f
+                            volumeFillRatio = 0.5f
+                            sliceMode = CrossSectionSliceMode.HORIZONTAL
+                            slicePosition = 0.5f
+                        }
+                        else -> Unit
+                    }
+                }
+            )
         }
     }
 }
@@ -2049,6 +2157,24 @@ fun VisualAlgebraTab(viewModel: MathViewModel) {
                 labelColorArgb = onSurfaceArgb
             )
         }
+
+        // 5. Algebra Tiles & Area Model Factorization Lab Card
+        item {
+            AlgebraTilesLabCard(viewModel = viewModel)
+        }
+
+        // 6. 2D Quadratic Parabola & 3D Multivariable Surface (z = f(x,y)) Studio Card
+        item {
+            val isDark = when (viewModel.themeMode.value) {
+                AppThemeMode.DARK -> true
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+            QuadraticAndSurface3DStudioCard(
+                viewModel = viewModel,
+                isDarkTheme = isDark
+            )
+        }
     }
 }
 
@@ -2511,6 +2637,11 @@ fun NumberLineTab(viewModel: MathViewModel) {
         item {
             RatioPercentageAndPatternCard(viewModel = viewModel)
         }
+
+        // 5. Interactive Two-Fraction Operations Lab Card (+, -, ×, ÷)
+        item {
+            FractionOperationsLabCard(viewModel = viewModel)
+        }
     }
 }
 
@@ -2869,11 +3000,12 @@ fun VisualFormulaTab(viewModel: MathViewModel) {
                         Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                             when (selectedFormula.id) {
                                 "vis_alg_sq_plus" -> drawSquareOfSumVisual(inputA, inputB, primaryColor, secondaryColor, accentColor)
+                                "vis_rect_area" -> drawSquareOfSumVisual(inputA, inputB, primaryColor, secondaryColor, accentColor)
                                 "vis_pythagoras" -> drawPythagorasVisual(inputA, inputB, primaryColor, secondaryColor, onSurfaceArgb)
                                 "vis_simple_interest" -> drawSimpleInterestVisual(inputA, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                                 // BUG-53 FIX: Render a true 3D projected Cube via Math3DEngine instead of drawCircle!
                                 "vis_cube_vol" -> drawCubeVolumeVisual3D(inputA, primaryColor, accentColor, secondaryColor, onSurfaceArgb, primaryArgb)
-                                "vis_circle_area" -> drawCircleAreaVisual(inputA, primaryColor, secondaryColor, onSurfaceArgb)
+                                "vis_circle_area", "vis_circle_prop" -> drawCircleAreaVisual(inputA, primaryColor, secondaryColor, onSurfaceArgb)
                                 else -> drawGenericBarVisual(inputA, inputB, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                             }
                         }

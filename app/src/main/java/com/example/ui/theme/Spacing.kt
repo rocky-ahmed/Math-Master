@@ -86,6 +86,11 @@ object MathSpacing {
     val compactItemSpacing: Dp = 8.dp
     val inlineIconSpacing: Dp = 8.dp
 
+    val cornerRadiusCompact: Dp = 12.dp
+    val cornerRadiusStandard: Dp = 16.dp
+    val cornerRadiusHero: Dp = 20.dp
+    val minTouchTarget: Dp = 48.dp
+
     val cornerShapeCompact = RoundedCornerShape(12.dp)
     val cornerShapeStandard = RoundedCornerShape(16.dp)
     val cornerShapeHero = RoundedCornerShape(20.dp)

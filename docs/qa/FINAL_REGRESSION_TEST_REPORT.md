@@ -1,87 +1,126 @@
-# Math Master — Final Regression Test Report
+# Math Master — Final Regression Test & Traceability Report (`215 / 215` Passing)
 
 **Validation Command**: `gradle :app:testDebugUnitTest`  
-**Execution Policy**: Strictly local JVM & Robolectric unit testing (`0` APK/AAB builds executed during audit).  
-**Latest Verified Result**: **`185 / 185` Passed** (`0` Failures, `0` Errors, `0` Skipped)
+**Execution Policy**: Strictly local JVM & Robolectric unit testing (`0` APK/AAB builds executed during acceptance reconciliation).  
+**Latest Verified Result**: **`215 / 215` Passed** (`0` Failures, `0` Errors, `0` Skipped) across **10 Automated Test Suites**
 
 ---
 
-## 1. Historical Baseline vs. Latest Regression Test Progression
+## 1. Historical Baseline vs. Latest Regression Test Progression (`165 -> 215`)
 
-| Audit Phase | Defects Covered | `EcosystemUpgradeV7UnitTest` Count | `HomeNavigationAndOrderingUnitTest` Count | `ApplicationWideScrollRestorationUnitTest` Count | Total Automated Tests Across 9 Suites | Pass Rate | Evidence Reference |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `17` | `7` | `0` | **`165 / 165`** | `100%` | [`FINAL_DEFECT_REGISTER.md`](FINAL_DEFECT_REGISTER.md), [`../release/FINAL_RELEASE_CANDIDATE_REPORT.md`](../release/FINAL_RELEASE_CANDIDATE_REPORT.md) |
-| **Phase 2: Pre-Freeze Stabilization Baseline** | `BUG-22` – `BUG-28` (`+2` tests) | `19` | `7` | `0` | **`167 / 167`** | `100%` | `auditRegression_bug22_*` & `auditRegression_bug23_bug25_bug26_*` |
-| **Phase 3: Independent Adversarial Bug Hunt** | `BUG-29` – `BUG-35` (`+5` tests) | `24` | `7` | `0` | **`172 / 172`** | `100%` | `adversarialAudit_bug29_*` through `adversarialAudit_bug35_*` |
-| **Phase 4A: Home Screen Scroll Restoration** | `BUG-36` (`+3` tests) | `25` | `9` | `0` | **`175 / 175`** | `100%` | `bug36_homeScreenScrollPosition*` & `testHomeScreen*Scroll*` |
-| **Phase 4B: Application-Wide Scroll & Context Restoration (Latest)** | `BUG-37` – `BUG-39` (`+10` tests) | `25` | `9` | `10` | **`185 / 185`** | `100%` | `ApplicationWideScrollRestorationUnitTest` (`testScenarioA_*`..`testScenarioJ_*`) |
+| Audit Phase | Canonical Defects Covered | `ExampleRobolectricTest` | `EcosystemUpgradeV7UnitTest` | `VisualMathExplorerUnitTest` | `ApplicationWideScrollRestorationUnitTest` | `UiSpacingAndLayoutAuditUnitTest` | Total Automated Tests | Pass Rate |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Phase 1: Core Engineering Audit Baseline** | `BUG-01` – `BUG-21` | `49` | `17` | `17` | `0` | `0` | **`165 / 165`** | `100%` |
+| **Phase 2: Pre-Freeze Stabilization** | `BUG-22` – `BUG-28` (`+2` tests) | `49` | `19` | `17` | `0` | `0` | **`167 / 167`** | `100%` |
+| **Phase 3: Independent Adversarial Bug Hunt** | `BUG-29` – `BUG-35` (`+5` tests) | `49` | `24` | `17` | `0` | `0` | **`172 / 172`** | `100%` |
+| **Phase 4A: Home Screen Scroll Restoration** | `BUG-36` (`+3` tests) | `49` | `25` | `17` | `0` | `0` | **`175 / 175`** | `100%` |
+| **Phase 4B: Application-Wide Scroll & Context Restoration** | `BUG-37` – `BUG-39` (`+10` tests) | `49` | `25` | `17` | `10` | `0` | **`185 / 185`** | `100%` |
+| **Phase 5: Dashboard, Timer, Analytics & Exam Hardening** | `BUG-40` – `BUG-52`, `BUG-68` (`+7` tests) | `54` | `27` | `17` | `10` | `0` | **`192 / 192`** | `100%` |
+| **Phase 6A: Visual Math & 3D Solid Studio Defect Fixes** | `BUG-53` – `BUG-58` (`+7` tests) | `54` | `27` | `24` | `10` | `0` | **`199 / 199`** | `100%` |
+| **Phase 6B: UI Spacing, Insets, Alignment & Contrast System** | `BUG-59` – `BUG-67`, `BUG-69` – `BUG-71` (`+8` tests) | `54` | `27` | `24` | `10` | `8` | **`207 / 207`** | `100%` |
+| **Phase 7: Visual Math Explorer 2.0 Studio Upgrade (Latest)** | `BUG-72`, `BUG-73` + 10 3D Solids, 9 Studio Labs, Hybrid GL/Canvas Pipeline (`+8` tests) | `54` | `27` | `36` | `10` | `8` | **`215 / 215`** | `100%` |
 
 ---
 
-## 2. Automated Test Suite Inventory (`app/src/test/java/com/example/`)
+## 2. Complete 10-Suite Automated Test Inventory (`app/src/test/java/com/example/`)
 
-| # | Test Suite File | Runner | Historical Baseline (`165`) | BUG-36 Baseline (`175`) | Latest Verified (`184`) | Focus Area | Status |
+| # | Test Suite File | Runner | Phase 1 (`165`) | Phase 4B (`185`) | Latest Verified (`215`) | Focus Area & Canonical Defect Coverage | Status |
 | :- | :--- | :--- | :-: | :-: | :-: | :--- | :--- |
-| 01 | `ExampleRobolectricTest.kt` | Robolectric (`sdk = [36]`) | `53` | `53` | **`53`** | Core Modules 01–14, Room `v1 -> v9` migrations, Book PDF/curriculum/labs, early module regressions | **PASS** |
-| 02 | `MathProblemSolverUnitTest.kt` | JUnit4 | `41` | `41` | **`41`** | 14 Solver Topics (`LEARNING`, `SHORTCUT`, `BCS`), domain validation (`BUG-08`), non-linear & linear systems | **PASS** |
-| 03 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `25` | **`25`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-36` regressions | **PASS** |
-| 04 | `NumberSystemUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | Base Converter, Divisibility (`2..19`), Euclidean GCD/LCM, Modular Arithmetic, `MCQ`/`KEYPAD`/`TRUE_FALSE` (`BUG-17`) | **PASS** |
-| 05 | `VisualMathExplorerUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | 14 Interactive Visual Labs, Geometry/Trig/Coordinate/Venn/Chart calculations | **PASS** |
-| 06 | `BcsPreparationCenterUnitTest.kt` | Robolectric (`sdk = [36]`) | `12` | `12` | **`12`** | 6 BCS Exam Profiles (`BUG-05`), 1,060+ BCS Questions, 50 Topic Guides, Provenance (`BUG-06`) & Profile Isolation (`BUG-13`) | **PASS** |
-| 07 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `9` | **`9`** | 14 Home Modules ordering (`BUG-11`), customization persistence, backstack navigation (`BUG-12`), and Home Screen scroll position & pixel offset restoration (`BUG-36`) | **PASS** |
-| 08 | `ApplicationWideScrollRestorationUnitTest.kt` | Robolectric (`sdk = [36]`) | `0` | `0` | **`10`** | Complete application-wide scroll, sub-tab, filter, parameterized argument isolation, 6-level deep navigation chain, bottom-nav tab persistence, live Activity recreation, and 14-module/31-destination live `MainActivity` acceptance (`BUG-36`–`BUG-39`) | **PASS** |
-| 09 | `ExampleUnitTest.kt` | JUnit4 | `1` | `1` | **`1`** | Baseline JUnit sanity check | **PASS** |
-| **Total** | **9 Test Suites** | **JVM + Robolectric** | **`165`** | **`175`** | **`185`** | **100% Pass Rate (`0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
+| 01 | `ExampleRobolectricTest.kt` | Robolectric (`sdk = [36]`) | `49` | `49` | **`54`** | Core Modules 01–14, Room `v1 -> v9` migrations (`BUG-10`), Study Timer flush (`BUG-40`), Dashboard analytics deduplication/windowing/normalization/streaks (`BUG-41`–`BUG-46`, `BUG-68`), Quiz `effectiveAnswersMap` (`BUG-47`), declarative `TRUE_FALSE` & unique IDs (`BUG-50`–`BUG-51`), Bookmarks/BCS/Book isolation (`BUG-69`–`BUG-71`), and Visual Math checkpoint duplicate guard (`BUG-72`) | **PASS (`54/54`)** |
+| 02 | `MathProblemSolverUnitTest.kt` | JUnit4 | `41` | `41` | **`41`** | 14 Solver Topics (`LEARNING`, `SHORTCUT`, `BCS`), domain validation (`BUG-08`), non-linear & simultaneous linear systems | **PASS (`41/41`)** |
+| 03 | `VisualMathExplorerUnitTest.kt` | JUnit4 | `17` | `17` | **`36`** | Visual Math Explorer 2.0: all 10 3D solids (`CUBE`..`FRUSTUM`), $SO(3)$ rigid-body hinge unfolding (`BUG-57`), non-linear volume fill (`BUG-57`), plane cross-sections, 9-stage pedagogy (`BUG-72`), Trig/Vector/Tiles/Fraction/Surface labs, `Math3DGlRenderer` matrix/shader pipeline, `DepthBuffer24FallbackConfigChooser` (`BUG-73`), and `BUG-53`–`BUG-58` | **PASS (`36/36`)** |
+| 04 | `EcosystemUpgradeV7UnitTest.kt` | Robolectric (`sdk = [36]`) | `17` | `25` | **`27`** | Protected Modules 01–04 lock, Room `v6 -> v9` live SQLite migrations (`BUG-10`), `SharedMathEngine` overflow/boundary tests (`BUG-07`, `BUG-08`), all 4 PDFs (`894` pages, `BUG-09`), `BUG-01`..`BUG-36`, and adversarial `BUG-48`, `BUG-49`, `BUG-52` | **PASS (`27/27`)** |
+| 05 | `NumberSystemUnitTest.kt` | JUnit4 | `17` | `17` | **`17`** | Base Converter, Divisibility (`2..19`), Euclidean GCD/LCM, Modular Arithmetic, `MCQ`/`KEYPAD`/`TRUE_FALSE` (`BUG-17`) | **PASS (`17/17`)** |
+| 06 | `BcsPreparationCenterUnitTest.kt` | Robolectric (`sdk = [36]`) | `12` | `12` | **`12`** | 6 BCS Exam Profiles (`BUG-05`), 1,060+ BCS Questions, 50 Topic Guides, Provenance (`BUG-06`) & Profile Isolation (`BUG-13`) | **PASS (`12/12`)** |
+| 07 | `ApplicationWideScrollRestorationUnitTest.kt` | Robolectric (`sdk = [36]`) | `0` | `10` | **`10`** | Application-wide scroll, sub-tab, filter, parameterized argument isolation, 6-level deep navigation chain, bottom-nav tab persistence, live Activity recreation, and 14-module/31-destination live `MainActivity` acceptance (`BUG-36`–`BUG-39`) | **PASS (`10/10`)** |
+| 08 | `HomeNavigationAndOrderingUnitTest.kt` | Robolectric (`sdk = [36]`) | `7` | `9` | **`9`** | 14 Home Modules ordering (`BUG-11`), customization persistence, backstack navigation (`BUG-12`), and Home Screen scroll position & pixel offset restoration (`BUG-36`) | **PASS (`9/9`)** |
+| 09 | `UiSpacingAndLayoutAuditUnitTest.kt` | Robolectric (`sdk = [36]`) | `0` | `0` | **`8`** | Application-wide UI spacing tokens (`BUG-67`), nested `Scaffold` `WindowInsets(0,0,0,0)` (`BUG-59`), `SpaceBetween` `weight(1f)` (`BUG-60`), opaque `blendedContainerColor` (`BUG-61`), `MathSectionHeader` padding (`BUG-62`), `IntrinsicSize.Max` (`BUG-63`), Dark-Mode contrast (`BUG-64`), Dashboard bullet-list spacing & action-button geometry (`BUG-65`), and compact touch targets & chip rows (`BUG-66`) | **PASS (`8/8`)** |
+| 10 | `ExampleUnitTest.kt` | JUnit4 | `1` | `1` | **`1`** | Baseline JUnit sanity check | **PASS (`1/1`)** |
+| **Total** | **10 Test Suites** | **JVM + Robolectric** | **`165`** | **`185`** | **`215`** | **100% Pass Rate (`215 / 215` Passed, `0` Failures, `0` Errors, `0` Skipped)** | **PASS** |
 
 ---
 
-## 3. Stabilization (`+2`), Adversarial (`+5`) & Scroll Restoration (`+3`) Regression Tests Added
+## 3. Detailed Traceability of Regression Tests for `BUG-36` through `BUG-73` & Local Test Method Aliases
 
-### 3.1 Phase 2 Stabilization Regression Tests (`165 -> 167`)
-1. **`auditRegression_bug22_bookPracticeBidirectionalNavigationPreservesStateAndPreventsScoreDoubleCounting`**:
-   - Starts a 5-question `BookPractice` session, answers `Q0` correctly (`correctCount = 1, wrongCount = 0`) and `Q1` wrongly (`correctCount = 1, wrongCount = 1`).
-   - Navigates back to `Q0` (`previousBookPracticeQuestion()`) and verifies `isAnswerSubmitted == true`, `isCurrentCorrect == true`, and the exact selected option/text input is preserved.
-   - Verifies calling `submitBookPracticeAnswer()` again on `Q0` is a no-op (`correctCount = 1, wrongCount = 1`).
-   - Navigates forward to `Q1` (`nextBookPracticeQuestion()`) and verifies `Q1` remains submitted with `isCurrentCorrect == false` and unchanged counts (`1` correct, `1` wrong), then advances to unanswered `Q2` and verifies `isAnswerSubmitted == false`.
-2. **`auditRegression_bug23_bug25_bug26_streakTrackingKpiDeduplicationAndBookTextEquivalence`**:
-   - **`BUG-26`**: Verifies `BookQuestionEngine.isTextEquivalent` accepts `"১/২"` vs `"0.5"`, `"২/৪"` vs `"১/২"`, `"৩ : ৪"` vs `"6 : 8"`, and `"৩৬টি"` vs `"36"`, while rejecting `"১/৩"` vs `"১/২"`.
-   - **`BUG-25`**: Verifies `LearningAnalyticsEngine.computeSeparatedKpis` excludes `QuizScoreEntity(topicId = "BOOK_class_6_C1")` from `totalExamsCompleted` (`0` exams, `1` practice session, `10` total questions attempted instead of `20`).
-   - **`BUG-23`**: Verifies `NumberSystemPracticeState` increments `currentStreak` (`1 -> 2`), preserves `highestStreak = 2` when `Q2` is answered wrongly (`currentStreak = 0`), and maintains accurate `score = 2`.
+### 3.1 Phase 4 Navigation, Scroll & Context State Restoration (`BUG-36` – `BUG-39`)
+- **`HomeNavigationAndOrderingUnitTest.kt`**:
+  - `testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` (`BUG-36`)
+  - `testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` (`BUG-36`)
+- **`EcosystemUpgradeV7UnitTest.kt`**:
+  - `bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` (`BUG-36`)
+- **`ApplicationWideScrollRestorationUnitTest.kt` (`10 / 10` tests, `BUG-36` – `BUG-39`)**:
+  - `testScenarioA_FirstLaunchStartsAllDestinationsAtTopZeroOffset`
+  - `testScenarioB_HomeToModuleToBackPreservesExactScrollAcrossAll14Modules`
+  - `testScenarioC_ParentModuleToChildDestinationAndBackRestoresScrollAndContext`
+  - `testScenarioD_MultiLevelGrandchildNavigationChainRestoresEveryLevelOnBack`
+  - `testScenarioE_ParameterizedDestinationsMaintainIndependentScrollStatePerArgumentId`
+  - `testScenarioF_BottomNavigationTabsPreserveScrollAndSubTabStateAcrossSwitches` (`BUG-39`)
+  - `testScenarioG_InternalModuleTabsPreserveIndependentScrollAndFilters` (`BUG-38`)
+  - `testScenarioH_RepeatedNavigationCyclesAndBoundedLruCacheStability`
+  - `testScenarioI_LiveActivityMultiLevelNavigationTabSwitchingAndRecreation`
+  - `testScenarioJ_Full14ModulesAnd31DestinationsLiveMainActivityInteractiveAcceptance` (also verifies all 9 tabs of Visual Math Explorer 2.0 in live `MainActivity` composition).
 
-### 3.2 Phase 3 Independent Adversarial Bug Hunt Regression Tests (`167 -> 172`)
-3. **`adversarialAudit_bug29_dotlessUnitSuffixesAndMixedFractionEquivalence`**:
-   - Verifies `SharedMathEngine.isAnswerCorrect` strips dotless textbook unit suffixes (`"২৪ সেমি"`, `"১৫০ বর্গসেমি"`, `"৬৪ ঘনসেমি"`, `"১২ মিটার"`, `"৪৮ বর্গমিটার"`, `"৫ কিমি"`) and equates mixed fractions (`"1 1/2"`, `"১ ১/২"`, `"১ সমস্ত ১/২"`, `"১ পূর্ণ ১/২ সেমি"`, `"2 3/4"`) with their decimal and improper fraction equivalents.
-4. **`adversarialAudit_bug30_parenthesizedDistributiveAlgebraicSimplification`**:
-   - Verifies `SharedMathEngine.simplify` expands and simplifies distributive parenthesized linear and quadratic expressions (`"2(x + 3) + 4x - 1"` -> `"৬x + ৫"`, `"3(2x - 1) - 2(x - 4)"` -> `"৪x + ৫"`, `"-(x + 5) + 3x"` -> `"২x − ৫"`, `"2(x^2 + 3x - 1) - x^2"` -> `"x² + ৬x − ২"`).
-5. **`adversarialAudit_bug31_and_bug32_crossTableMistakeSyncAndResolution`**:
-   - Verifies Book mistakes sync across `book_mistakes`, `book_spaced_revision`, and `unified_mistake_notebook` without double-prefixing or leaving orphaned rows on deletion (`BUG-31`), and verifies BCS mistakes canonicalize mode-prefixed IDs (`"bcs_exam_3_bcs_hist_45_arith_99"` vs `"bcs_mistake_retry_1_bcs_hist_45_arith_99"`) and auto-resolve across `bcs_mistake_notebook` and `unified_mistake_notebook` (`BUG-32`).
-6. **`adversarialAudit_bug33_and_bug34_unsubmittedDraftPreservationAndSkippedWeakTopics`**:
-   - Verifies unsubmitted draft selections in non-`isFullExamMode` quizzes are preserved across `jumpToQuizQuestion()` and `previousQuizQuestion()` and scored on timer expiry (`BUG-33`), and verifies `ExamScoringEngine.evaluateExam()` excludes skipped zero-attempt topics (`attemptedCount == 0`) from `weakTopicTitlesBn` (`BUG-34`).
-7. **`adversarialAudit_bug35_pdfRenderCacheAndSynchronizedOfflinePdfExtraction` (`BUG-35` — Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization)**:
-   - Verifies `BookPdfRenderCache` bounded `LruCache(12)` put/get/evictAll lifecycle, `Mutex`-serialized `PdfRenderer` access, `RGB_565` bitmap memory management, and synchronized atomic extraction of bundled NCTB PDFs via `resolveOfflinePdfFile()` (`BUG-35`).
+### 3.2 Phase 5A & 5B Dashboard, Timer, Analytics & Quiz/Exam Engine (`BUG-40` – `BUG-52`, `BUG-68`)
+- **`ExampleRobolectricTest.kt`**:
+  - `testBug41AndBug43AndBug44_AnalyticsDeduplicationWindowingAndTopicNormalization` (`BUG-41`, `BUG-43`, `BUG-44`, `BUG-68`)
+  - `testBug42AndBug43_ExamTrendChronologicalOrderAndWindowedTopicMasteryIsolation` (`BUG-42`, `BUG-43`)
+  - `testBug45_MultiSessionSameDayBackfillAccumulation` (`BUG-45`)
+  - `testBug45_BestStreakBeyond365DaysAndHistoricalStreakWithoutTruncation` (`BUG-45`)
+  - `testBug47_EffectiveAnswersMapIncludesPendingUncheckedSelections` (`BUG-47`)
+  - `testBug47_EffectiveAnswersMapActiveSelectionOverridesStalePendingAndEvaluatesTypedAnswers` (`BUG-47`)
+  - `testBug50AndBug51_TrueFalseStatementFormattingAndUniqueQuestionIds` (`BUG-50`, `BUG-51`)
+  - `testBug50AndBug51_AllTopicsTrueFalseDeclarativeAndPolarityPreserved` (`BUG-50`, `BUG-51`)
+- **`EcosystemUpgradeV7UnitTest.kt`**:
+  - `adversarialAudit_bug48_pairedExamDeletionCollisionAndInProgressDiscardSafety` (`BUG-48`)
+  - `adversarialAudit_bug49AndBug52_timerResumeUnder30SecondsAndNumericalSelectionIsolation` (`BUG-44`, `BUG-49`, `BUG-52`)
 
-### 3.3 Phase 4 Home Screen Scroll Position Restoration Regression Tests (`BUG-36`, `172 -> 175`)
-8. **`testHomeScreenScrollPositionPreservedAcrossAllModuleNavigationScenarios` (`HomeNavigationAndOrderingUnitTest.kt`, `BUG-36`)**:
-   - Verifies fresh launch starts at `(0, 0)` (Scenario G), scrolls to `(firstVisibleItemIndex = 9, firstVisibleItemScrollOffset = 128)`, navigates to all 14 Home Screen modules (`Tables`, `Primes`, `SquaresCubes`, `Formulas`, `FormulaLibrary`, `PracticeLab`, `MentalMath`, `NumberSystem`, `ProblemSolver`, `VisualExplorer`, `Quizzes`, `Dashboard`, `BcsPreparation`, and `BookHub`), returns via `navigateBack()` (Scenarios A, B, C), and traverses a 5-level deep stack (`Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> Back to Home`, Scenario D), confirming `(9, 128)` is preserved across every transition.
-9. **`testHomeScreenLiveComposeCompositionDisposalAndExactScrollRestoration` (`HomeNavigationAndOrderingUnitTest.kt`, `BUG-36`)**:
-   - Launches `MainActivity` under Robolectric (`sdk = [36]`), verifies `HomeScreen` leaves the live Compose composition tree during module navigation (`VisualExplorer` and `ProblemSolver`) and re-enters composition upon `navigateBack()` with both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 116` intact, and verifies normal recompositions (timer ticks, theme switches, Scenario E) do not reset the scroll state.
-10. **`bug36_homeScreenScrollPositionAndOffsetRestoredAfterModuleNavigationDisposal` (`EcosystemUpgradeV7UnitTest.kt`, `BUG-36`)**:
-    - Verifies `LazyGridState.Saver` serialization/restoration (used by `SaveableStateHolder` in `MainAppContent`) and `MathViewModel.homeScrollPosition` restoration of both `firstVisibleItemIndex = 8` and `firstVisibleItemScrollOffset = 94` across module disposal and multi-screen BCS exam navigation.
+### 3.3 Phase 6A & Phase 7 Visual Math Explorer 2.0 (`BUG-53` – `BUG-58`, `BUG-72`, `BUG-73`)
+- **`VisualMathExplorerUnitTest.kt` (`36 / 36` tests)**:
+  - `testBug53_CubeVolumeVisualModelExistsWithVolumeAndSurfaceFormulas` (`BUG-53`)
+  - `testBug54_ImproperFractionMultiWholeComputation` (`BUG-54`)
+  - `testBug55_CoordinateTransformationAllFiveTypes` (`BUG-55`)
+  - `testBug56_TriangleExactSidesAndIsoscelesFallback` & `testBug56_TriangleGeometricConsistencyValidationClampsInvalidSides` (`BUG-56`)
+  - `testBug57_RigidBodyHingeUnfoldPreservesFaceAreaWithoutShrinkage`, `testBug57_NonLinearVolumeFillForConeSphereAndPrism`, `testBug57_ConeNetUnfoldsBaseAndSphereNetIncludesTheoremaEgregiumNote`, & `testBug57_InvertedConeVolumeFillFollowsCubicApexRatio` (`BUG-57`)
+  - `testBug58_BalanceScaleCustomLinearEquationValidation` (`BUG-58`)
+  - **Visual Math Explorer 2.0 Studio & OpenGL ES Pipeline Tests**:
+    - `testVisualMath2_AllTen3DSolidsFormulasAndMeshes` (all 10 `Solid3DShapeType` entries: `CUBE`..`FRUSTUM`)
+    - `testVisualMath2_CrossSectionSlicerForAllTenSolids` (`HORIZONTAL`, `VERTICAL`, `ANGLED` slicing planes)
+    - `testVisualMath2_NineStagePedagogicalFlowForAllTenSolids` (9-stage Bengali stepper `Introduce` $\to$ `Recap`)
+    - `testVisualMath2_TrigonometryUnitCircleAndElevationLab`
+    - `testVisualMath2_Vector3DCoordinateOperationsAndCollinearCrossProduct`
+    - `testVisualMath2_AlgebraTilesPolynomialExpansion`
+    - `testVisualMath2_FractionOperationsAdditionSubtractionMultiplicationDivision`
+    - `testVisualMath2_QuadraticAnd3DSurfaceEvaluator`
+    - `testAdversarialAudit_GlMvpOverlayProjectionSyncAndShaderIntegrity` (verifies `Math3DGlRenderer.projectPointThroughGlPipeline`, `buildViewProjectionMatrix`, `DepthBuffer24FallbackConfigChooser` (`BUG-73`), and GLSL shader source strings).
+- **`ExampleRobolectricTest.kt`**:
+  - `visualExplorer20_allNineTabsRenderAndPedagogicalCheckpointSavesProgress` (`lines 1255–1294`, verifies `_completedVisualCheckpointIds` duplicate checkpoint guard `BUG-72`).
 
-### 3.4 Phase 4B Application-Wide Navigation & Scroll Restoration Regression Tests (`BUG-37` – `BUG-39`, `175 -> 185`)
-11. **`ApplicationWideScrollRestorationUnitTest.kt` (`10` comprehensive tests, `BUG-36` – `BUG-39`)**:
-    - `testScenarioA_FirstLaunchStartsAllDestinationsAtTopZeroOffset`: Verifies fresh launch initializes all destinations at `(0, 0)`.
-    - `testScenarioB_HomeToModuleToBackPreservesExactScrollAcrossAll14Modules`: Verifies `Home -> Module -> Back` across all 14 modules preserves exact index and pixel offset.
-    - `testScenarioC_ParentModuleToChildDestinationAndBackRestoresScrollAndContext`: Verifies `Tables -> TableDetail`, `FormulaLibrary -> FormulaDetail`, `PracticeLab -> PracticeLabPlay`, `MentalMath -> MentalMathPlay`, `NumberSystem -> NumberSystemPracticePlay`, and `Bookmarks -> PracticeTutor` parent-child scroll & filter restoration.
-    - `testScenarioD_MultiLevelGrandchildNavigationChainRestoresEveryLevelOnBack`: Verifies a 6-level deep navigation chain (`Home -> BookHub -> BookDetail -> BookChapterOverview -> BookLesson -> BookPdfReader -> Back`) restores exact scroll and parent arguments (`BookId`, `chapterNumber`, `lessonId`, `selectedTab`) at every level.
-    - `testScenarioE_ParameterizedDestinationsMaintainIndependentScrollStatePerArgumentId`: Verifies `BookDetail(CLASS_6)` vs `BookDetail(CLASS_9_10)` and `TableDetail(7)` vs `TableDetail(19)` maintain isolated scroll states.
-    - `testScenarioF_BottomNavigationTabsPreserveScrollAndSubTabStateAcrossSwitches`: Verifies switching across all 5 Bottom-Navigation tabs (`Home`, `Tables`, `Dashboard`, `Bookmarks`, `Quizzes`) preserves each tab's scroll and active sub-tab state (`BUG-39`).
-    - `testScenarioG_InternalModuleTabsPreserveIndependentScrollAndFilters`: Verifies `BcsPreparation` Tabs `0..4` and `VisualExplorer` preserve per-tab scroll and filter state across child navigation (`BUG-38`).
-    - `testScenarioH_RepeatedNavigationCyclesAndBoundedLruCacheStability`: Verifies 5 repeated navigation cycles without drift and bounded LRU cache (`<= 300` entries).
-    - `testScenarioI_LiveActivityMultiLevelNavigationTabSwitchingAndRecreation`: Launches `MainActivity` under Robolectric (`sdk = [36]`), exercises multi-level navigation, timer ticks, theme switches, bottom-nav tab switches, and `controller.recreate()`, confirming all scroll states survive.
-    - `testScenarioJ_Full14ModulesAnd31DestinationsLiveMainActivityInteractiveAcceptance`: Mounts and interactively traverses all **14 modules** and all **31 production screen destinations** in a live `MainActivity` (`sdk = [36]`), exercising both toolbar Back (`viewModel.navigateBack()`) and Android system Back (`activity.onBackPressedDispatcher.onBackPressed()`), including `BookPdfReader` in-place page turns (`40 -> 45`) and child-to-reader Back restoration.
+### 3.4 Phase 6B Application-Wide UI Spacing, Insets, Alignment & Dark-Theme Contrast (`BUG-59` – `BUG-67`)
+- **`UiSpacingAndLayoutAuditUnitTest.kt` (`8 / 8` tests)**:
+  - `bug67_spacingSystemTokensFollowStrict8dpGridAndSemanticHierarchy` (`BUG-67`: `MathSpacingSystem` & `LocalMathSpacing` tokens)
+  - `bug59_nestedScaffoldsDisableDuplicateWindowInsetsAndPropagateModifiers` (`BUG-59`: nested `Scaffold` `WindowInsets(0,0,0,0)`)
+  - `bug60_spaceBetweenHeadersUseWeightToPreventTrailingButtonClipping` (`BUG-60`: `SpaceBetween` `Modifier.weight(1f)`)
+  - `bug61_elevatedCardsUseOpaqueBlendedColorsWithoutAlphaShadowArtifacts` (`BUG-61`: opaque `MathSpacing.blendedContainerColor`)
+  - `bug62_mathSectionHeaderDefaultZeroHorizontalPaddingPreventsDoubleIndentation` (`BUG-62`: `MathSectionHeader` default `0.dp` horizontal padding & `screenListContentPadding`)
+  - `bug63_equalHeightRowCardsUseIntrinsicSizeMax` (`BUG-63`: `IntrinsicSize.Max` + `fillMaxHeight()`)
+  - `bug64_mentalMathSummaryUsesThemeAwareBlendedContainerColorsForDarkModeContrast` (`BUG-64`: `MentalMathSummaryView` dark-mode contrast)
+  - `bug65_and_bug66_liveComposeDashboardAndQuizzesSpacingTouchTargetsAndDarkThemeVerification` (`BUG-65`: Dashboard bullet-list spacing & `btn_dashboard_to_bcs`/`btn_dashboard_to_formula_lib` action-button geometry; `BUG-66`: compact touch-target sizing `compactButtonHeight = 38.dp`, `minTouchTarget = 48.dp` & crowded chip/control row spacing; plus live Compose verification of `VisualExplorerScreen` 2.0 tabs).
 
-> **Canonical Traceability Verification**: Across all 9 test suites (`185 / 185` passing), **`BUG-01`** exclusively tests **Numerical Keypad Scoring and Negative Marking**, **`BUG-35`** exclusively tests **Book PDF Reader Concurrency, Bitmap Memory Management, `Mutex` Serialization & `LruCache` Optimization**, **`BUG-36`** exclusively tests **Home Screen Scroll Position Restoration**, and **`BUG-37`–`BUG-39`** test **Application-Wide Nested Navigation, Internal Tab/Filter Context, and Bottom-Navigation Tab State Restoration**.
+### 3.5 Note on Legacy Local Test Method Name Aliases (`ExampleRobolectricTest.kt:2474–2600`)
+Five early test methods in `ExampleRobolectricTest.kt` carry local `BUG-01..05` method-name prefixes from the 5-item `BUG_FIX_IMPLEMENTATION_REPORT.md` stream. Their canonical Defect IDs in [`../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md) are:
+- `regression BUG-01 bookmark deepLink opens FormulaLibrary and PracticeLab MentalMath record unified mistakes` $\to$ **Canonical `BUG-19` & `BUG-24`**
+- `regression BUG-02 bookId lesson completion isolation prevents cross-class collision` $\to$ **Canonical `BUG-71`**
+- `regression BUG-03 BCS exam profile cold-start restoration loads persisted profile` $\to$ **Canonical `BUG-70`**
+- `regression BUG-04 study session timer flushes unrecorded elapsed seconds on pause and reset` $\to$ **Canonical `BUG-40`**
+- `regression BUG-05 bookmark screen routes BOOK_PAGE BCS_PREP and book_formula bookmarks to exact destinations` $\to$ **Canonical `BUG-69`**
 
+---
 
+## 4. Note on GPU Renderer Verification Scope in Automated Tests
 
+- **What `gradle :app:testDebugUnitTest` Verifies**:
+  - Executes all `215 / 215` unit and Robolectric tests on the local JVM.
+  - Verifies the mathematical correctness of `Math3DEngine`, `VisualMathStudioEngine`, `Math3DGlRenderer.buildViewProjectionMatrix`, `Math3DGlRenderer.projectPointThroughGlPipeline`, `DepthBuffer24FallbackConfigChooser` configuration arrays (`BUG-73`), and GLSL shader source definitions.
+  - Exercises `VisualExplorerScreen` and `Math3DStudioViewport` in live Robolectric Compose trees via the automatic headless software projection fallback (`isHeadlessTest == true` when `Build.FINGERPRINT` contains `"robolectric"`).
+- **What Requires a Physical Android Device (`PENDING PHYSICAL HARDWARE`)**:
+  - Physical hardware `EGLContext` creation, hardware OpenGL ES 2.0/3.0 driver selection, hardware 24-bit/16-bit depth buffer allocation, on-GPU GLSL shader compilation/linking, hardware rasterization (`GL_DEPTH_TEST`, `glPolygonOffset`, `GL_BLEND`), real-device `GLSurfaceView` `onPause()`/`onResume()` lifecycle transitions, and hardware 60fps (`< 16.6ms`) frame timing (`adb shell dumpsys gfxinfo`). See [`FINAL_DEVICE_QA_REPORT.md`](FINAL_DEVICE_QA_REPORT.md) for the complete 11-point physical-device GPU validation execution guide.

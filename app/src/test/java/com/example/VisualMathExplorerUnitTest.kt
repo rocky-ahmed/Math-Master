@@ -939,4 +939,380 @@ class VisualMathExplorerUnitTest {
             assertTrue(scene.facesBackToFront.all { f -> f.points.all { !it.x.isNaN() && !it.y.isNaN() } })
         }
     }
+
+    // -------------------------------------------------------------
+    // 9. VISUAL MATH EXPLORER 2.0 STUDIO ENGINE & 10-SOLID TESTS
+    // -------------------------------------------------------------
+
+    @Test
+    fun testVisualMath20_NewFourSolidsMensurationAndNonLinearVolumeFill() {
+        // 7. Hemisphere (r = 3) -> V = (2/3)*pi*27 = 18*pi, CSA = 2*pi*9 = 18*pi, TSA = 3*pi*9 = 27*pi
+        val hemi = Math3DEngine.calculateSolidMetrics(Solid3DShapeType.HEMISPHERE, p1 = 3.0)
+        assertEquals(18.0 * PI, hemi.volume, 0.01)
+        assertEquals(18.0 * PI, hemi.lateralSurfaceArea, 0.01)
+        assertEquals(27.0 * PI, hemi.totalSurfaceArea, 0.01)
+
+        // Hemisphere non-linear volume fill at p = 0.5 -> V_fill / V = p*(3 - p^2)/2 = 0.5 * 2.75 / 2 = 0.6875 (68.75%)
+        val hemiFill50 = Math3DEngine.calculateVolumeFill(Solid3DShapeType.HEMISPHERE, 3.0, heightFillFraction = 0.5f)
+        assertFalse(hemiFill50.isLinearWithHeight)
+        assertEquals(0.6875, hemiFill50.volumeFillFraction, 1e-5)
+
+        // 8. Square Pyramid (a = 6, h = 4) -> slant l = sqrt(3^2 + 4^2) = 5, Base = 36, LSA = 2*6*5 = 60, TSA = 96, V = 48
+        val pyramid = Math3DEngine.calculateSolidMetrics(Solid3DShapeType.SQUARE_PYRAMID, p1 = 6.0, p2 = 4.0)
+        assertEquals(48.0, pyramid.volume, 0.001)
+        assertEquals(60.0, pyramid.lateralSurfaceArea, 0.001)
+        assertEquals(96.0, pyramid.totalSurfaceArea, 0.001)
+        assertEquals(5.0, pyramid.secondaryMetricValue, 0.001)
+
+        val pyrFill50 = Math3DEngine.calculateVolumeFill(Solid3DShapeType.SQUARE_PYRAMID, 6.0, 4.0, heightFillFraction = 0.5f)
+        assertFalse(pyrFill50.isLinearWithHeight)
+        assertEquals(0.875, pyrFill50.volumeFillFraction, 1e-6)
+
+        // 9. Hexagonal Prism (a = 4, h = 5) -> Base = (3*sqrt(3)/2)*16 = 24*sqrt(3), LSA = 6*4*5 = 120, V = 120*sqrt(3)
+        val hexPrism = Math3DEngine.calculateSolidMetrics(Solid3DShapeType.HEXAGONAL_PRISM, p1 = 4.0, p2 = 5.0)
+        val expectedHexBase = 24.0 * sqrt(3.0)
+        assertEquals(expectedHexBase * 5.0, hexPrism.volume, 0.01)
+        assertEquals(120.0, hexPrism.lateralSurfaceArea, 0.01)
+        assertEquals(2.0 * expectedHexBase + 120.0, hexPrism.totalSurfaceArea, 0.01)
+
+        // 10. Conical Frustum (R = 6, r = 3, h = 4) -> l = sqrt((6-3)^2 + 4^2) = 5
+        // LSA = pi*(6+3)*5 = 45*pi, TSA = 45*pi + 36*pi + 9*pi = 90*pi, V = (pi*4/3)*(36 + 18 + 9) = 84*pi
+        val frustum = Math3DEngine.calculateSolidMetrics(Solid3DShapeType.FRUSTUM, p1 = 6.0, p2 = 3.0, p3 = 4.0)
+        assertEquals(5.0, frustum.secondaryMetricValue, 0.001)
+        assertEquals(45.0 * PI, frustum.lateralSurfaceArea, 0.01)
+        assertEquals(90.0 * PI, frustum.totalSurfaceArea, 0.01)
+        assertEquals(84.0 * PI, frustum.volume, 0.01)
+    }
+
+    @Test
+    fun testVisualMath20_CrossSectionSlicingAndNineStageGuidesForAllTenSolids() {
+        for (solid in Solid3DShapeType.entries) {
+            // 1. Verify 9-stage guide completeness
+            val guide = com.example.math.VisualMathStudioEngine.buildNineStageGuideForSolid(
+                shape = solid,
+                p1 = solid.defaultP1,
+                p2 = solid.defaultP2,
+                p3 = solid.defaultP3
+            )
+            assertEquals("Each solid must have exactly 9 pedagogical stages", 9, guide.stages.size)
+            assertTrue(guide.practiceChallenge.expectedValue > 0.0)
+            assertEquals(4, guide.knowledgeCheckQuestion.optionsBn.size)
+
+            // 2. Verify Horizontal, Vertical, and Angled cross-sections
+            for (mode in listOf(
+                com.example.math.CrossSectionSliceMode.HORIZONTAL,
+                com.example.math.CrossSectionSliceMode.VERTICAL,
+                com.example.math.CrossSectionSliceMode.ANGLED
+            )) {
+                val slice = Math3DEngine.calculateCrossSection(
+                    shape = solid,
+                    p1 = solid.defaultP1,
+                    p2 = solid.defaultP2,
+                    p3 = solid.defaultP3,
+                    sliceMode = mode,
+                    slicePosition = 0.5f
+                )
+                assertTrue("Cross-section area must be > 0 for $solid ($mode)", slice.sectionArea > 0.0)
+                assertTrue("Cross-section perimeter must be > 0 for $solid ($mode)", slice.sectionPerimeter > 0.0)
+                assertTrue("2D contour must have >= 3 vertices for $solid ($mode)", slice.contour2D.size >= 3)
+
+                val (facesWithSlice, _) = Math3DEngine.buildSolidMesh(
+                    shape = solid,
+                    p1 = solid.defaultP1,
+                    p2 = solid.defaultP2,
+                    p3 = solid.defaultP3,
+                    unfoldProgress = 0f,
+                    volumeFillFraction = 0f,
+                    sliceMode = mode,
+                    slicePosition = 0.5f
+                )
+                assertTrue("Mesh must contain isCrossSection face for $solid ($mode)", facesWithSlice.any { it.isCrossSection })
+            }
+        }
+    }
+
+    @Test
+    fun testVisualMath20_TrigonometryUnitCircle3DCoordinatesSurfaceAndAlgebraTiles() {
+        // 1. Unit Circle & Elevation
+        val deg30 = com.example.math.VisualMathStudioEngine.analyzeUnitCircle(30.0)
+        assertEquals(0.5, deg30.sinValue, 1e-4)
+        assertEquals(sqrt(3.0) / 2.0, deg30.cosValue, 1e-4)
+        assertEquals(1.0, deg30.pythagoreanIdentitySum, 1e-6)
+        assertEquals(1, deg30.quadrantNumber)
+
+        val deg90 = com.example.math.VisualMathStudioEngine.analyzeUnitCircle(90.0)
+        assertEquals(1.0, deg90.sinValue, 1e-5)
+        assertEquals(0.0, deg90.cosValue, 1e-5)
+        assertEquals(null, deg90.tanValue)
+
+        val elev = com.example.math.VisualMathStudioEngine.analyzeTrigElevation(45.0, 25.0)
+        assertEquals(25.0, elev.oppositeHeight, 1e-3)
+
+        // 2. 3D Coordinates & Vector Studio
+        val coord = com.example.math.VisualMathStudioEngine.analyze3DCoordinates(
+            com.example.math.Point3DCoord(0.0, 0.0, 0.0),
+            com.example.math.Point3DCoord(3.0, 4.0, 12.0)
+        )
+        // Clamped to [-10, 10] -> B(3, 4, 10) -> d = sqrt(9 + 16 + 100) = sqrt(125)
+        assertEquals(sqrt(125.0), coord.distance3D, 1e-4)
+        val (coordFaces, coordLines) = com.example.math.VisualMathStudioEngine.build3DCoordinateSceneMesh(coord)
+        assertTrue(coordFaces.isNotEmpty())
+        assertTrue(coordLines.size >= 4)
+
+        // 3. Quadratic 2D & 3D Surface z = f(x,y)
+        val quad = com.example.math.VisualMathStudioEngine.analyzeQuadratic2D(1.0, -5.0, 6.0)
+        assertEquals(2.5, quad.vertexX, 1e-5)
+        assertEquals(-0.25, quad.vertexY, 1e-5)
+        assertEquals(listOf(2.0, 3.0), quad.realRoots)
+
+        for (preset in com.example.math.Surface3DPreset.entries) {
+            val surf = com.example.math.VisualMathStudioEngine.build3DSurfaceMesh(preset, 1.2, 1.5, 8)
+            assertEquals(64, surf.faces.size)
+            assertTrue(surf.lines.isNotEmpty())
+        }
+
+        // 4. Algebra Tiles & Fraction Operations
+        val tiles = com.example.math.VisualMathStudioEngine.analyzeAlgebraTiles(
+            xSquaredCountInput = 1,
+            xPositiveInput = 6,
+            xNegativeInput = 1,
+            unitPositiveInput = 6,
+            unitNegativeInput = 0,
+            xEvalValueInput = 2
+        )
+        assertEquals(1, tiles.zeroPairsX)
+        assertEquals(5, tiles.netXCount)
+        assertNotNull("x^2 + 5x + 6 should factorize", tiles.factorizedFormBn)
+        // At x = 2: 2^2 + 5(2) + 6 = 20
+        assertEquals(20.0, tiles.evaluatedValueAtX, 1e-5)
+
+        val fracAdd = com.example.math.VisualMathStudioEngine.analyzeFractionOperation(
+            1, 2, 1, 3, com.example.math.FractionOpType.ADD
+        )
+        assertEquals(5, fracAdd.simplifiedNum)
+        assertEquals(6, fracAdd.simplifiedDen)
+
+        val fracDiv = com.example.math.VisualMathStudioEngine.analyzeFractionOperation(
+            3, 4, 9, 8, com.example.math.FractionOpType.DIVIDE
+        )
+        assertEquals(2, fracDiv.simplifiedNum)
+        assertEquals(3, fracDiv.simplifiedDen)
+    }
+
+    @Test
+    fun testAdversarialAudit_GlMvpOverlayProjectionSyncAndShaderIntegrity() {
+        val (faces, lines) = Math3DEngine.buildSolidMesh(
+            shape = Solid3DShapeType.HEXAGONAL_PRISM,
+            p1 = 4.0,
+            p2 = 6.0,
+            unfoldProgress = 0.0f,
+            volumeFillFraction = 0.4f
+        )
+        val cameras = listOf(
+            OrbitCameraState(pitchDeg = 25f, yawDeg = -35f, zoom = 1.0f, panX = 0f, panY = 0f, isOrthographic = false),
+            OrbitCameraState(pitchDeg = -40f, yawDeg = 120f, zoom = 1.45f, panX = 24f, panY = -16f, isOrthographic = false),
+            OrbitCameraState(pitchDeg = 18f, yawDeg = 45f, zoom = 0.85f, panX = -12f, panY = 20f, isOrthographic = true)
+        )
+        val width = 800
+        val height = 600
+
+        for (cam in cameras) {
+            val canvasScene = Math3DEngine.projectScene(
+                faces = faces,
+                internalLines = lines,
+                camera = cam,
+                canvasWidth = width.toFloat(),
+                canvasHeight = height.toFloat()
+            )
+            val testFace = faces.first()
+            val projectedFace = canvasScene.facesBackToFront.first { it.id == testFace.id }
+            for (vIdx in testFace.vertices.indices) {
+                val worldPt = testFace.vertices[vIdx]
+                val canvasPt = projectedFace.points[vIdx]
+                val glPt = com.example.ui.components.Math3DGlRenderer.projectPointThroughGlPipeline(
+                    point = worldPt,
+                    camera = cam,
+                    width = width,
+                    height = height
+                )
+                assertEquals("GL X must match Canvas X within 0.05px for cam=$cam", canvasPt.x, glPt.x, 0.05f)
+                assertEquals("GL Y must match Canvas Y within 0.05px for cam=$cam", canvasPt.y, glPt.y, 0.05f)
+            }
+        }
+
+        assertTrue(com.example.ui.components.Math3DGlRenderer.SURFACE_VERTEX_SHADER.contains("uMVPMatrix"))
+        assertTrue(com.example.ui.components.Math3DGlRenderer.SURFACE_FRAGMENT_SHADER.contains("gl_FragColor"))
+        assertTrue(com.example.ui.components.Math3DGlRenderer.LINE_VERTEX_SHADER.contains("uMVPMatrix"))
+    }
+
+    @Test
+    fun testAdversarialAudit_NetUnfoldRigidIsometryCyclesAndFrustumCoplanarity() {
+        val polyhedralSolids = listOf(
+            Solid3DShapeType.CUBE,
+            Solid3DShapeType.CUBOID,
+            Solid3DShapeType.TRIANGULAR_PRISM,
+            Solid3DShapeType.SQUARE_PYRAMID,
+            Solid3DShapeType.HEXAGONAL_PRISM
+        )
+        val fractions = listOf(0.0f, 0.25f, 0.50f, 0.75f, 1.00f)
+
+        fun polygonArea3D(verts: List<com.example.math.Vec3>): Double {
+            if (verts.size < 3) return 0.0
+            val v0 = verts[0]
+            var sum = 0.0
+            for (i in 1 until verts.size - 1) {
+                val u = verts[i] - v0
+                val v = verts[i + 1] - v0
+                val c = u.cross(v)
+                sum += 0.5 * sqrt((c.x * c.x + c.y * c.y + c.z * c.z).toDouble())
+            }
+            return sum
+        }
+
+        for (solid in polyhedralSolids) {
+            val (closedFaces, _) = Math3DEngine.buildSolidMesh(solid, 4.0, 3.0, 5.0, unfoldProgress = 0.0f)
+            val closedTotalArea = closedFaces.sumOf { polygonArea3D(it.vertices) }
+
+            for (f in fractions) {
+                val (stepFaces, _) = Math3DEngine.buildSolidMesh(solid, 4.0, 3.0, 5.0, unfoldProgress = f)
+                val stepTotalArea = stepFaces.sumOf { polygonArea3D(it.vertices) }
+                assertEquals(
+                    "Rigid hinge net for $solid must preserve exact 3D surface area at unfold=$f",
+                    closedTotalArea,
+                    stepTotalArea,
+                    1e-4
+                )
+            }
+
+            // Reverse fold 1.0 -> 0.0 must restore identical vertex coordinates
+            val (refoldedFaces, _) = Math3DEngine.buildSolidMesh(solid, 4.0, 3.0, 5.0, unfoldProgress = 0.0f)
+            for (i in closedFaces.indices) {
+                for (vIdx in closedFaces[i].vertices.indices) {
+                    val vA = closedFaces[i].vertices[vIdx]
+                    val vB = refoldedFaces[i].vertices[vIdx]
+                    assertEquals(vA.x, vB.x, 1e-6f)
+                    assertEquals(vA.y, vB.y, 1e-6f)
+                    assertEquals(vA.z, vB.z, 1e-6f)
+                }
+            }
+        }
+
+        // Frustum at unfold = 1.0f must place frustum_top, frustum_bot, and lateral quads coplanar in Z
+        val (frustumUnfolded, _) = Math3DEngine.buildSolidMesh(
+            shape = Solid3DShapeType.FRUSTUM,
+            p1 = 6.0,
+            p2 = 3.0,
+            p3 = 4.0,
+            unfoldProgress = 1.0f
+        )
+        val refZ = frustumUnfolded.first { it.id == "frustum_bot" }.vertices.first().z
+        for (face in frustumUnfolded) {
+            for (v in face.vertices) {
+                assertEquals("Frustum face ${face.id} must lie in net plane z=$refZ at 100% unfold", refZ, v.z, 1e-4f)
+            }
+        }
+    }
+
+    @Test
+    fun testAdversarialAudit_ExactCrossSectionAnalyticalFormulasAndBoundaryTangents() {
+        // 1. Hemisphere (r = 4): Horizontal at s = 0.0 (base Great Circle), s = 0.5 (r_c = r*sqrt(0.75)), s = 1.0 (pole tangent = 0)
+        val hemiBase = Math3DEngine.calculateCrossSection(Solid3DShapeType.HEMISPHERE, 4.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.0f)
+        assertEquals(16.0 * PI, hemiBase.sectionArea, 1e-4)
+
+        val hemiMid = Math3DEngine.calculateCrossSection(Solid3DShapeType.HEMISPHERE, 4.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.5f)
+        assertEquals(12.0 * PI, hemiMid.sectionArea, 1e-4) // pi * 4^2 * (1 - 0.25) = 12*pi
+
+        val hemiPole = Math3DEngine.calculateCrossSection(Solid3DShapeType.HEMISPHERE, 4.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 1.0f)
+        assertEquals(0.0, hemiPole.sectionArea, 1e-6)
+
+        // Hemisphere Vertical at s = 0.5 -> Semicircle of radius 4: Area = 0.5 * pi * 16 = 8*pi, Perimeter = (pi + 2)*4
+        val hemiVert = Math3DEngine.calculateCrossSection(Solid3DShapeType.HEMISPHERE, 4.0, sliceMode = com.example.math.CrossSectionSliceMode.VERTICAL, slicePosition = 0.5f)
+        assertEquals(8.0 * PI, hemiVert.sectionArea, 1e-4)
+        assertEquals((PI + 2.0) * 4.0, hemiVert.sectionPerimeter, 1e-4)
+
+        // 2. Sphere (r = 5): s = 0.0 (tangent = 0), s = 0.25 (d = 2.5 -> r_c^2 = 18.75), s = 0.5 (Great Circle = 25*pi)
+        val sphTangent = Math3DEngine.calculateCrossSection(Solid3DShapeType.SPHERE, 5.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.0f)
+        assertEquals(0.0, sphTangent.sectionArea, 1e-6)
+
+        val sphQuarter = Math3DEngine.calculateCrossSection(Solid3DShapeType.SPHERE, 5.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.25f)
+        assertEquals(18.75 * PI, sphQuarter.sectionArea, 1e-4)
+
+        val sphCenter = Math3DEngine.calculateCrossSection(Solid3DShapeType.SPHERE, 5.0, sliceMode = com.example.math.CrossSectionSliceMode.VERTICAL, slicePosition = 0.5f)
+        assertEquals(25.0 * PI, sphCenter.sectionArea, 1e-4)
+
+        // 3. Cone (r = 6, h = 8): Horizontal at s = 0.5 -> r_c = 3 -> Area = 9*pi; at s = 1.0 -> apex tangent = 0
+        val coneMid = Math3DEngine.calculateCrossSection(Solid3DShapeType.CONE, 6.0, 8.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.5f)
+        assertEquals(9.0 * PI, coneMid.sectionArea, 1e-4)
+        val coneApex = Math3DEngine.calculateCrossSection(Solid3DShapeType.CONE, 6.0, 8.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 1.0f)
+        assertEquals(0.0, coneApex.sectionArea, 1e-6)
+
+        // 4. Hexagonal Prism (a = 4, h = 6): Angled 30 deg -> Area = A_hex * sec(30) = 3 * a^2 = 48.0
+        val hexAngled = Math3DEngine.calculateCrossSection(Solid3DShapeType.HEXAGONAL_PRISM, 4.0, 6.0, sliceMode = com.example.math.CrossSectionSliceMode.ANGLED, slicePosition = 0.5f)
+        assertEquals(48.0, hexAngled.sectionArea, 1e-4)
+
+        // 5. Frustum (R = 6, r = 2, h = 5): Horizontal vs Angled at s = 0.5 (r_slice = 4)
+        val frustHoriz = Math3DEngine.calculateCrossSection(Solid3DShapeType.FRUSTUM, 6.0, 2.0, 5.0, sliceMode = com.example.math.CrossSectionSliceMode.HORIZONTAL, slicePosition = 0.5f)
+        val frustAngled = Math3DEngine.calculateCrossSection(Solid3DShapeType.FRUSTUM, 6.0, 2.0, 5.0, sliceMode = com.example.math.CrossSectionSliceMode.ANGLED, slicePosition = 0.5f)
+        assertEquals(16.0 * PI, frustHoriz.sectionArea, 1e-4)
+        assertEquals((16.0 * PI) / kotlin.math.cos(PI / 6.0), frustAngled.sectionArea, 1e-4)
+    }
+
+    @Test
+    fun testAdversarialAudit_VolumeFillInvertedFrustumNegativeFractionsAndAlgebraDistribution() {
+        // 1. Frustum base-down vs inverted volume fill at p = 0.5 (R = 6, r = 2, h = 4)
+        // Base-down: r(0.5) = 4 -> numer = 0.5*(36 + 24 + 16) = 38, denom = 36 + 12 + 4 = 52 -> 38/52 = 19/26
+        // Inverted: r_inv(0.5) = 4 -> numer = 0.5*(4 + 8 + 16) = 14, denom = 52 -> 14/52 = 7/26
+        // Notice: baseDown(0.5) + inverted(0.5) = 19/26 + 7/26 = 26/26 = 1.0!
+        val frustFill = Math3DEngine.calculateVolumeFill(Solid3DShapeType.FRUSTUM, 6.0, 2.0, 4.0, heightFillFraction = 0.5f)
+        assertEquals(19.0 / 26.0, frustFill.volumeFillFraction, 1e-5)
+        assertEquals(7.0 / 26.0, frustFill.invertedApexDownVolumeFraction ?: 0.0, 1e-5)
+        assertEquals(1.0, frustFill.volumeFillFraction + (frustFill.invertedApexDownVolumeFraction ?: 0.0), 1e-6)
+
+        // 2. Negative & Mixed Fractions
+        val negFrac = com.example.math.VisualMathStudioEngine.analyzeFractionOperation(
+            -1, 2, 3, 4, com.example.math.FractionOpType.ADD
+        )
+        assertEquals(1, negFrac.simplifiedNum)
+        assertEquals(4, negFrac.simplifiedDen)
+
+        val improperFrac = com.example.math.VisualMathStudioEngine.analyzeFractionOperation(
+            5, 4, 1, 2, com.example.math.FractionOpType.ADD
+        )
+        assertEquals(7, improperFrac.simplifiedNum)
+        assertEquals(4, improperFrac.simplifiedDen)
+        assertEquals(1, improperFrac.mixedWhole)
+        assertEquals(3, improperFrac.mixedRemNum)
+        assertTrue(improperFrac.stepsBn.last().contains("মিশ্র ভগ্নাংশ"))
+
+        // 3. Algebra Tiles: Non-monic quadratic (2x^2 + 5x + 2 = (x + 2)(2x + 1)) and linear distribution (3x + 6 = 3(x + 2))
+        val nonMonic = com.example.math.VisualMathStudioEngine.analyzeAlgebraTiles(
+            xSquaredCountInput = 2,
+            xPositiveInput = 5,
+            xNegativeInput = 0,
+            unitPositiveInput = 2,
+            unitNegativeInput = 0
+        )
+        assertNotNull("2x^2 + 5x + 2 must factorize", nonMonic.factorizedFormBn)
+
+        val distributive = com.example.math.VisualMathStudioEngine.analyzeAlgebraTiles(
+            xSquaredCountInput = 0,
+            xPositiveInput = 3,
+            xNegativeInput = 0,
+            unitPositiveInput = 6,
+            unitNegativeInput = 0
+        )
+        assertEquals("৩(x + ২)", distributive.factorizedFormBn)
+
+        // 4. 3D Coordinates: Direction cosines unit norm (cos^2 alpha + cos^2 beta + cos^2 gamma = 1)
+        val coord = com.example.math.VisualMathStudioEngine.analyze3DCoordinates(
+            com.example.math.Point3DCoord(1.0, 2.0, -1.0),
+            com.example.math.Point3DCoord(4.0, 6.0, 4.0)
+        )
+        val (ca, cb, cc) = coord.directionCosines
+        assertEquals(1.0, ca * ca + cb * cb + cc * cc, 1e-6)
+        assertEquals(5.0, coord.xyProjectionDistance, 1e-6)
+        assertTrue(coord.stepsBn.any { it.contains("Direction Cosines") })
+    }
 }
+
+

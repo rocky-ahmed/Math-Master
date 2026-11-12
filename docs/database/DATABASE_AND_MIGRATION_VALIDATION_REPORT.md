@@ -33,7 +33,7 @@ During Phase F of the engineering audit, three historical numbers (`13`, `16`, a
 | 8 | `solver_history` | `SolverHistoryEntity` | v4 | `id: Int` (auto) | `topicId`, `topicTitleBn`, `modeId`, `problemBn`, `formulaBn`, `finalAnswerBn`, `stepsSummaryBn`, `verificationBn`, `bcsShortcutBn`, `isBookmarked`, `timestamp` |
 | 9 | `daily_study_activity` | `DailyStudyActivityEntity` | v4 | `dateKey: String` | `sessionsCompleted`, `problemsSolved`, `studyMinutes`, `updatedAt` — Daily streak and study timer tracking |
 | 10 | `book_lesson_progress` | `BookLessonProgressEntity` | v5 | `lessonKey: String` | `bookId`, `chapterNumber`, `lessonId`, `isCompleted`, `miniCheckPassed`, `timeSpentSeconds`, `lastVisitedAt` |
-| 11 | `book_reading_state` | `BookReadingStateEntity` | v5 (v9 cols) | `bookId: String` | `lastChapterNumber`, `lastLessonId`, `lastPracticeMode`, `lastPrintedPage`, `lastPdfPage`, `totalPagesRead`, `bookmarkedPagesCsv`, `updatedAt`, `preferredViewMode`, `lastZoomScale`, `activeEditionId` |
+| 11 | `book_reading_state` | `BookReadingStateEntity` | v5 (v8 cols) | `bookId: String` | `lastChapterNumber`, `lastLessonId`, `lastPracticeMode`, `lastPrintedPage`, `lastPdfPage`, `totalPagesRead`, `bookmarkedPagesCsv`, `updatedAt`, `preferredViewMode`, `lastZoomScale`, `activeEditionId` |
 | 12 | `book_notes` | `BookNoteEntity` | v5 | `id: Int` (auto) | `bookId`, `chapterNumber`, `lessonId`, `printedPage`, `noteTitleBn`, `noteBodyBn`, `createdAt`, `updatedAt` |
 | 13 | `book_mistakes` | `BookMistakeEntity` | v5 | `questionId: String` | `bookId`, `chapterNumber`, `lessonId`, `questionType`, `questionPromptBn`, `wrongAnswerBn`, `correctAnswerBn`, `explanationBn`, `mistakeCount`, `isResolved`, `lastMistakeAt` |
 | 14 | `book_spaced_revision` | `BookSpacedRevisionEntity` | v5 | `itemId: String` | `itemType`, `bookId`, `chapterNumber`, `titleBn`, `subtitleBn`, `intervalStage`, `nextReviewEpochMs`, `lastReviewedAt` |
@@ -46,18 +46,22 @@ During Phase F of the engineering audit, three historical numbers (`13`, `16`, a
 
 ---
 
-## 4. Migration Chain Verification (`MIGRATION_1_2` -> `MIGRATION_8_9`)
+## 4. Migration Chain Verification (`MIGRATION_1_2` -> `MIGRATION_8_9`, Canonical `BUG-10`)
 
-| Migration Object | Source -> Target | DDL Operations | Idempotency & Data Preservation |
+| Migration Object | Source -> Target | DDL Operations (`MathDatabase.kt:63–467`) | Idempotency & Data Preservation |
 |---|---|---|---|
 | `MIGRATION_1_2` | `1 -> 2` | `CREATE TABLE IF NOT EXISTS` for `practice_history`, `topic_analytics`, `recent_formulas` | Preserves all `bookmarks`, `quiz_scores`, `user_progress` rows |
 | `MIGRATION_2_3` | `2 -> 3` | `ALTER TABLE practice_history ADD COLUMN wrongAnswers/unansweredCount`; `ALTER TABLE topic_analytics ADD COLUMN wrongAnswers/unansweredQuestions`; `CREATE TABLE IF NOT EXISTS exam_attempts` | Default `0` values on added integer columns; zero data loss |
 | `MIGRATION_3_4` | `3 -> 4` | `CREATE TABLE IF NOT EXISTS solver_history`, `daily_study_activity` | Additive table creation only |
 | `MIGRATION_4_5` | `4 -> 5` | `CREATE TABLE IF NOT EXISTS book_lesson_progress`, `book_reading_state`, `book_notes`, `book_mistakes`, `book_spaced_revision` | Additive table creation for Book module |
 | `MIGRATION_5_6` | `5 -> 6` | `CREATE TABLE IF NOT EXISTS bcs_user_profile`, `bcs_topic_progress`, `bcs_mistake_notebook` | Additive table creation for BCS Preparation module |
-| `MIGRATION_6_7` | `6 -> 7` | `CREATE TABLE IF NOT EXISTS unified_mistake_notebook`, `formula_mastery_state` | Additive table creation for cross-module mistake intelligence & formula mastery |
-| `MIGRATION_7_8` | `7 -> 8` | `ALTER TABLE` on `bcs_user_profile`, `bcs_topic_progress`, `bcs_mistake_notebook`, `exam_attempts` for multi-profile support; `CREATE TABLE IF NOT EXISTS bcs_study_goals` | Safe `DEFAULT` values matching `@Entity` field defaults |
-| `MIGRATION_8_9` | `8 -> 9` | `ALTER TABLE book_reading_state ADD COLUMN preferredViewMode/lastZoomScale/activeEditionId` | Safe `DEFAULT 'STRUCTURED'`, `1.0`, `'NCTB_2026_STANDARD'` |
+| `MIGRATION_6_7` | `6 -> 7` | `CREATE TABLE IF NOT EXISTS unified_mistake_notebook`, `formula_mastery_state` + 5 secondary indexes | Additive table creation for cross-module mistake intelligence & formula mastery |
+| `MIGRATION_7_8` | `7 -> 8` | `ALTER TABLE book_reading_state ADD COLUMN preferredViewMode/lastZoomScale/activeEditionId`; `ALTER TABLE` on `bcs_user_profile`, `bcs_topic_progress`, `bcs_mistake_notebook`, `exam_attempts` for multi-profile support; `CREATE TABLE IF NOT EXISTS bcs_study_goals` | Safe `DEFAULT` values matching `@Entity` field defaults (`'STRUCTURED'`, `1.0`, `'NCTB_2026_STANDARD'`, `'BCS_50TH_PRELIM_2025'`) |
+| `MIGRATION_8_9` | `8 -> 9` | `CREATE INDEX IF NOT EXISTS index_bookmarks_timestamp ON bookmarks(timestamp)`; `CREATE INDEX IF NOT EXISTS index_bookmarks_category ON bookmarks(category)`; `CREATE INDEX IF NOT EXISTS index_quiz_scores_topic ON quiz_scores(topic)` | Exact Room `v9` schema parity with `@Entity(indices = [...])` in `Entities.kt:12–16, 31–34` (**Canonical `BUG-10`**) |
+
+### Historical Bug ID Traceability (`BUG-10` vs. Local Stream 1A `BUG-07` Alias)
+- **Canonical Assignment (`BUG-10`)**: Both [`../audits/ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/ROOT_CAUSE_DEFECT_REGISTER.md) (`#BUG-10`) and [`../qa/FINAL_DEFECT_REGISTER.md`](../qa/FINAL_DEFECT_REGISTER.md) (`#BUG-10`) assign the Room `v1 -> v9` non-destructive forward migration chain (`MIGRATION_1_2`..`MIGRATION_8_9`) and the `v8 -> v9` secondary index creation (`index_bookmarks_timestamp`, `index_bookmarks_category`, `index_quiz_scores_topic`) to **`BUG-10`**.
+- **Disambiguation of Local Stream 1A Alias**: In the early 8-item report [`../audits/MASTER_ENGINEERING_AUDIT_REPORT.md`](../audits/MASTER_ENGINEERING_AUDIT_REPORT.md), `MIGRATION_8_9` was listed under a local 8-item numbering (`BUG-07`). In the unified 73-item register ([`../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md`](../audits/FINAL_ROOT_CAUSE_DEFECT_REGISTER.md)), **`BUG-07`** is preserved for `SharedMathEngine` `Rational` answer validation & `BigInteger` overflow protection, and all Room `v1 -> v9` migration/index work is canonically tracked under **`BUG-10`**.
 
 ---
 

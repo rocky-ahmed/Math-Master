@@ -1,6 +1,9 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,8 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -41,8 +43,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,12 +54,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
 import com.example.ui.StudySessionTimerState
-import kotlinx.coroutines.delay
+import com.example.ui.StudyTimerDisplayStatus
+import com.example.ui.theme.MathSpacing
+
+private val CompactBengaliTextPlatformStyle = PlatformTextStyle(includeFontPadding = false)
+private val CompactBengaliLineHeightStyle = LineHeightStyle(
+    alignment = LineHeightStyle.Alignment.Center,
+    trim = LineHeightStyle.Trim.Both
+)
 
 /**
  * Formats seconds into Bengali digital clock string (MM:SS or HH:MM:SS).
@@ -93,75 +105,83 @@ fun formatStudyDurationSummaryBn(totalSeconds: Int): String {
 }
 
 /**
- * Persistent Study Session Timer component on the Home Screen that users can toggle on/off
- * to track how much time they spend learning.
+ * Study Timer 2.0 (BUG-78):
+ * Default-OFF initialization + Compact OFF-State Home UI (~64-72dp height at 1.0x font scale)
+ * with smooth expansion into the full interactive Study Timer panel when explicitly enabled.
  */
 @Composable
 fun StudySessionTimerSection(
     timerState: StudySessionTimerState,
     onToggleVisibility: () -> Unit,
     onToggleRunning: () -> Unit,
-    onTick: (Int) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onTick: (Int) -> Unit = {},
     onFinishSession: () -> Unit,
     onResetSession: () -> Unit,
     onSelectGoalMinutes: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 1-second coroutine ticker while the Study Session timer is running
-    LaunchedEffect(timerState.isRunning) {
-        while (timerState.isRunning) {
-            delay(1000L)
-            onTick(1)
-        }
-    }
-
     val goalOptions = listOf(15, 30, 45, 60)
+    val isPanelEnabled = timerState.isVisibleOnHome
+    val displayStatus = timerState.displayStatus
+
+    val cardRadius = MathSpacing.cornerRadiusStandard
+    val borderColor = when {
+        timerState.isRunning -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        isPanelEnabled -> MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+    }
 
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
             .shadow(
-                elevation = 4.dp,
-                shape = RoundedCornerShape(18.dp),
-                ambientColor = Color.Black.copy(alpha = 0.06f),
-                spotColor = Color.Black.copy(alpha = 0.10f)
+                elevation = if (isPanelEnabled) 4.dp else 2.dp,
+                shape = RoundedCornerShape(cardRadius),
+                ambientColor = Color.Black.copy(alpha = 0.05f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
             )
             .border(
                 width = 1.dp,
-                color = if (timerState.isRunning) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                } else {
-                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                },
-                shape = RoundedCornerShape(18.dp)
+                color = borderColor,
+                shape = RoundedCornerShape(cardRadius)
             )
             .testTag("study_session_timer_card"),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(cardRadius),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = if (isPanelEnabled) 2.dp else 1.dp
+        )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .padding(
+                    horizontal = MathSpacing.cardPaddingStandard,
+                    vertical = if (isPanelEnabled) MathSpacing.cardPaddingCompact else MathSpacing.xs
+                )
         ) {
-            // Top Header Row: Title, Running Status Pill, and Toggle Switch
+            // Compact Horizontal Header Row (68.0dp total card height when OFF at 1.0x font scale)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = MathSpacing.minTouchTarget),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             Brush.linearGradient(
-                                if (timerState.isRunning) {
-                                    listOf(Color(0xFF059669), Color(0xFF047857))
-                                } else {
-                                    listOf(Color(0xFF2563EB), Color(0xFF1D4ED8))
+                                when {
+                                    timerState.isRunning -> listOf(Color(0xFF059669), Color(0xFF047857))
+                                    isPanelEnabled -> listOf(Color(0xFF2563EB), Color(0xFF1D4ED8))
+                                    else -> listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                        MaterialTheme.colorScheme.primary
+                                    )
                                 }
                             )
                         ),
@@ -169,126 +189,129 @@ fun StudySessionTimerSection(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Timer,
-                        contentDescription = "স্টাডি সেশন টাইমার আইকন",
+                        contentDescription = "পড়াশোনা সেশন টাইমার আইকন",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(MathSpacing.sm))
 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy((-10).dp, Alignment.CenterVertically)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(MathSpacing.xs)
                     ) {
                         Text(
-                            text = "স্টাডি সেশন টাইমার",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "পড়াশোনা সেশন টাইমার",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 18.sp,
+                                platformStyle = CompactBengaliTextPlatformStyle,
+                                lineHeightStyle = CompactBengaliLineHeightStyle
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .testTag("study_timer_title_text")
                         )
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = if (timerState.isRunning) {
-                                Color(0xFF059669).copy(alpha = 0.15f)
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
+
+                        if (isPanelEnabled) {
+                            val pillColor = when (displayStatus) {
+                                StudyTimerDisplayStatus.RUNNING -> Color(0xFF059669)
+                                StudyTimerDisplayStatus.PAUSED -> Color(0xFFD97706)
+                                StudyTimerDisplayStatus.COMPLETED -> Color(0xFF059669)
+                                StudyTimerDisplayStatus.READY -> MaterialTheme.colorScheme.primary
+                                StudyTimerDisplayStatus.OFF -> MaterialTheme.colorScheme.outline
                             }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MathSpacing.blendedContainerColor(
+                                    containerColor = pillColor,
+                                    fraction = 0.14f
+                                ),
+                                modifier = Modifier.testTag("study_timer_status_pill")
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(7.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (timerState.isRunning) Color(0xFF059669)
-                                            else MaterialTheme.colorScheme.outline
-                                        )
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (timerState.isRunning) "চলমান" else "বিরতি",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = if (timerState.isRunning) {
-                                        Color(0xFF059669)
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    }
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(pillColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = timerState.statusLabelBn,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            platformStyle = CompactBengaliTextPlatformStyle
+                                        ),
+                                        color = pillColor,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(2.dp))
-
                     Text(
-                        text = if (timerState.isVisibleOnHome) {
+                        text = if (isPanelEnabled) {
                             "আজকের অধ্যয়ন: ${formatStudyDurationSummaryBn(timerState.todayTotalSeconds)} • লক্ষ্য: ${BengaliNumberFormatter.toBn(timerState.dailyGoalMinutes)} মি."
                         } else {
-                            "চলমান: ${formatStudyTimerClockBn(timerState.currentSessionSeconds)} • আজকের মোট: ${formatStudyDurationSummaryBn(timerState.todayTotalSeconds)}"
+                            "বন্ধ • চালু করতে টগল করুন"
                         },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            lineHeight = 15.sp,
+                            platformStyle = CompactBengaliTextPlatformStyle,
+                            lineHeightStyle = CompactBengaliLineHeightStyle
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("study_timer_status_text")
                     )
                 }
 
-                // Quick Play/Pause when collapsed so users can control timer in both states
-                if (!timerState.isVisibleOnHome) {
-                    IconButton(
-                        onClick = onToggleRunning,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .testTag("study_timer_compact_play_pause_btn")
-                    ) {
-                        Icon(
-                            imageVector = if (timerState.isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (timerState.isRunning) "টাইমার বিরতি দিন" else "টাইমার শুরু করুন",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                Spacer(modifier = Modifier.width(MathSpacing.xs))
 
-                // Toggle Switch to expand / collapse the persistent Study Session timer on Home Screen
+                // Accessible ON/OFF Switch with guaranteed >= 48dp interactive target
                 Switch(
-                    checked = timerState.isVisibleOnHome,
+                    checked = isPanelEnabled,
                     onCheckedChange = { onToggleVisibility() },
                     modifier = Modifier
-                        .semantics { contentDescription = "স্টাডি সেশন টাইমার টগল" }
+                        .minimumInteractiveComponentSize()
+                        .semantics { contentDescription = "পড়াশোনা সেশন টাইমার টগল" }
                         .testTag("study_timer_toggle_switch")
                 )
-
-                IconButton(
-                    onClick = onToggleVisibility,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .testTag("study_timer_toggle_btn")
-                ) {
-                    Icon(
-                        imageVector = if (timerState.isVisibleOnHome) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (timerState.isVisibleOnHome) "টাইমার সংকুচিত করুন" else "টাইমার প্রসারিত করুন",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
-            // Expandable Full Study Session Timer Body
-            AnimatedVisibility(
-                visible = timerState.isVisibleOnHome,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
+            // Expandable Full Study Session Timer Body (strictly hidden when OFF)
+            if (isPanelEnabled) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp)
+                        .padding(top = MathSpacing.sm)
+                        .testTag("study_timer_expanded_body")
                 ) {
+                    val clockContainerColor = MathSpacing.blendedContainerColor(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        fraction = 0.45f
+                    )
                     // Main Digital Clock Display & Primary Controls Row
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(MathSpacing.cornerRadiusCompact),
+                        color = clockContainerColor,
                         border = BorderStroke(
                             1.dp,
                             MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
@@ -298,15 +321,20 @@ fun StudySessionTimerSection(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                .padding(
+                                    horizontal = MathSpacing.cardPaddingStandard,
+                                    vertical = MathSpacing.sm
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "বর্তমান অধ্যয়ন সেশন",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = formatStudyTimerClockBn(timerState.currentSessionSeconds),
@@ -321,17 +349,19 @@ fun StudySessionTimerSection(
 
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(MathSpacing.xs)
                             ) {
-                                // Start / Pause Button
+                                // Start / Pause Button (minimum 48dp touch height)
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(MathSpacing.cornerRadiusCompact),
                                     color = if (timerState.isRunning) {
                                         Color(0xFFD97706)
                                     } else {
                                         MaterialTheme.colorScheme.primary
                                     },
                                     modifier = Modifier
+                                        .heightIn(min = MathSpacing.minTouchTarget)
+                                        .clip(RoundedCornerShape(MathSpacing.cornerRadiusCompact))
                                         .clickable { onToggleRunning() }
                                         .testTag("study_timer_start_pause_btn")
                                 ) {
@@ -354,12 +384,12 @@ fun StudySessionTimerSection(
                                     }
                                 }
 
-                                // Reset Session IconButton
+                                // Reset Session IconButton (48dp touch target)
                                 IconButton(
                                     onClick = onResetSession,
                                     enabled = timerState.currentSessionSeconds > 0 || timerState.isRunning,
                                     modifier = Modifier
-                                        .size(48.dp)
+                                        .size(MathSpacing.minTouchTarget)
                                         .testTag("study_timer_reset_btn")
                                 ) {
                                     Icon(
@@ -376,7 +406,7 @@ fun StudySessionTimerSection(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(MathSpacing.sm))
 
                     // Daily Study Goal Progress Bar
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -396,13 +426,18 @@ fun StudySessionTimerSection(
                                     Color(0xFF059669)
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
-                                }
+                                },
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+
+                            Spacer(modifier = Modifier.width(MathSpacing.xs))
 
                             Text(
                                 text = "আজ ${BengaliNumberFormatter.toBn(timerState.completedSessionsToday)}টি সেশন • মোট ${formatStudyDurationSummaryBn(timerState.allTimeTotalSeconds)}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
 
@@ -424,7 +459,7 @@ fun StudySessionTimerSection(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(MathSpacing.xs))
 
                     // Daily Goal Chips + Complete & Save Session Action
                     Row(
@@ -460,11 +495,13 @@ fun StudySessionTimerSection(
                         }
 
                         if (timerState.currentSessionSeconds > 0) {
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(MathSpacing.xs))
                             OutlinedButton(
                                 onClick = onFinishSession,
                                 shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier.testTag("study_timer_save_btn")
+                                modifier = Modifier
+                                    .heightIn(min = MathSpacing.minTouchTarget)
+                                    .testTag("study_timer_save_btn")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckCircle,

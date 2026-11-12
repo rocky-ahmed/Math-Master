@@ -748,7 +748,8 @@ object LearningAnalyticsEngine {
         val targetMinutes = todayEntity?.dailyTargetMinutes ?: latestConfigured?.dailyTargetMinutes ?: 15
 
         val todayQuestions = todayEntity?.questionsAttempted ?: 0
-        val todayMinutes = ((todayEntity?.studyTimeSeconds ?: 0) / 60.0).roundToInt()
+        val todayStudySec = todayEntity?.studyTimeSeconds ?: 0
+        val todayMinutes = if (todayStudySec > 0) max(1, (todayStudySec / 60.0).roundToInt()) else 0
 
         val qProgress = (todayQuestions.toFloat() / max(1, targetQuestions).toFloat()).coerceIn(0f, 1f)
         val tProgress = (todayMinutes.toFloat() / max(1, targetMinutes).toFloat()).coerceIn(0f, 1f)
@@ -767,8 +768,9 @@ object LearningAnalyticsEngine {
             val entity = activityMap[key]
             val qCount = entity?.questionsAttempted ?: 0
             val cCount = entity?.correctCount ?: 0
-            val mins = ((entity?.studyTimeSeconds ?: 0) / 60.0).roundToInt()
-            val isActive = qCount > 0 || (entity?.studyTimeSeconds ?: 0) > 0
+            val dayStudySec = entity?.studyTimeSeconds ?: 0
+            val mins = if (dayStudySec > 0) max(1, (dayStudySec / 60.0).roundToInt()) else 0
+            val isActive = qCount > 0 || dayStudySec > 0
             if (isActive) {
                 activeLast30++
                 if (offset < 7) activeLast7++
