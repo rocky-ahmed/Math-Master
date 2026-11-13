@@ -1,12 +1,12 @@
 # Math Master (গণিত মাস্টার) — Visual Math Explorer 2.0
 
-**Math Master** is a 100% offline-first Android mathematics education, NCTB textbook (`Class 6–10`), hybrid 2D + 3D visual math studio (**Visual Math Explorer 2.0**), step-by-step problem solver, and BCS preparation application written in **Kotlin** with **Jetpack Compose (Material 3)** and **Room Database (v9)**.
+**Math Master** is a 100% offline-first Android mathematics education, NCTB textbook (`Class 6–10`), hybrid 2D + 3D visual math studio (**Visual Math Explorer 2.0**), crash-safe **Study Timer 2.0**, step-by-step problem solver, and BCS preparation application written in **Kotlin** with **Jetpack Compose (Material 3)** and **Room Database (v10)**.
 
 - **Official GitHub Repository:** [`https://github.com/rocky-ahmed/Math-Master`](https://github.com/rocky-ahmed/Math-Master) (`main` branch)
 - **Application ID:** `com.aistudio.applet.ghqqzu` (`namespace = "com.example"`)
-- **Version:** `1.0` (`versionCode = 1`, `minSdk = 24`, `targetSdk = 36`, `compileSdk = 36`)
-- **Automated Regression Status:** **`215 / 215` unit & Robolectric tests passing (`0` failures, `0` errors, `0` skipped) across 10 test suites**
-- **Canonical Defect Register:** **`BUG-01` through `BUG-73` (All 67 Historical `BUG-01`–`BUG-67` Original Definitions Preserved + `BUG-68`–`BUG-77` Newly Assigned Disambiguated/Split Defects)**
+- **Version:** `2.0` (`versionCode = 2`, `minSdk = 24`, `targetSdk = 36`, `compileSdk = 36`)
+- **Automated Regression Status:** **`245 / 245` unit & Robolectric tests passing (`0` failures, `0` errors, `0` skipped) across 13 test suites**
+- **Canonical Defect Register:** **`BUG-01` through `BUG-93` (All Historical & Principal Audit Defects Resolved & Verified)**
 
 ---
 

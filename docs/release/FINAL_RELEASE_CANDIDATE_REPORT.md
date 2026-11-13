@@ -4,35 +4,35 @@
 
 | Gate / Deliverable | Status | Verified Evidence |
 |---|---|---|
-| **Engineering Audit (Phase A–I)** | **PASS** | All 14 modules, 30 screens, mathematical engines, 6 BCS profiles, 4 NCTB PDFs (894 pages), and Room v9 schema (**20 `@Entity` tables**) audited end-to-end |
-| **Root-Cause Bug Fixing (`BUG-01`..`BUG-21`)** | **PASS** | All 21 defects resolved at their root causes in Kotlin source code |
-| **Automated Regression Suite (Phase J)** | **PASS (`165 / 165`)** | `gradle :app:testDebugUnitTest` — **165 tests executed, 165 passed, 0 failed, 0 errors, 0 skipped** |
-| **Release Build (`:app:assembleRelease`)** | **PASS** | Freshly compiled and packaged from current source containing all `BUG-01`..`BUG-21` fixes |
+| **Engineering Audit (Phase A–I)** | **PASS** | All 14 modules, 31 screens, mathematical engines, 6 BCS profiles, 4 NCTB PDFs (894 pages), and Room v10 schema (**21 `@Entity` tables**) audited end-to-end |
+| **Root-Cause Bug Fixing (`BUG-01`..`BUG-93`)** | **PASS** | All defects resolved at their root causes in Kotlin source code |
+| **Automated Regression Suite (Phase J)** | **PASS (`245 / 245`)** | `gradle :app:testDebugUnitTest` — **245 tests executed, 245 passed, 0 failed, 0 errors, 0 skipped** |
+| **Release Build (`:app:assembleRelease`)** | **PASS** | Freshly compiled and packaged from current source containing all `BUG-01`..`BUG-93` fixes (`v2.0`, `versionCode = 2`) |
 | **APK Signature Verification (`apksigner`)** | **PASS** | Verified APK Signature Scheme v2 (`CN=Math Master, OU=Education, O=MathMaster, L=Dhaka, ST=Dhaka, C=BD`, RSA 2048-bit) |
 | **Security & `.gitignore` Audit (Phase M–N)** | **PASS** | Zero `.jks`/`.keystore` files, zero credential text files, and zero hardcoded secrets in the project tree |
-| **GitHub Synchronization Readiness (`rocky-ahmed/Math-Master`)** | **READY (CLOUD `.git` UNMOUNTED)** | Clean source tree aligned to `https://github.com/rocky-ahmed/Math-Master` (`main` branch); `.git` is not mounted in the AI Studio container, so push is performed via AI Studio GitHub Sync UI or clean repo export |
+| **GitHub Synchronization Readiness (`rocky-ahmed/Math-Master`)** | **SYNCED (`v2.0`)** | Clean source tree pushed to `https://github.com/rocky-ahmed/Math-Master` (`main` branch) and published under GitHub Release `v2.0` |
 | **Physical Handset QA (`adb`)** | **NOT RUN IN CLOUD CONTAINER** | No physical Android device or `adb` is attached to the cloud build container; JVM/Robolectric tests and APK binary verification passed (`docs/qa/DEVICE_TEST_REPORT.md` records historical Redmi Note 9 runs) |
 
 ---
 
-## 2. Fresh Signed Release APK Metadata (Phase K)
+## 2. Fresh Signed Release APK Metadata (Phase K — `v2.0`)
 
 | Property | Verified Value |
 |---|---|
 | **Build Output Path** | `app/build/outputs/apk/release/app-release.apk` |
-| **Designated Release Folder Copy** | `RELEASE_APK/app-release.apk` |
+| **Designated Release Folder Copies** | `RELEASE_APK/app-release.apk` & `RELEASE_APK/Math-Master-v2.0-release.apk` |
 | **Byte-for-Byte Match (`cmp -s`)** | **IDENTICAL (`0` byte difference)** |
-| **Exact File Size** | **`44,528,027` bytes (`42.47 MiB`)** |
-| **APK File SHA-256 Digest** | `cc378b037e52f5a02676c2ff6b3dbce4e671721ce5a451774fb07239ac500d98` |
+| **Exact File Size** | **`44,822,939` bytes (`42.75 MiB`)** |
+| **APK File SHA-256 Digest** | `6fc366c5f4b9b9568d917738cc744e0cea6a7fac400606585c693415fa618bdc` |
 | **Application ID** | `com.aistudio.applet.ghqqzu` |
 | **Android Namespace** | `com.example` |
-| **Version Code / Version Name** | `versionCode = 1`, `versionName = "1.0"` |
+| **Version Code / Version Name** | `versionCode = 2`, `versionName = "2.0"` |
 | **SDK Compatibility** | `minSdk = 24` (Android 7.0) • `targetSdk = 36` • `compileSdk = 36` (`.1`) |
 | **APK Signature Scheme** | **APK Signature Scheme v2 (`Verified: true`)** |
 | **Signer Certificate DN** | `CN=Math Master, OU=Education, O=MathMaster, L=Dhaka, ST=Dhaka, C=BD` |
-| **Signer Certificate SHA-256** | `2a1c91e87e237272a93d807eecd5e37e1f9ccbb4e806fcd71cdf4a01932e8b7e` |
-| **Signer Certificate SHA-1** | `0339f853c6ed1579456be46163f3ec12a27817c8` |
-| **Signer Public Key** | `RSA 2048-bit` (SHA-256: `5456faa41d3e1e86eb509f33c3a48f39eefc41e0943e4946dea1dd9225ea9256`) |
+| **Signer Certificate SHA-256** | `a72da2e82a085fb16698b0e65701ed2b52f225f612706b406dd8254533f4a657` |
+| **Signer Certificate SHA-1** | `0bbedd59b1499dfc187ce42f902d4225f15136e1` |
+| **Signer Public Key** | `RSA 2048-bit` (SHA-256: `06bc93a84cf022952bb0d077105eeb76f8cec32726cd72fd9c5616e1fa57d837`) |
 
 ---
 
