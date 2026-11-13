@@ -169,7 +169,8 @@ class EcosystemUpgradeV7UnitTest {
                 MathDatabase.MIGRATION_5_6,
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
-                MathDatabase.MIGRATION_8_9
+                MathDatabase.MIGRATION_8_9,
+                MathDatabase.MIGRATION_9_10
             )
             .allowMainThreadQueries()
             .build()
@@ -763,6 +764,7 @@ class EcosystemUpgradeV7UnitTest {
             rawDb.execSQL("INSERT INTO `formula_mastery_state` (`formulaId`, `subjectId`, `masteryLevel`, `practiceCount`, `lastPracticedAtMillis`) VALUES ('alg_sq_1', 'ALGEBRA', 'MASTERED', 4, 1700000600)")
             MathDatabase.MIGRATION_7_8.migrate(rawDb)
             MathDatabase.MIGRATION_8_9.migrate(rawDb)
+            rawDb.execSQL("INSERT INTO `daily_study_activity` VALUES ('2026-01-15', 12, 10, 2, 180, 1, 2, 20, 15, 1700000700)")
             rawDb.version = 9
 
             // Run SQLite integrity_check and foreign_key_check
@@ -776,7 +778,7 @@ class EcosystemUpgradeV7UnitTest {
             helper.close()
         }
 
-        // Open with Room v9 and verify all seeded rows survived intact
+        // Open with Room v10 (running MIGRATION_9_10 automatically) and verify all seeded rows survived intact
         val roomDb = Room.databaseBuilder(context, MathDatabase::class.java, dbName)
             .addMigrations(
                 MathDatabase.MIGRATION_1_2,
@@ -786,12 +788,14 @@ class EcosystemUpgradeV7UnitTest {
                 MathDatabase.MIGRATION_5_6,
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
-                MathDatabase.MIGRATION_8_9
+                MathDatabase.MIGRATION_8_9,
+                MathDatabase.MIGRATION_9_10
             )
             .allowMainThreadQueries()
             .build()
 
         val dao = roomDb.mathDao()
+        assertEquals(10, roomDb.openHelper.writableDatabase.version)
         assertEquals(1, dao.getAllBookmarks().first().size)
         assertEquals("সূত্র ১", dao.getAllBookmarks().first()[0].titleBn)
         assertEquals(1, dao.getAllQuizScores().first().size)
@@ -799,6 +803,10 @@ class EcosystemUpgradeV7UnitTest {
         assertEquals(1, dao.getAllProgress().first().size)
         assertTrue(dao.getAllProgress().first()[0].isLearned)
         assertEquals(1, dao.getAllPracticeHistory().first().size)
+        val daily = dao.getDailyStudyActivityByDate("2026-01-15")
+        assertNotNull(daily)
+        assertEquals(180, daily!!.studyTimeSeconds)
+        assertEquals(2, daily.practiceSessionsCompleted)
         val bookState = dao.getBookReadingStateByBookId("CLASS_6")
         assertNotNull(bookState)
         assertEquals(45, bookState!!.lastPrintedPage)

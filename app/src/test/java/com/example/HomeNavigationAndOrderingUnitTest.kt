@@ -20,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE)
@@ -737,7 +738,8 @@ class HomeNavigationAndOrderingUnitTest {
     }
 
     @Test
-    @Config(sdk = [36])
+    @Config(sdk = [36], qualifiers = "w360dp-h780dp-xhdpi")
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun testStudyTimer20CompactOffStateUiAndExpandCollapseBehavior() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
         app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()

@@ -24,6 +24,7 @@ import com.example.data.model.QuizScoreEntity
 import com.example.data.model.FormulaMasteryEntity
 import com.example.data.model.RecentFormulaEntity
 import com.example.data.model.SolverHistoryEntity
+import com.example.data.model.StudyTimerFlushReceiptEntity
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.model.UnifiedMistakeEntity
 import kotlinx.coroutines.flow.Flow
@@ -267,6 +268,9 @@ interface MathDao {
     @Query("SELECT * FROM book_notes ORDER BY updatedAt DESC")
     fun getAllBookNotes(): Flow<List<BookNoteEntity>>
 
+    @Query("SELECT * FROM book_notes WHERE id = :id LIMIT 1")
+    suspend fun getBookNoteById(id: Int): BookNoteEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBookNote(note: BookNoteEntity)
 
@@ -373,5 +377,66 @@ interface MathDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertFormulaMastery(state: FormulaMasteryEntity)
+
+    // Study Timer Flush Receipts (Room v10 - BUG-86)
+    @Query("SELECT * FROM study_timer_flush_receipts WHERE operationId = :operationId LIMIT 1")
+    suspend fun getStudyTimerFlushReceiptById(operationId: String): StudyTimerFlushReceiptEntity?
+
+    @Query("SELECT * FROM study_timer_flush_receipts ORDER BY appliedAtEpochMs DESC")
+    suspend fun getAllStudyTimerFlushReceipts(): List<StudyTimerFlushReceiptEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertStudyTimerFlushReceipt(receipt: StudyTimerFlushReceiptEntity): Long
+
+    @Transaction
+    suspend fun applyStudyTimerFlushIdempotently(
+        receipt: StudyTimerFlushReceiptEntity,
+        defaultTargetQuestions: Int = 20,
+        defaultTargetMinutes: Int = 15,
+        simulateTransactionFailureAfterUpsert: Boolean = false
+    ): Boolean {
+        val cleanOpId = receipt.operationId.trim()
+        require(cleanOpId.isNotEmpty()) { "operationId must not be blank" }
+        if (getStudyTimerFlushReceiptById(cleanOpId) != null) {
+            return false
+        }
+        val cleanDateKey = receipt.studyDateKey.trim()
+        require(cleanDateKey.isNotEmpty()) { "studyDateKey must not be blank" }
+
+        val deltaSeconds = kotlin.math.max(0, receipt.pendingSeconds)
+        val deltaSessions = kotlin.math.max(0, receipt.completedSessionsDelta)
+        val existingDay = getDailyStudyActivityByDate(cleanDateKey)
+        val updatedDay = if (existingDay == null) {
+            val latestConfigured = getLatestDailyStudyActivity()
+            DailyStudyActivityEntity(
+                dateKey = cleanDateKey,
+                questionsAttempted = 0,
+                correctCount = 0,
+                wrongCount = 0,
+                studyTimeSeconds = deltaSeconds,
+                examsCompleted = 0,
+                practiceSessionsCompleted = deltaSessions,
+                dailyTargetQuestions = latestConfigured?.dailyTargetQuestions ?: defaultTargetQuestions,
+                dailyTargetMinutes = latestConfigured?.dailyTargetMinutes ?: defaultTargetMinutes,
+                updatedAt = receipt.appliedAtEpochMs
+            )
+        } else {
+            existingDay.copy(
+                studyTimeSeconds = existingDay.studyTimeSeconds + deltaSeconds,
+                practiceSessionsCompleted = existingDay.practiceSessionsCompleted + deltaSessions,
+                updatedAt = receipt.appliedAtEpochMs
+            )
+        }
+        upsertDailyStudyActivity(updatedDay)
+        if (simulateTransactionFailureAfterUpsert) {
+            throw IllegalStateException("Injected Room failure after daily_study_activity upsert before receipt commit")
+        }
+        val rowId = insertStudyTimerFlushReceipt(receipt.copy(operationId = cleanOpId, studyDateKey = cleanDateKey))
+        if (rowId == -1L) {
+            throw IllegalStateException("Duplicate Study Timer flush receipt for operationId=$cleanOpId")
+        }
+        return true
+    }
 }
+
 

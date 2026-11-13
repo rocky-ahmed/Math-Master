@@ -24,6 +24,7 @@ import com.example.data.model.BcsUserProfileEntity
 import com.example.data.model.FormulaMasteryEntity
 import com.example.data.model.RecentFormulaEntity
 import com.example.data.model.SolverHistoryEntity
+import com.example.data.model.StudyTimerFlushReceiptEntity
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.model.UnifiedMistakeEntity
 
@@ -48,9 +49,10 @@ import com.example.data.model.UnifiedMistakeEntity
         BcsMistakeEntity::class,
         BcsStudyPlanGoalEntity::class,
         UnifiedMistakeEntity::class,
-        FormulaMasteryEntity::class
+        FormulaMasteryEntity::class,
+        StudyTimerFlushReceiptEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class MathDatabase : RoomDatabase() {
@@ -466,6 +468,27 @@ abstract class MathDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `study_timer_flush_receipts` (
+                        `operationId` TEXT NOT NULL,
+                        `studyDateKey` TEXT NOT NULL,
+                        `pendingSeconds` INTEGER NOT NULL,
+                        `sessionId` TEXT NOT NULL,
+                        `completedSessionsDelta` INTEGER NOT NULL,
+                        `createdAtEpochMs` INTEGER NOT NULL,
+                        `appliedAtEpochMs` INTEGER NOT NULL,
+                        PRIMARY KEY(`operationId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_study_timer_flush_receipts_studyDateKey` ON `study_timer_flush_receipts` (`studyDateKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_study_timer_flush_receipts_appliedAtEpochMs` ON `study_timer_flush_receipts` (`appliedAtEpochMs`)")
+            }
+        }
+
         fun getDatabase(context: Context): MathDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -481,7 +504,8 @@ abstract class MathDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
                     )
                     .build()
                 INSTANCE = instance

@@ -45,15 +45,18 @@ object MathProblemSolverEngine {
             )
         }
 
-        // Check for invalid characters
+        // Check for invalid characters and normalize operators / superscripts
         val cleanExpr = trimmed
             .replace("×", "*")
             .replace("÷", "/")
             .replace("–", "-")
+            .replace("−", "-")
+            .replace("²", "^2")
+            .replace("³", "^3")
             .replace(" ", "")
 
-        // Normalize Bengali digits to English for evaluation
-        val asciiExpr = toAsciiDigits(cleanExpr)
+        // Normalize Bengali digits to English and insert explicit '*' for implicit multiplication
+        val asciiExpr = normalizeImplicitMultiplication(toAsciiDigits(cleanExpr))
 
         // Validate parentheses balance
         var balance = 0
@@ -2572,12 +2575,23 @@ object MathProblemSolverEngine {
     // -------------------------------------------------------------
     // GENERAL EXPRESSION EVALUATOR WITH STEP-BY-STEP TRACE
     // -------------------------------------------------------------
+    private fun normalizeImplicitMultiplication(expr: String): String {
+        var s = expr
+        // e.g. 2(3+4) -> 2*(3+4), 2√9 -> 2*√9
+        s = Regex("""(\d)([(\[{√])""").replace(s, "$1*$2")
+        // e.g. (2+3)(4+5) -> (2+3)*(4+5), (2+3)√9 -> (2+3)*√9
+        s = Regex("""([)\]}])([(\[{√])""").replace(s, "$1*$2")
+        // e.g. (2+3)4 -> (2+3)*4
+        s = Regex("""([)\]}])(\d)""").replace(s, "$1*$2")
+        return s
+    }
+
     private fun evaluateArithmeticExpression(
         expr: String,
         steps: MutableList<SolutionStep>,
         mode: SolverMode
     ): Double {
-        var current = expr
+        var current = normalizeImplicitMultiplication(expr)
         var stepCount = 1
 
         // Evaluate innermost parentheses first
@@ -2594,14 +2608,7 @@ object MathProblemSolverEngine {
             if (endIdx == -1) break
 
             val inside = current.substring(startIdx + 1, endIdx)
-            val insideVal = evaluateSimpleArithmetic(inside)
-
-            val before = current
-            var replaced = current.substring(0, startIdx) + df.format(insideVal) + current.substring(endIdx + 1)
-            while (replaced.contains("--") || replaced.contains("+-") || replaced.contains("-+") || replaced.contains("++")) {
-                replaced = replaced.replace("--", "+").replace("+-", "-").replace("-+", "-").replace("++", "+")
-            }
-            current = replaced
+            var insideVal = evaluateSimpleArithmetic(inside)
 
             steps.add(
                 SolutionStep(
@@ -2612,6 +2619,32 @@ object MathProblemSolverEngine {
                     whyThisStepBn = "বন্ধনী হিসাবের অগ্রাধিকার নির্ধারণ করে, তাই বন্ধনীর ভেতরের সমাধান আগে করতে হয়।"
                 )
             )
+
+            // BUG-87 FIX: If the parenthesized group is immediately raised to a power (e.g. (2 - 5)^2),
+            // evaluate the exponent on the signed parenthesized base BEFORE collapsing +- / -- signs.
+            var afterBracket = current.substring(endIdx + 1)
+            val powerPrefixRegex = Regex("""^\^([+-]?[0-9]+(?:\.[0-9]+)?)""")
+            while (true) {
+                val powerMatch = powerPrefixRegex.find(afterBracket) ?: break
+                val expVal = powerMatch.groupValues[1].toDouble()
+                val baseBeforePow = insideVal
+                insideVal = baseBeforePow.pow(expVal)
+                afterBracket = afterBracket.substring(powerMatch.value.length)
+                steps.add(
+                    SolutionStep(
+                        stepIndex = stepCount++,
+                        titleBn = "বন্ধনীর ঘাত (Power) নির্ণয়",
+                        expressionOrMathBn = "(${formatNum(baseBeforePow)})^${formatNum(expVal)} = ${formatNum(insideVal)}",
+                        explanationBn = "বন্ধনীর ফলাফলের ওপর সূচক (Exponent) থাকায় চিহ্নসহ ঘাতের মান নির্ণয় করা হলো।"
+                    )
+                )
+            }
+
+            var replaced = current.substring(0, startIdx) + df.format(insideVal) + afterBracket
+            while (replaced.contains("--") || replaced.contains("+-") || replaced.contains("-+") || replaced.contains("++")) {
+                replaced = replaced.replace("--", "+").replace("+-", "-").replace("-+", "-").replace("++", "+")
+            }
+            current = replaced
         }
 
         // Final evaluation of remaining expression without brackets

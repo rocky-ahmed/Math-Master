@@ -15,6 +15,8 @@ import com.example.data.model.ProgressEntity
 import com.example.data.model.QuizScoreEntity
 import com.example.data.model.RecentFormulaEntity
 import com.example.data.model.SolverHistoryEntity
+import com.example.data.model.StudyTimerFlushOperation
+import com.example.data.model.StudyTimerFlushReceiptEntity
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.model.UnifiedMistakeEntity
 import kotlinx.coroutines.flow.Flow
@@ -404,8 +406,52 @@ class MathRepository(private val dao: MathDao) {
         dao.clearAllSolverHistory()
     }
 
-    // Daily Study Goals & Activity (Room v4)
+    // Daily Study Goals & Activity (Room v4 / v10 Crash-Safe Flush Journal BUG-86)
+    enum class StudyFlushFaultPoint {
+        NONE,
+        FAIL_BEFORE_TRANSACTION,
+        FAIL_INSIDE_TRANSACTION_AFTER_UPSERT,
+        FAIL_AFTER_COMMIT_BEFORE_ACK
+    }
+
+    internal var studyFlushFaultInjector: ((StudyTimerFlushOperation) -> StudyFlushFaultPoint)? = null
+
     private val dailyStudyWriteMutex = kotlinx.coroutines.sync.Mutex()
+
+    suspend fun applyStudyTimerFlushOperation(
+        operation: StudyTimerFlushOperation,
+        timestampMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        val safeSec = max(0, operation.pendingSeconds)
+        val safeSessions = max(0, operation.completedSessionsDelta)
+        if (safeSec == 0 && safeSessions == 0) return false
+        val cleanDateKey = operation.studyDateKey.trim()
+        if (cleanDateKey.isEmpty()) return false
+
+        return dailyStudyWriteMutex.lockWith {
+            val fault = studyFlushFaultInjector?.invoke(operation) ?: StudyFlushFaultPoint.NONE
+            if (fault == StudyFlushFaultPoint.FAIL_BEFORE_TRANSACTION) {
+                throw IllegalStateException("Injected fault before Room transaction for ${operation.operationId}")
+            }
+            val receipt = StudyTimerFlushReceiptEntity(
+                operationId = operation.operationId,
+                studyDateKey = cleanDateKey,
+                pendingSeconds = safeSec,
+                sessionId = operation.sessionId,
+                completedSessionsDelta = safeSessions,
+                createdAtEpochMs = operation.createdAtEpochMs,
+                appliedAtEpochMs = timestampMs
+            )
+            val applied = dao.applyStudyTimerFlushIdempotently(
+                receipt = receipt,
+                simulateTransactionFailureAfterUpsert = (fault == StudyFlushFaultPoint.FAIL_INSIDE_TRANSACTION_AFTER_UPSERT)
+            )
+            if (fault == StudyFlushFaultPoint.FAIL_AFTER_COMMIT_BEFORE_ACK) {
+                throw IllegalStateException("Injected fault after Room commit before journal acknowledgement for ${operation.operationId}")
+            }
+            applied
+        }
+    }
 
     suspend fun recordDailyStudyDelta(
         questionsAttemptedDelta: Int,
@@ -604,13 +650,15 @@ class MathRepository(private val dao: MathDao) {
                 activeEditionId = activeEditionId ?: "NCTB_2026_STANDARD"
             )
         } else {
+            // BUG-90 FIX: Only increment totalPagesRead when navigating to a different printed page
+            val shouldIncrementPageRead = incrementPagesRead && existing.lastPrintedPage != resolvedPrinted
             existing.copy(
                 lastChapterNumber = chapterNumber ?: existing.lastChapterNumber,
                 lastLessonId = lessonId ?: existing.lastLessonId,
                 lastPracticeMode = practiceMode ?: existing.lastPracticeMode,
                 lastPrintedPage = resolvedPrinted,
                 lastPdfPage = resolvedPdf,
-                totalPagesRead = existing.totalPagesRead + (if (incrementPagesRead) 1 else 0),
+                totalPagesRead = existing.totalPagesRead + (if (shouldIncrementPageRead) 1 else 0),
                 updatedAt = nowMs,
                 preferredViewMode = preferredViewMode ?: existing.preferredViewMode,
                 lastZoomScale = (lastZoomScale ?: existing.lastZoomScale).coerceIn(1.0f, 3.0f),
@@ -680,6 +728,8 @@ class MathRepository(private val dao: MathDao) {
         contentBn: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
+        // BUG-91 FIX: Preserve original createdAt timestamp when editing an existing note (id > 0)
+        val existingCreatedAt = if (id > 0) dao.getBookNoteById(id)?.createdAt else null
         dao.upsertBookNote(
             BookNoteEntity(
                 id = id,
@@ -689,7 +739,7 @@ class MathRepository(private val dao: MathDao) {
                 printedPage = printedPage,
                 titleBn = titleBn,
                 contentBn = contentBn,
-                createdAt = nowMs,
+                createdAt = existingCreatedAt ?: nowMs,
                 updatedAt = nowMs
             )
         )
@@ -1049,7 +1099,9 @@ class MathRepository(private val dao: MathDao) {
         dao.deleteBcsMistakeById(questionId)
         if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
             dao.deleteBcsMistakeById("$examProfileId::$rawQId")
-        } else if (rawQId != questionId) {
+        }
+        // BUG-92 FIX: Always delete legacy unprefixed rawQId row even when a non-default profile is active
+        if (rawQId != questionId) {
             dao.deleteBcsMistakeById(rawQId)
         }
         dao.deleteUnifiedMistakeByKey("BCS_${safeProfile}_$rawQId")

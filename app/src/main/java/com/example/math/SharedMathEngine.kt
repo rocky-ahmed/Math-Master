@@ -844,15 +844,15 @@ object SharedMathEngine {
             }
             val finalFactored = if (factor1 == factor2) "$prefix$factor1²" else "$prefix$factor1$factor2"
 
-            // Middle term split values: m1 + m2 = b, m1 * m2 = a * c
+            // BUG-89 FIX: Both middle-term components must be scaled by outerScale so m1 + m2 = b and m1 * m2 = a * c
             val m1 = (-p1) * q2 * outerScale
-            val m2 = (-p2) * q1
+            val m2 = (-p2) * q1 * outerScale
 
             val steps = mutableListOf<Pair<String, String>>()
             if (b == 0L && c < 0L) {
                 steps.add(
                     "ধাপ ১: বর্গের অন্তর সূত্র (a² − b² = (a + b)(a − b)) প্রয়োগ" to
-                        "${BengaliNumberFormatter.toBn(input.trim())} = $factor1$factor2"
+                        "${BengaliNumberFormatter.toBn(input.trim())} = $finalFactored"
                 )
             } else {
                 steps.add(
@@ -1018,12 +1018,14 @@ object SharedMathEngine {
             )
         }
 
-        // Case 1: Radical simplification: √n or sqrt(n) or k√n
-        val radicalMatch = Regex("""^(\d+)?\s*(?:√|sqrt\()(\d+)\)?$""", RegexOption.IGNORE_CASE).find(clean)
+        // Case 1: Radical simplification: √n or sqrt(n) or [+-]k√n (BUG-88 FIX)
+        val radicalMatch = Regex("""^([+-])?\s*(\d+)?\s*(?:√|sqrt\()\s*([+-]?\d+)\s*\)?$""", RegexOption.IGNORE_CASE).find(clean)
         if (radicalMatch != null) {
-            val outerCoeff = radicalMatch.groupValues[1].takeIf { it.isNotEmpty() }?.toLongOrNull() ?: 1L
-            val radicand = radicalMatch.groupValues[2].toLongOrNull()
-            if (radicand == null || radicand < 0L) {
+            val sign = if (radicalMatch.groupValues[1] == "-") -1L else 1L
+            val rawOuterStr = radicalMatch.groupValues[2]
+            val rawOuter = if (rawOuterStr.isEmpty()) 1L else rawOuterStr.toLongOrNull()
+            val radicandStr = radicalMatch.groupValues[3]
+            if (radicandStr.startsWith("-")) {
                 return SimplificationResult(
                     isSuccess = false,
                     originalInputBn = BengaliNumberFormatter.toBn(input),
@@ -1034,7 +1036,20 @@ object SharedMathEngine {
                     errorMessageBn = "বর্গমূলের ভেতরের সংখ্যাটি অঋণাত্মক পূর্ণসংখ্যা হতে হবে।"
                 )
             }
-            if (radicand == 0L) {
+            val radicand = radicandStr.toLongOrNull()
+            if (radicand == null || rawOuter == null || radicand > 1_000_000_000_000L || rawOuter > 1_000_000L) {
+                return SimplificationResult(
+                    isSuccess = false,
+                    originalInputBn = BengaliNumberFormatter.toBn(input),
+                    simplifiedFormBn = "",
+                    isExact = false,
+                    stepsBn = emptyList(),
+                    verificationBn = "",
+                    errorMessageBn = "বর্গমূলের ভেতরের সংখ্যাটি ১,০০০,০০০,০০০,০০০ (১০¹²) এবং বাইরের সহগ ১০,০০,০০০ (১০⁶)-এর মধ্যে হতে হবে।"
+                )
+            }
+            val outerCoeff = sign * rawOuter
+            if (radicand == 0L || outerCoeff == 0L) {
                 return SimplificationResult(
                     isSuccess = true,
                     originalInputBn = BengaliNumberFormatter.toBn(input),
@@ -1045,7 +1060,7 @@ object SharedMathEngine {
                 )
             }
 
-            // Find largest square factor k^2 dividing radicand
+            // Find largest square factor k^2 dividing radicand (bounded by d <= 10^6)
             var largestSquareRoot = 1L
             var d = 2L
             var temp = radicand
@@ -1063,6 +1078,7 @@ object SharedMathEngine {
             val exactStr = when {
                 remainingInside == 1L -> BengaliNumberFormatter.toBn(totalOuter)
                 totalOuter == 1L -> "√${BengaliNumberFormatter.toBn(remainingInside)}"
+                totalOuter == -1L -> "-√${BengaliNumberFormatter.toBn(remainingInside)}"
                 else -> "${BengaliNumberFormatter.toBn(totalOuter)}√${BengaliNumberFormatter.toBn(remainingInside)}"
             }
 
@@ -1074,6 +1090,10 @@ object SharedMathEngine {
                     "সঠিক মান (Exact Form) = $exactStr" + if (!isPerfect) "\nআসন্ন দশমিক মান (Approximate) ≈ ${formatDoubleBn(approx)}" else ""
             )
 
+            val squaredMag = BigInteger.valueOf(outerCoeff)
+                .multiply(BigInteger.valueOf(outerCoeff))
+                .multiply(BigInteger.valueOf(radicand))
+
             return SimplificationResult(
                 isSuccess = true,
                 originalInputBn = BengaliNumberFormatter.toBn(input.trim()),
@@ -1081,7 +1101,7 @@ object SharedMathEngine {
                 isExact = isPerfect,
                 approximateValueBn = formatDoubleBn(approx),
                 stepsBn = steps,
-                verificationBn = "বর্গ করে যাচাই: ($exactStr)² = ${BengaliNumberFormatter.toBn(outerCoeff * outerCoeff * radicand)}"
+                verificationBn = "বর্গ করে যাচাই: ($exactStr)² = ${BengaliNumberFormatter.toBn(squaredMag.toString())}"
             )
         }
 

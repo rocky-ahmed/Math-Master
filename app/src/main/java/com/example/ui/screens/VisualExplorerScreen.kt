@@ -56,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -776,7 +777,8 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
 
         // 7. 3D Coordinate & Vector Studio Card (X, Y, Z)
         item {
-            val isDark = when (viewModel.themeMode.value) {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            val isDark = when (themeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
                 AppThemeMode.SYSTEM -> isSystemInDarkTheme()

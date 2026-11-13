@@ -466,6 +466,40 @@ data class FormulaMasteryEntity(
     val lastPracticedAtMillis: Long = System.currentTimeMillis()
 )
 
+/**
+ * Room v10 idempotency receipt table (BUG-86) guaranteeing that each Study Timer flush operation
+ * updates daily_study_activity at most once, atomically inside the same SQLite transaction.
+ */
+@Entity(
+    tableName = "study_timer_flush_receipts",
+    indices = [
+        Index(value = ["studyDateKey"]),
+        Index(value = ["appliedAtEpochMs"])
+    ]
+)
+data class StudyTimerFlushReceiptEntity(
+    @PrimaryKey val operationId: String,
+    val studyDateKey: String,
+    val pendingSeconds: Int,
+    val sessionId: String,
+    val completedSessionsDelta: Int,
+    val createdAtEpochMs: Long,
+    val appliedAtEpochMs: Long = System.currentTimeMillis()
+)
+
+/**
+ * Durable outbox journal record persisted before unrecorded study seconds are cleared.
+ */
+data class StudyTimerFlushOperation(
+    val operationId: String,
+    val studyDateKey: String,
+    val pendingSeconds: Int,
+    val sessionId: String = "",
+    val completedSessionsDelta: Int = 0,
+    val createdAtEpochMs: Long = System.currentTimeMillis()
+)
+
+
 
 
 

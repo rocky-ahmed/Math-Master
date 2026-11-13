@@ -65,10 +65,10 @@ import com.example.ui.StudySessionTimerState
 import com.example.ui.StudyTimerDisplayStatus
 import com.example.ui.theme.MathSpacing
 
-private val CompactBengaliTextPlatformStyle = PlatformTextStyle(includeFontPadding = false)
-private val CompactBengaliLineHeightStyle = LineHeightStyle(
+private val BengaliCompactTextPlatformStyle = PlatformTextStyle(includeFontPadding = true)
+private val BengaliCompactLineHeightStyle = LineHeightStyle(
     alignment = LineHeightStyle.Alignment.Center,
-    trim = LineHeightStyle.Trim.Both
+    trim = LineHeightStyle.Trim.None
 )
 
 /**
@@ -158,11 +158,11 @@ fun StudySessionTimerSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = MathSpacing.cardPaddingStandard,
-                    vertical = if (isPanelEnabled) MathSpacing.cardPaddingCompact else MathSpacing.xs
+                    horizontal = MathSpacing.cardPaddingCompact,
+                    vertical = if (isPanelEnabled) MathSpacing.cardPaddingCompact else (MathSpacing.sm + MathSpacing.xxs)
                 )
         ) {
-            // Compact Horizontal Header Row (68.0dp total card height when OFF at 1.0x font scale)
+            // Compact Horizontal Header Row (~68dp total card height when OFF at 1.0x font scale; grows naturally with fontScale)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -184,7 +184,8 @@ fun StudySessionTimerSection(
                                     )
                                 }
                             )
-                        ),
+                        )
+                        .testTag("study_timer_icon_badge"),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -197,25 +198,33 @@ fun StudySessionTimerSection(
 
                 Spacer(modifier = Modifier.width(MathSpacing.sm))
 
+                val titleBaseStyle = MaterialTheme.typography.titleSmall
+                val subtitleBaseStyle = MaterialTheme.typography.bodySmall
+                val pillBaseStyle = MaterialTheme.typography.labelSmall
+                val titleLineHeight = (titleBaseStyle.fontSize.value * 1.50f).sp
+                val subtitleLineHeight = (subtitleBaseStyle.fontSize.value * 1.50f).sp
+                val pillLineHeight = (pillBaseStyle.fontSize.value * 1.50f).sp
+
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy((-10).dp, Alignment.CenterVertically)
+                    verticalArrangement = Arrangement.spacedBy(MathSpacing.xxs, Alignment.CenterVertically)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(MathSpacing.xs)
                     ) {
                         Text(
                             text = "পড়াশোনা সেশন টাইমার",
-                            style = MaterialTheme.typography.titleSmall.copy(
+                            style = titleBaseStyle.copy(
                                 fontWeight = FontWeight.Bold,
-                                lineHeight = 18.sp,
-                                platformStyle = CompactBengaliTextPlatformStyle,
-                                lineHeightStyle = CompactBengaliLineHeightStyle
+                                lineHeight = titleLineHeight,
+                                platformStyle = BengaliCompactTextPlatformStyle,
+                                lineHeightStyle = BengaliCompactLineHeightStyle
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
-                            softWrap = false,
+                            softWrap = true,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .weight(1f, fill = false)
@@ -239,7 +248,7 @@ fun StudySessionTimerSection(
                                 modifier = Modifier.testTag("study_timer_status_pill")
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
@@ -248,16 +257,18 @@ fun StudySessionTimerSection(
                                             .clip(CircleShape)
                                             .background(pillColor)
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = timerState.statusLabelBn,
-                                        style = MaterialTheme.typography.labelSmall.copy(
+                                        style = pillBaseStyle.copy(
                                             fontWeight = FontWeight.SemiBold,
-                                            platformStyle = CompactBengaliTextPlatformStyle
+                                            lineHeight = pillLineHeight,
+                                            platformStyle = BengaliCompactTextPlatformStyle,
+                                            lineHeightStyle = BengaliCompactLineHeightStyle
                                         ),
                                         color = pillColor,
                                         maxLines = 1,
-                                        softWrap = false
+                                        softWrap = true
                                     )
                                 }
                             }
@@ -270,29 +281,31 @@ fun StudySessionTimerSection(
                         } else {
                             "বন্ধ • চালু করতে টগল করুন"
                         },
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            lineHeight = 15.sp,
-                            platformStyle = CompactBengaliTextPlatformStyle,
-                            lineHeightStyle = CompactBengaliLineHeightStyle
+                        style = subtitleBaseStyle.copy(
+                            lineHeight = subtitleLineHeight,
+                            platformStyle = BengaliCompactTextPlatformStyle,
+                            lineHeightStyle = BengaliCompactLineHeightStyle
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        softWrap = false,
+                        softWrap = true,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.testTag("study_timer_status_text")
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("study_timer_status_text")
                     )
                 }
 
-                Spacer(modifier = Modifier.width(MathSpacing.xs))
+                Spacer(modifier = Modifier.width(MathSpacing.sm))
 
                 // Accessible ON/OFF Switch with guaranteed >= 48dp interactive target
                 Switch(
                     checked = isPanelEnabled,
                     onCheckedChange = { onToggleVisibility() },
                     modifier = Modifier
+                        .testTag("study_timer_toggle_switch")
                         .minimumInteractiveComponentSize()
                         .semantics { contentDescription = "পড়াশোনা সেশন টাইমার টগল" }
-                        .testTag("study_timer_toggle_switch")
                 )
             }
 

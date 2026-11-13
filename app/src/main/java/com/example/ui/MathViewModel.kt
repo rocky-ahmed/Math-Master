@@ -17,6 +17,7 @@ import com.example.data.model.ProgressEntity
 import com.example.data.model.QuizScoreEntity
 import com.example.data.model.RecentFormulaEntity
 import com.example.data.model.SolverHistoryEntity
+import com.example.data.model.StudyTimerFlushOperation
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.repository.MathRepository
 import com.example.math.AnalyticsTimeFilter
@@ -188,7 +189,8 @@ data class StudySessionTimerState(
     val completedSessionsToday: Int = 0,
     val unrecordedDbSeconds: Int = 0,
     val lastSessionCompleted: Boolean = false,
-    val activeDateKey: String = ""
+    val activeDateKey: String = "",
+    val currentSessionId: String = ""
 ) {
     val dailyGoalSeconds: Int
         get() = dailyGoalMinutes * 60
@@ -327,9 +329,23 @@ class MathViewModel @JvmOverloads constructor(
     private val _previewCustomizationState = MutableStateFlow(initialCustomState)
     val previewCustomizationState: StateFlow<AppCustomizationState> = _previewCustomizationState.asStateFlow()
 
+    // BUG-86 Study Timer Durable Flush Journal synchronization primitives (must be initialized before init {})
+    private val studyFlushJournalLock = Any()
+    private val studyFlushDispatchMutex = kotlinx.coroutines.sync.Mutex()
+
+    internal var studyFlushFaultInjectorForTesting: ((StudyTimerFlushOperation) -> MathRepository.StudyFlushFaultPoint)? = null
+
+    internal val repositoryForTesting: MathRepository
+        get() = repository
+
     init {
         val db = MathDatabase.getInstance(application)
         repository = MathRepository(db.mathDao())
+        repository.studyFlushFaultInjector = { op ->
+            studyFlushFaultInjectorForTesting?.invoke(op)
+                ?: globalStudyFlushFaultInjectorForTesting?.invoke(op)
+                ?: MathRepository.StudyFlushFaultPoint.NONE
+        }
         initStreakAndActivity()
         initStudySessionTimer()
         viewModelScope.launch {
@@ -369,6 +385,10 @@ class MathViewModel @JvmOverloads constructor(
 
     companion object {
         private const val MAX_SAVED_STATE_ENTRIES = 256
+        internal const val KEY_STUDY_FLUSH_JOURNAL = "study_timer_pending_flush_journal"
+
+        @Volatile
+        internal var globalStudyFlushFaultInjectorForTesting: ((StudyTimerFlushOperation) -> MathRepository.StudyFlushFaultPoint)? = null
     }
 
     private fun isHomeScrollKey(stateKey: String): Boolean {
@@ -3570,7 +3590,7 @@ class MathViewModel @JvmOverloads constructor(
         bookId: BookId,
         printedPage: Int,
         chapterNumber: Int? = null,
-        zoomScale: Float = 1.0f,
+        zoomScale: Float? = null,
         preferredViewMode: String? = null
     ) {
         val clampedPrinted = printedPage.coerceIn(1, bookId.maxPrintedPage)
@@ -4018,32 +4038,156 @@ class MathViewModel @JvmOverloads constructor(
         lastTickElapsedRealtimeMs = 0L
     }
 
+    private fun parseFlushJournalJson(raw: String?): List<StudyTimerFlushOperation> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return runCatching {
+            val array = org.json.JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.optJSONObject(i) ?: continue
+                    val opId = obj.optString("operationId", "").trim()
+                    val dateKey = obj.optString("studyDateKey", "").trim()
+                    val pendingSec = obj.optInt("pendingSeconds", 0).coerceAtLeast(0)
+                    val completedDelta = obj.optInt("completedSessionsDelta", 0).coerceAtLeast(0)
+                    if (opId.isNotEmpty() && dateKey.isNotEmpty() && (pendingSec > 0 || completedDelta > 0)) {
+                        add(
+                            StudyTimerFlushOperation(
+                                operationId = opId,
+                                studyDateKey = dateKey,
+                                pendingSeconds = pendingSec,
+                                sessionId = obj.optString("sessionId", ""),
+                                completedSessionsDelta = completedDelta,
+                                createdAtEpochMs = obj.optLong("createdAtEpochMs", 0L)
+                            )
+                        )
+                    }
+                }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    private fun serializeFlushJournalJson(ops: List<StudyTimerFlushOperation>): String {
+        val array = org.json.JSONArray()
+        ops.forEach { op ->
+            val obj = org.json.JSONObject().apply {
+                put("operationId", op.operationId)
+                put("studyDateKey", op.studyDateKey)
+                put("pendingSeconds", op.pendingSeconds)
+                put("sessionId", op.sessionId)
+                put("completedSessionsDelta", op.completedSessionsDelta)
+                put("createdAtEpochMs", op.createdAtEpochMs)
+            }
+            array.put(obj)
+        }
+        return array.toString()
+    }
+
+    internal fun readPendingStudyFlushOperations(): List<StudyTimerFlushOperation> =
+        synchronized(studyFlushJournalLock) {
+            parseFlushJournalJson(prefs.getString(KEY_STUDY_FLUSH_JOURNAL, null))
+        }
+
+    private fun commitStudyTimerPrefsWithOptionalFlush(
+        operation: StudyTimerFlushOperation? = null,
+        block: android.content.SharedPreferences.Editor.() -> Unit
+    ) {
+        synchronized(studyFlushJournalLock) {
+            val editor = prefs.edit()
+            if (operation != null && (operation.pendingSeconds > 0 || operation.completedSessionsDelta > 0)) {
+                val existing = parseFlushJournalJson(prefs.getString(KEY_STUDY_FLUSH_JOURNAL, null))
+                if (existing.none { it.operationId == operation.operationId }) {
+                    val updated = existing + operation
+                    editor.putString(KEY_STUDY_FLUSH_JOURNAL, serializeFlushJournalJson(updated))
+                }
+            }
+            editor.block()
+            editor.commit()
+        }
+    }
+
+    private fun acknowledgeStudyFlushOperation(operationId: String) {
+        synchronized(studyFlushJournalLock) {
+            val existing = parseFlushJournalJson(prefs.getString(KEY_STUDY_FLUSH_JOURNAL, null))
+            val remaining = existing.filterNot { it.operationId == operationId }
+            prefs.edit()
+                .putString(KEY_STUDY_FLUSH_JOURNAL, serializeFlushJournalJson(remaining))
+                .commit()
+        }
+    }
+
+    internal suspend fun replayPendingStudyFlushJournal(): Boolean {
+        studyFlushDispatchMutex.lock()
+        return try {
+            while (true) {
+                val pendingOps = readPendingStudyFlushOperations()
+                if (pendingOps.isEmpty()) return true
+                for (op in pendingOps) {
+                    try {
+                        repository.applyStudyTimerFlushOperation(op)
+                        acknowledgeStudyFlushOperation(op.operationId)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        return false
+                    }
+                }
+            }
+            true
+        } finally {
+            studyFlushDispatchMutex.unlock()
+        }
+    }
+
+    private fun dispatchPendingStudyFlushJournal() {
+        viewModelScope.launch {
+            replayPendingStudyFlushJournal()
+        }
+    }
+
     /**
-     * Cold-process initialization for Study Timer 2.0 (BUG-78):
+     * Cold-process initialization for Study Timer 2.0 (BUG-78 / BUG-86):
      * - Always initializes in the compact OFF state (isVisibleOnHome = false, isRunning = false).
      * - Ignores and sanitizes any stale persisted enabled/running flags from previous sessions.
      * - Never counts closed-app downtime.
-     * - Safely flushes any persisted unrecorded elapsed study seconds from an interrupted session at most once.
+     * - Promotes any unrecorded seconds from an interrupted session atomically into the durable
+     *   flush journal, then replays incomplete journal operations at most once into Room.
      */
     private fun initStudySessionTimer() {
         stopStudyTimerJob()
         val today = getTodayDateStr()
-        val persistedDateKey = prefs.getString("study_timer_active_date_key", null)?.takeIf { it.isNotBlank() } ?: today
+        val persistedDateKey = prefs.getString("study_timer_active_date_key", null)?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("study_timer_date_key", null)?.takeIf { it.isNotBlank() }
+            ?: today
         val savedTodaySec = prefs.getInt("study_timer_today_sec_$today", 0).coerceAtLeast(0)
         val savedAllTimeSec = prefs.getInt("study_timer_all_time_sec", 0).coerceAtLeast(0)
         val savedGoalMin = prefs.getInt("study_timer_daily_goal_min", 30).coerceIn(5, 240)
         val savedSessionsCount = prefs.getInt("study_timer_sessions_$today", 0).coerceAtLeast(0)
         val persistedUnrecordedSec = prefs.getInt("study_timer_unrecorded_db_sec", 0).coerceIn(0, 3600)
+        val persistedSessionId = prefs.getString("study_timer_current_session_id", null)?.takeIf { it.isNotBlank() } ?: ""
 
-        // Reset process-scoped activation flags in SharedPreferences so old ON/running flags never persist
-        prefs.edit()
-            .putBoolean("study_timer_visible_on_home", false)
-            .putBoolean("study_timer_is_running", false)
-            .putInt("study_timer_current_session_sec", 0)
-            .putInt("study_timer_unrecorded_db_sec", 0)
-            .putLong("study_timer_last_wall_ms", 0L)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        val recoveryOp = if (persistedUnrecordedSec > 0) {
+            StudyTimerFlushOperation(
+                operationId = java.util.UUID.randomUUID().toString(),
+                studyDateKey = persistedDateKey,
+                pendingSeconds = persistedUnrecordedSec,
+                sessionId = persistedSessionId,
+                completedSessionsDelta = 0,
+                createdAtEpochMs = System.currentTimeMillis()
+            )
+        } else {
+            null
+        }
+
+        // Atomically promote any pre-crash unrecorded delta into the durable journal and sanitize activation flags.
+        commitStudyTimerPrefsWithOptionalFlush(recoveryOp) {
+            putBoolean("study_timer_visible_on_home", false)
+            putBoolean("study_timer_is_running", false)
+            putInt("study_timer_current_session_sec", 0)
+            putString("study_timer_current_session_id", "")
+            putInt("study_timer_unrecorded_db_sec", 0)
+            putLong("study_timer_last_wall_ms", 0L)
+            putString("study_timer_active_date_key", today)
+        }
 
         _studySessionTimer.value = StudySessionTimerState(
             isVisibleOnHome = false,
@@ -4055,21 +4199,12 @@ class MathViewModel @JvmOverloads constructor(
             completedSessionsToday = savedSessionsCount,
             unrecordedDbSeconds = 0,
             lastSessionCompleted = false,
-            activeDateKey = today
+            activeDateKey = today,
+            currentSessionId = ""
         )
 
-        if (persistedUnrecordedSec > 0) {
-            viewModelScope.launch {
-                repository.recordDailyStudyDelta(
-                    questionsAttemptedDelta = 0,
-                    correctDelta = 0,
-                    wrongDelta = 0,
-                    studyTimeSecondsDelta = persistedUnrecordedSec,
-                    examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0,
-                    dateKeyOverride = persistedDateKey
-                )
-            }
+        if (readPendingStudyFlushOperations().isNotEmpty()) {
+            dispatchPendingStudyFlushJournal()
         }
     }
 
@@ -4077,7 +4212,9 @@ class MathViewModel @JvmOverloads constructor(
         val current = _studySessionTimer.value
         if (current.activeDateKey == today) return current
         if (current.activeDateKey.isEmpty()) {
-            prefs.edit().putString("study_timer_active_date_key", today).apply()
+            commitStudyTimerPrefsWithOptionalFlush(null) {
+                putString("study_timer_active_date_key", today)
+            }
             val stamped = current.copy(activeDateKey = today)
             _studySessionTimer.value = stamped
             return stamped
@@ -4087,10 +4224,23 @@ class MathViewModel @JvmOverloads constructor(
         val todayBaselineSec = prefs.getInt("study_timer_today_sec_$today", 0).coerceAtLeast(0)
         val todayBaselineSessions = prefs.getInt("study_timer_sessions_$today", 0).coerceAtLeast(0)
 
-        prefs.edit()
-            .putInt("study_timer_unrecorded_db_sec", 0)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        val rolloverOp = if (pendingPrevDaySec > 0) {
+            StudyTimerFlushOperation(
+                operationId = java.util.UUID.randomUUID().toString(),
+                studyDateKey = previousDateKey,
+                pendingSeconds = pendingPrevDaySec,
+                sessionId = current.currentSessionId,
+                completedSessionsDelta = 0,
+                createdAtEpochMs = System.currentTimeMillis()
+            )
+        } else {
+            null
+        }
+
+        commitStudyTimerPrefsWithOptionalFlush(rolloverOp) {
+            putInt("study_timer_unrecorded_db_sec", 0)
+            putString("study_timer_active_date_key", today)
+        }
 
         val rolledOver = current.copy(
             todayTotalSeconds = todayBaselineSec,
@@ -4100,24 +4250,16 @@ class MathViewModel @JvmOverloads constructor(
         )
         _studySessionTimer.value = rolledOver
 
-        if (pendingPrevDaySec > 0) {
-            viewModelScope.launch {
-                repository.recordDailyStudyDelta(
-                    questionsAttemptedDelta = 0,
-                    correctDelta = 0,
-                    wrongDelta = 0,
-                    studyTimeSecondsDelta = pendingPrevDaySec,
-                    examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0,
-                    dateKeyOverride = previousDateKey
-                )
-            }
+        if (rolloverOp != null || readPendingStudyFlushOperations().isNotEmpty()) {
+            dispatchPendingStudyFlushJournal()
         }
         return rolledOver
     }
 
     internal fun setStudyTimerDateKeyForTesting(dateKey: String) {
-        prefs.edit().putString("study_timer_active_date_key", dateKey).apply()
+        commitStudyTimerPrefsWithOptionalFlush(null) {
+            putString("study_timer_active_date_key", dateKey)
+        }
         _studySessionTimer.value = _studySessionTimer.value.copy(activeDateKey = dateKey)
     }
 
@@ -4130,10 +4272,10 @@ class MathViewModel @JvmOverloads constructor(
         val current = ensureStudyTimerDateCurrent(today)
         if (visible) {
             if (current.isVisibleOnHome) return
-            prefs.edit()
-                .putBoolean("study_timer_visible_on_home", true)
-                .putString("study_timer_active_date_key", today)
-                .apply()
+            commitStudyTimerPrefsWithOptionalFlush(null) {
+                putBoolean("study_timer_visible_on_home", true)
+                putString("study_timer_active_date_key", today)
+            }
             _studySessionTimer.value = current.copy(
                 isVisibleOnHome = true,
                 isRunning = false,
@@ -4147,21 +4289,32 @@ class MathViewModel @JvmOverloads constructor(
             stopStudyTimerJob()
             val unrecorded = current.unrecordedDbSeconds
             val hadActiveSession = current.isRunning || current.currentSessionSeconds > 0
-            val nextCompleted = if (hadActiveSession && current.currentSessionSeconds > 0) {
-                current.completedSessionsToday + 1
+            val completedDelta = if (hadActiveSession && current.currentSessionSeconds > 0) 1 else 0
+            val nextCompleted = current.completedSessionsToday + completedDelta
+
+            val op = if (unrecorded > 0 || completedDelta > 0) {
+                StudyTimerFlushOperation(
+                    operationId = java.util.UUID.randomUUID().toString(),
+                    studyDateKey = today,
+                    pendingSeconds = unrecorded,
+                    sessionId = current.currentSessionId,
+                    completedSessionsDelta = completedDelta,
+                    createdAtEpochMs = System.currentTimeMillis()
+                )
             } else {
-                current.completedSessionsToday
+                null
             }
 
-            prefs.edit()
-                .putBoolean("study_timer_visible_on_home", false)
-                .putBoolean("study_timer_is_running", false)
-                .putInt("study_timer_current_session_sec", 0)
-                .putInt("study_timer_unrecorded_db_sec", 0)
-                .putInt("study_timer_sessions_$today", nextCompleted)
-                .putLong("study_timer_last_wall_ms", 0L)
-                .putString("study_timer_active_date_key", today)
-                .apply()
+            commitStudyTimerPrefsWithOptionalFlush(op) {
+                putBoolean("study_timer_visible_on_home", false)
+                putBoolean("study_timer_is_running", false)
+                putInt("study_timer_current_session_sec", 0)
+                putString("study_timer_current_session_id", "")
+                putInt("study_timer_unrecorded_db_sec", 0)
+                putInt("study_timer_sessions_$today", nextCompleted)
+                putLong("study_timer_last_wall_ms", 0L)
+                putString("study_timer_active_date_key", today)
+            }
 
             _studySessionTimer.value = current.copy(
                 isVisibleOnHome = false,
@@ -4170,24 +4323,15 @@ class MathViewModel @JvmOverloads constructor(
                 completedSessionsToday = nextCompleted,
                 unrecordedDbSeconds = 0,
                 lastSessionCompleted = false,
-                activeDateKey = today
+                activeDateKey = today,
+                currentSessionId = ""
             )
 
-            if (unrecorded > 0 || (hadActiveSession && current.currentSessionSeconds > 0)) {
-                if (hadActiveSession && current.currentSessionSeconds > 0) {
-                    recordDailyActivity(1)
-                }
-                viewModelScope.launch {
-                    repository.recordDailyStudyDelta(
-                        questionsAttemptedDelta = 0,
-                        correctDelta = 0,
-                        wrongDelta = 0,
-                        studyTimeSecondsDelta = unrecorded,
-                        examsCompletedDelta = 0,
-                        practiceSessionsCompletedDelta = if (hadActiveSession && current.currentSessionSeconds > 0) 1 else 0,
-                        dateKeyOverride = today
-                    )
-                }
+            if (completedDelta > 0) {
+                recordDailyActivity(1)
+            }
+            if (op != null || readPendingStudyFlushOperations().isNotEmpty()) {
+                dispatchPendingStudyFlushJournal()
             }
         }
     }
@@ -4200,18 +4344,21 @@ class MathViewModel @JvmOverloads constructor(
             return
         }
         val nowWallMs = System.currentTimeMillis()
-        prefs.edit()
-            .putBoolean("study_timer_visible_on_home", true)
-            .putBoolean("study_timer_is_running", true)
-            .putLong("study_timer_last_wall_ms", nowWallMs)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        val sessionId = current.currentSessionId.ifBlank { java.util.UUID.randomUUID().toString() }
+        commitStudyTimerPrefsWithOptionalFlush(null) {
+            putBoolean("study_timer_visible_on_home", true)
+            putBoolean("study_timer_is_running", true)
+            putLong("study_timer_last_wall_ms", nowWallMs)
+            putString("study_timer_active_date_key", today)
+            putString("study_timer_current_session_id", sessionId)
+        }
 
         _studySessionTimer.value = current.copy(
             isVisibleOnHome = true,
             isRunning = true,
             lastSessionCompleted = false,
-            activeDateKey = today
+            activeDateKey = today,
+            currentSessionId = sessionId
         )
         startStudyTimerJobIfNeeded()
     }
@@ -4225,12 +4372,25 @@ class MathViewModel @JvmOverloads constructor(
         }
         stopStudyTimerJob()
         val unrecorded = current.unrecordedDbSeconds
-        prefs.edit()
-            .putBoolean("study_timer_is_running", false)
-            .putInt("study_timer_unrecorded_db_sec", 0)
-            .putLong("study_timer_last_wall_ms", 0L)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        val op = if (unrecorded > 0) {
+            StudyTimerFlushOperation(
+                operationId = java.util.UUID.randomUUID().toString(),
+                studyDateKey = today,
+                pendingSeconds = unrecorded,
+                sessionId = current.currentSessionId,
+                completedSessionsDelta = 0,
+                createdAtEpochMs = System.currentTimeMillis()
+            )
+        } else {
+            null
+        }
+
+        commitStudyTimerPrefsWithOptionalFlush(op) {
+            putBoolean("study_timer_is_running", false)
+            putInt("study_timer_unrecorded_db_sec", 0)
+            putLong("study_timer_last_wall_ms", 0L)
+            putString("study_timer_active_date_key", today)
+        }
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
@@ -4238,18 +4398,8 @@ class MathViewModel @JvmOverloads constructor(
             activeDateKey = today
         )
 
-        if (unrecorded > 0) {
-            viewModelScope.launch {
-                repository.recordDailyStudyDelta(
-                    questionsAttemptedDelta = 0,
-                    correctDelta = 0,
-                    wrongDelta = 0,
-                    studyTimeSecondsDelta = unrecorded,
-                    examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0,
-                    dateKeyOverride = today
-                )
-            }
+        if (op != null || readPendingStudyFlushOperations().isNotEmpty()) {
+            dispatchPendingStudyFlushJournal()
         }
     }
 
@@ -4268,44 +4418,50 @@ class MathViewModel @JvmOverloads constructor(
         if (!current.isRunning) return
 
         lastTickElapsedRealtimeMs = clock.elapsedRealtime()
+        val sessionId = current.currentSessionId.ifBlank { java.util.UUID.randomUUID().toString() }
         val nextSessionSec = current.currentSessionSeconds + deltaSeconds
         val nextTodaySec = current.todayTotalSeconds + deltaSeconds
         val nextAllTimeSec = current.allTimeTotalSeconds + deltaSeconds
         val nextUnrecorded = current.unrecordedDbSeconds + deltaSeconds
 
-        // Flush to Room DB every 30 seconds of accumulated study time (BUG-74)
+        // Flush to Room DB every 30 seconds of accumulated study time via durable journal (BUG-74 / BUG-86)
         val shouldFlushToDb = nextUnrecorded >= 30
         val remainingUnrecorded = if (shouldFlushToDb) 0 else nextUnrecorded
+        val nowWallMs = System.currentTimeMillis()
+        val flushOp = if (shouldFlushToDb) {
+            StudyTimerFlushOperation(
+                operationId = java.util.UUID.randomUUID().toString(),
+                studyDateKey = today,
+                pendingSeconds = nextUnrecorded,
+                sessionId = sessionId,
+                completedSessionsDelta = 0,
+                createdAtEpochMs = nowWallMs
+            )
+        } else {
+            null
+        }
 
-        prefs.edit()
-            .putInt("study_timer_current_session_sec", nextSessionSec)
-            .putInt("study_timer_today_sec_$today", nextTodaySec)
-            .putInt("study_timer_all_time_sec", nextAllTimeSec)
-            .putInt("study_timer_unrecorded_db_sec", remainingUnrecorded)
-            .putLong("study_timer_last_wall_ms", System.currentTimeMillis())
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        commitStudyTimerPrefsWithOptionalFlush(flushOp) {
+            putInt("study_timer_current_session_sec", nextSessionSec)
+            putInt("study_timer_today_sec_$today", nextTodaySec)
+            putInt("study_timer_all_time_sec", nextAllTimeSec)
+            putInt("study_timer_unrecorded_db_sec", remainingUnrecorded)
+            putLong("study_timer_last_wall_ms", nowWallMs)
+            putString("study_timer_active_date_key", today)
+            putString("study_timer_current_session_id", sessionId)
+        }
 
         _studySessionTimer.value = current.copy(
             currentSessionSeconds = nextSessionSec,
             todayTotalSeconds = nextTodaySec,
             allTimeTotalSeconds = nextAllTimeSec,
             unrecordedDbSeconds = remainingUnrecorded,
-            activeDateKey = today
+            activeDateKey = today,
+            currentSessionId = sessionId
         )
 
-        if (shouldFlushToDb) {
-            viewModelScope.launch {
-                repository.recordDailyStudyDelta(
-                    questionsAttemptedDelta = 0,
-                    correctDelta = 0,
-                    wrongDelta = 0,
-                    studyTimeSecondsDelta = nextUnrecorded,
-                    examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0,
-                    dateKeyOverride = today
-                )
-            }
+        if (flushOp != null) {
+            dispatchPendingStudyFlushJournal()
         }
     }
 
@@ -4317,15 +4473,24 @@ class MathViewModel @JvmOverloads constructor(
         stopStudyTimerJob()
         val nextCompleted = current.completedSessionsToday + 1
         val unrecorded = current.unrecordedDbSeconds
+        val finishOp = StudyTimerFlushOperation(
+            operationId = java.util.UUID.randomUUID().toString(),
+            studyDateKey = today,
+            pendingSeconds = unrecorded,
+            sessionId = current.currentSessionId.ifBlank { java.util.UUID.randomUUID().toString() },
+            completedSessionsDelta = 1,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
 
-        prefs.edit()
-            .putBoolean("study_timer_is_running", false)
-            .putInt("study_timer_current_session_sec", 0)
-            .putInt("study_timer_unrecorded_db_sec", 0)
-            .putInt("study_timer_sessions_$today", nextCompleted)
-            .putLong("study_timer_last_wall_ms", 0L)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        commitStudyTimerPrefsWithOptionalFlush(finishOp) {
+            putBoolean("study_timer_is_running", false)
+            putInt("study_timer_current_session_sec", 0)
+            putString("study_timer_current_session_id", "")
+            putInt("study_timer_unrecorded_db_sec", 0)
+            putInt("study_timer_sessions_$today", nextCompleted)
+            putLong("study_timer_last_wall_ms", 0L)
+            putString("study_timer_active_date_key", today)
+        }
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
@@ -4333,21 +4498,12 @@ class MathViewModel @JvmOverloads constructor(
             completedSessionsToday = nextCompleted,
             unrecordedDbSeconds = 0,
             lastSessionCompleted = true,
-            activeDateKey = today
+            activeDateKey = today,
+            currentSessionId = ""
         )
 
         recordDailyActivity(1)
-        viewModelScope.launch {
-            repository.recordDailyStudyDelta(
-                questionsAttemptedDelta = 0,
-                correctDelta = 0,
-                wrongDelta = 0,
-                studyTimeSecondsDelta = unrecorded,
-                examsCompletedDelta = 0,
-                practiceSessionsCompletedDelta = 1,
-                dateKeyOverride = today
-            )
-        }
+        dispatchPendingStudyFlushJournal()
     }
 
     fun resetCurrentStudySession() {
@@ -4359,41 +4515,48 @@ class MathViewModel @JvmOverloads constructor(
         }
         stopStudyTimerJob()
         val unrecorded = current.unrecordedDbSeconds
-        prefs.edit()
-            .putBoolean("study_timer_is_running", false)
-            .putInt("study_timer_current_session_sec", 0)
-            .putInt("study_timer_unrecorded_db_sec", 0)
-            .putLong("study_timer_last_wall_ms", 0L)
-            .putString("study_timer_active_date_key", today)
-            .apply()
+        val resetOp = if (unrecorded > 0) {
+            StudyTimerFlushOperation(
+                operationId = java.util.UUID.randomUUID().toString(),
+                studyDateKey = today,
+                pendingSeconds = unrecorded,
+                sessionId = current.currentSessionId,
+                completedSessionsDelta = 0,
+                createdAtEpochMs = System.currentTimeMillis()
+            )
+        } else {
+            null
+        }
+
+        commitStudyTimerPrefsWithOptionalFlush(resetOp) {
+            putBoolean("study_timer_is_running", false)
+            putInt("study_timer_current_session_sec", 0)
+            putString("study_timer_current_session_id", "")
+            putInt("study_timer_unrecorded_db_sec", 0)
+            putLong("study_timer_last_wall_ms", 0L)
+            putString("study_timer_active_date_key", today)
+        }
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
             currentSessionSeconds = 0,
             unrecordedDbSeconds = 0,
             lastSessionCompleted = false,
-            activeDateKey = today
+            activeDateKey = today,
+            currentSessionId = ""
         )
 
-        if (unrecorded > 0) {
-            viewModelScope.launch {
-                repository.recordDailyStudyDelta(
-                    questionsAttemptedDelta = 0,
-                    correctDelta = 0,
-                    wrongDelta = 0,
-                    studyTimeSecondsDelta = unrecorded,
-                    examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0,
-                    dateKeyOverride = today
-                )
-            }
+        if (resetOp != null || readPendingStudyFlushOperations().isNotEmpty()) {
+            dispatchPendingStudyFlushJournal()
         }
     }
 
     fun setStudyDailyGoalMinutes(minutes: Int) {
         val clamped = minutes.coerceIn(5, 240)
         val current = _studySessionTimer.value
-        prefs.edit().putInt("study_timer_daily_goal_min", clamped).apply()
+        commitStudyTimerPrefsWithOptionalFlush(null) {
+            putInt("study_timer_daily_goal_min", clamped)
+        }
         _studySessionTimer.value = current.copy(dailyGoalMinutes = clamped)
         viewModelScope.launch {
             repository.updateDailyStudyTargetMinutesOnly(clamped)
@@ -4401,38 +4564,57 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun flushUnrecordedStudyTime() {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         val unrecorded = current.unrecordedDbSeconds
-        if (unrecorded <= 0) return
-        val targetDateKey = current.activeDateKey.takeIf { it.isNotBlank() } ?: getTodayDateStr()
-        prefs.edit().putInt("study_timer_unrecorded_db_sec", 0).apply()
-        _studySessionTimer.value = current.copy(unrecordedDbSeconds = 0)
-        viewModelScope.launch {
-            repository.recordDailyStudyDelta(
-                questionsAttemptedDelta = 0,
-                correctDelta = 0,
-                wrongDelta = 0,
-                studyTimeSecondsDelta = unrecorded,
-                examsCompletedDelta = 0,
-                practiceSessionsCompletedDelta = 0,
-                dateKeyOverride = targetDateKey
-            )
+        if (unrecorded <= 0) {
+            if (readPendingStudyFlushOperations().isNotEmpty()) {
+                dispatchPendingStudyFlushJournal()
+            }
+            return
         }
+        val targetDateKey = current.activeDateKey.takeIf { it.isNotBlank() } ?: today
+        val op = StudyTimerFlushOperation(
+            operationId = java.util.UUID.randomUUID().toString(),
+            studyDateKey = targetDateKey,
+            pendingSeconds = unrecorded,
+            sessionId = current.currentSessionId,
+            completedSessionsDelta = 0,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        commitStudyTimerPrefsWithOptionalFlush(op) {
+            putInt("study_timer_unrecorded_db_sec", 0)
+        }
+        _studySessionTimer.value = current.copy(unrecordedDbSeconds = 0)
+        dispatchPendingStudyFlushJournal()
     }
 
     fun onAppBackgrounded() {
-        if (!_studySessionTimer.value.isRunning) return
+        if (!_studySessionTimer.value.isRunning) {
+            if (readPendingStudyFlushOperations().isNotEmpty()) {
+                dispatchPendingStudyFlushJournal()
+            }
+            return
+        }
         lastTickElapsedRealtimeMs = clock.elapsedRealtime()
         flushUnrecordedStudyTime()
     }
 
     fun onAppForegrounded() {
         val current = ensureStudyTimerDateCurrent()
-        if (!current.isRunning || !current.isVisibleOnHome) return
+        if (!current.isRunning || !current.isVisibleOnHome) {
+            if (readPendingStudyFlushOperations().isNotEmpty()) {
+                dispatchPendingStudyFlushJournal()
+            }
+            return
+        }
         val nowRealtime = clock.elapsedRealtime()
         if (lastTickElapsedRealtimeMs > 0L && nowRealtime >= lastTickElapsedRealtimeMs + 1000L) {
             val deltaSec = ((nowRealtime - lastTickElapsedRealtimeMs) / 1000L).toInt().coerceIn(1, 14400)
             tickStudySessionTimer(deltaSec)
+        }
+        if (readPendingStudyFlushOperations().isNotEmpty()) {
+            dispatchPendingStudyFlushJournal()
         }
         startStudyTimerJobIfNeeded()
     }

@@ -421,6 +421,12 @@ fun BookPdfReaderScreen(
                                 Slider(
                                     value = zoomScale,
                                     onValueChange = { zoomScale = it },
+                                    onValueChangeFinished = {
+                                        viewModel.updateBookReaderPreferences(
+                                            bookId = bookId,
+                                            zoomScale = zoomScale
+                                        )
+                                    },
                                     valueRange = 1.0f..2.5f,
                                     modifier = Modifier.weight(1f)
                                 )
