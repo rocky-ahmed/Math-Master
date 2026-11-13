@@ -187,7 +187,8 @@ data class StudySessionTimerState(
     val dailyGoalMinutes: Int = 30,
     val completedSessionsToday: Int = 0,
     val unrecordedDbSeconds: Int = 0,
-    val lastSessionCompleted: Boolean = false
+    val lastSessionCompleted: Boolean = false,
+    val activeDateKey: String = ""
 ) {
     val dailyGoalSeconds: Int
         get() = dailyGoalMinutes * 60
@@ -1777,8 +1778,15 @@ class MathViewModel @JvmOverloads constructor(
         val quizzesIndex = current.indexOfLast { it == Screen.Quizzes }
         if (quizzesIndex != -1) {
             _screenStack.value = current.take(quizzesIndex + 1)
+            while (_navigationContextStack.size > quizzesIndex + 1) {
+                _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
+            }
+            _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
             _screenStack.value = listOf(Screen.Home, Screen.Quizzes)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Quizzes))
         }
         _quizSession.value = QuizSessionState()
     }
@@ -2166,8 +2174,15 @@ class MathViewModel @JvmOverloads constructor(
         val practiceIndex = current.indexOfLast { it == Screen.PracticeLab }
         if (practiceIndex != -1) {
             _screenStack.value = current.take(practiceIndex + 1)
+            while (_navigationContextStack.size > practiceIndex + 1) {
+                _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
+            }
+            _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
             _screenStack.value = listOf(Screen.Home, Screen.PracticeLab)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.PracticeLab))
         }
         _practiceSession.value = PracticeSessionState()
     }
@@ -2490,8 +2505,15 @@ class MathViewModel @JvmOverloads constructor(
         val setupIndex = current.indexOfLast { it == Screen.MentalMath }
         if (setupIndex != -1) {
             _screenStack.value = current.take(setupIndex + 1)
+            while (_navigationContextStack.size > setupIndex + 1) {
+                _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
+            }
+            _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
             _screenStack.value = listOf(Screen.Home, Screen.MentalMath)
+            _navigationContextStack.clear()
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
+            _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.MentalMath))
         }
         _mentalMathSession.value = MentalMathSessionState()
     }
@@ -2551,7 +2573,10 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     // --- Streak & Daily Activity Helpers ---
+    internal var currentDateKeyProvider: (() -> String)? = null
+
     private fun getTodayDateStr(): String {
+        currentDateKeyProvider?.invoke()?.takeIf { it.isNotBlank() }?.let { return it }
         val cal = Calendar.getInstance()
         return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(cal.time)
     }
@@ -2944,8 +2969,11 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun updateDailyStudyTargets(targetQuestions: Int, targetMinutes: Int) {
+        val clampedMinutes = targetMinutes.coerceIn(5, 240)
+        prefs.edit().putInt("study_timer_daily_goal_min", clampedMinutes).apply()
+        _studySessionTimer.value = _studySessionTimer.value.copy(dailyGoalMinutes = clampedMinutes)
         viewModelScope.launch {
-            repository.updateDailyStudyTargets(targetQuestions, targetMinutes)
+            repository.updateDailyStudyTargets(targetQuestions, clampedMinutes)
         }
     }
 
@@ -3803,6 +3831,7 @@ class MathViewModel @JvmOverloads constructor(
     fun submitBookPracticeAnswer() {
         val current = _bookPracticeSession.value
         if (current.isAnswerSubmitted || current.isCompleted || current.answeredResults.containsKey(current.currentIndex)) return
+        if (current.selectedOptionIndices.isEmpty() && current.userTextInput.trim().isEmpty()) return
         val q = current.currentQuestion ?: return
 
         val (isCorrect, userSummary) = BookQuestionEngine.evaluateQuestion(
@@ -3999,6 +4028,7 @@ class MathViewModel @JvmOverloads constructor(
     private fun initStudySessionTimer() {
         stopStudyTimerJob()
         val today = getTodayDateStr()
+        val persistedDateKey = prefs.getString("study_timer_active_date_key", null)?.takeIf { it.isNotBlank() } ?: today
         val savedTodaySec = prefs.getInt("study_timer_today_sec_$today", 0).coerceAtLeast(0)
         val savedAllTimeSec = prefs.getInt("study_timer_all_time_sec", 0).coerceAtLeast(0)
         val savedGoalMin = prefs.getInt("study_timer_daily_goal_min", 30).coerceIn(5, 240)
@@ -4012,6 +4042,7 @@ class MathViewModel @JvmOverloads constructor(
             .putInt("study_timer_current_session_sec", 0)
             .putInt("study_timer_unrecorded_db_sec", 0)
             .putLong("study_timer_last_wall_ms", 0L)
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = StudySessionTimerState(
@@ -4023,7 +4054,8 @@ class MathViewModel @JvmOverloads constructor(
             dailyGoalMinutes = savedGoalMin,
             completedSessionsToday = savedSessionsCount,
             unrecordedDbSeconds = 0,
-            lastSessionCompleted = false
+            lastSessionCompleted = false,
+            activeDateKey = today
         )
 
         if (persistedUnrecordedSec > 0) {
@@ -4034,10 +4066,59 @@ class MathViewModel @JvmOverloads constructor(
                     wrongDelta = 0,
                     studyTimeSecondsDelta = persistedUnrecordedSec,
                     examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0
+                    practiceSessionsCompletedDelta = 0,
+                    dateKeyOverride = persistedDateKey
                 )
             }
         }
+    }
+
+    internal fun ensureStudyTimerDateCurrent(today: String = getTodayDateStr()): StudySessionTimerState {
+        val current = _studySessionTimer.value
+        if (current.activeDateKey == today) return current
+        if (current.activeDateKey.isEmpty()) {
+            prefs.edit().putString("study_timer_active_date_key", today).apply()
+            val stamped = current.copy(activeDateKey = today)
+            _studySessionTimer.value = stamped
+            return stamped
+        }
+        val previousDateKey = current.activeDateKey
+        val pendingPrevDaySec = current.unrecordedDbSeconds
+        val todayBaselineSec = prefs.getInt("study_timer_today_sec_$today", 0).coerceAtLeast(0)
+        val todayBaselineSessions = prefs.getInt("study_timer_sessions_$today", 0).coerceAtLeast(0)
+
+        prefs.edit()
+            .putInt("study_timer_unrecorded_db_sec", 0)
+            .putString("study_timer_active_date_key", today)
+            .apply()
+
+        val rolledOver = current.copy(
+            todayTotalSeconds = todayBaselineSec,
+            completedSessionsToday = todayBaselineSessions,
+            unrecordedDbSeconds = 0,
+            activeDateKey = today
+        )
+        _studySessionTimer.value = rolledOver
+
+        if (pendingPrevDaySec > 0) {
+            viewModelScope.launch {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 0,
+                    correctDelta = 0,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = pendingPrevDaySec,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 0,
+                    dateKeyOverride = previousDateKey
+                )
+            }
+        }
+        return rolledOver
+    }
+
+    internal fun setStudyTimerDateKeyForTesting(dateKey: String) {
+        prefs.edit().putString("study_timer_active_date_key", dateKey).apply()
+        _studySessionTimer.value = _studySessionTimer.value.copy(activeDateKey = dateKey)
     }
 
     fun toggleStudyTimerVisibility() {
@@ -4045,14 +4126,19 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun setStudyTimerVisibility(visible: Boolean) {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (visible) {
             if (current.isVisibleOnHome) return
-            prefs.edit().putBoolean("study_timer_visible_on_home", true).apply()
+            prefs.edit()
+                .putBoolean("study_timer_visible_on_home", true)
+                .putString("study_timer_active_date_key", today)
+                .apply()
             _studySessionTimer.value = current.copy(
                 isVisibleOnHome = true,
                 isRunning = false,
-                lastSessionCompleted = false
+                lastSessionCompleted = false,
+                activeDateKey = today
             )
         } else {
             if (!current.isVisibleOnHome && !current.isRunning && current.unrecordedDbSeconds == 0 && current.currentSessionSeconds == 0) {
@@ -4061,7 +4147,6 @@ class MathViewModel @JvmOverloads constructor(
             stopStudyTimerJob()
             val unrecorded = current.unrecordedDbSeconds
             val hadActiveSession = current.isRunning || current.currentSessionSeconds > 0
-            val today = getTodayDateStr()
             val nextCompleted = if (hadActiveSession && current.currentSessionSeconds > 0) {
                 current.completedSessionsToday + 1
             } else {
@@ -4075,6 +4160,7 @@ class MathViewModel @JvmOverloads constructor(
                 .putInt("study_timer_unrecorded_db_sec", 0)
                 .putInt("study_timer_sessions_$today", nextCompleted)
                 .putLong("study_timer_last_wall_ms", 0L)
+                .putString("study_timer_active_date_key", today)
                 .apply()
 
             _studySessionTimer.value = current.copy(
@@ -4083,7 +4169,8 @@ class MathViewModel @JvmOverloads constructor(
                 currentSessionSeconds = 0,
                 completedSessionsToday = nextCompleted,
                 unrecordedDbSeconds = 0,
-                lastSessionCompleted = false
+                lastSessionCompleted = false,
+                activeDateKey = today
             )
 
             if (unrecorded > 0 || (hadActiveSession && current.currentSessionSeconds > 0)) {
@@ -4097,7 +4184,8 @@ class MathViewModel @JvmOverloads constructor(
                         wrongDelta = 0,
                         studyTimeSecondsDelta = unrecorded,
                         examsCompletedDelta = 0,
-                        practiceSessionsCompletedDelta = if (hadActiveSession && current.currentSessionSeconds > 0) 1 else 0
+                        practiceSessionsCompletedDelta = if (hadActiveSession && current.currentSessionSeconds > 0) 1 else 0,
+                        dateKeyOverride = today
                     )
                 }
             }
@@ -4105,7 +4193,8 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun startStudySession() {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (current.isRunning) {
             startStudyTimerJobIfNeeded()
             return
@@ -4115,18 +4204,21 @@ class MathViewModel @JvmOverloads constructor(
             .putBoolean("study_timer_visible_on_home", true)
             .putBoolean("study_timer_is_running", true)
             .putLong("study_timer_last_wall_ms", nowWallMs)
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = current.copy(
             isVisibleOnHome = true,
             isRunning = true,
-            lastSessionCompleted = false
+            lastSessionCompleted = false,
+            activeDateKey = today
         )
         startStudyTimerJobIfNeeded()
     }
 
     fun pauseStudySession() {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (!current.isRunning && current.unrecordedDbSeconds == 0) {
             stopStudyTimerJob()
             return
@@ -4137,11 +4229,13 @@ class MathViewModel @JvmOverloads constructor(
             .putBoolean("study_timer_is_running", false)
             .putInt("study_timer_unrecorded_db_sec", 0)
             .putLong("study_timer_last_wall_ms", 0L)
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
-            unrecordedDbSeconds = 0
+            unrecordedDbSeconds = 0,
+            activeDateKey = today
         )
 
         if (unrecorded > 0) {
@@ -4152,7 +4246,8 @@ class MathViewModel @JvmOverloads constructor(
                     wrongDelta = 0,
                     studyTimeSecondsDelta = unrecorded,
                     examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0
+                    practiceSessionsCompletedDelta = 0,
+                    dateKeyOverride = today
                 )
             }
         }
@@ -4168,11 +4263,11 @@ class MathViewModel @JvmOverloads constructor(
 
     fun tickStudySessionTimer(deltaSeconds: Int = 1) {
         if (deltaSeconds <= 0) return
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (!current.isRunning) return
 
         lastTickElapsedRealtimeMs = clock.elapsedRealtime()
-        val today = getTodayDateStr()
         val nextSessionSec = current.currentSessionSeconds + deltaSeconds
         val nextTodaySec = current.todayTotalSeconds + deltaSeconds
         val nextAllTimeSec = current.allTimeTotalSeconds + deltaSeconds
@@ -4188,13 +4283,15 @@ class MathViewModel @JvmOverloads constructor(
             .putInt("study_timer_all_time_sec", nextAllTimeSec)
             .putInt("study_timer_unrecorded_db_sec", remainingUnrecorded)
             .putLong("study_timer_last_wall_ms", System.currentTimeMillis())
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = current.copy(
             currentSessionSeconds = nextSessionSec,
             todayTotalSeconds = nextTodaySec,
             allTimeTotalSeconds = nextAllTimeSec,
-            unrecordedDbSeconds = remainingUnrecorded
+            unrecordedDbSeconds = remainingUnrecorded,
+            activeDateKey = today
         )
 
         if (shouldFlushToDb) {
@@ -4205,18 +4302,19 @@ class MathViewModel @JvmOverloads constructor(
                     wrongDelta = 0,
                     studyTimeSecondsDelta = nextUnrecorded,
                     examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0
+                    practiceSessionsCompletedDelta = 0,
+                    dateKeyOverride = today
                 )
             }
         }
     }
 
     fun finishAndSaveStudySession() {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (current.currentSessionSeconds <= 0 && !current.isRunning) return
 
         stopStudyTimerJob()
-        val today = getTodayDateStr()
         val nextCompleted = current.completedSessionsToday + 1
         val unrecorded = current.unrecordedDbSeconds
 
@@ -4226,6 +4324,7 @@ class MathViewModel @JvmOverloads constructor(
             .putInt("study_timer_unrecorded_db_sec", 0)
             .putInt("study_timer_sessions_$today", nextCompleted)
             .putLong("study_timer_last_wall_ms", 0L)
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = current.copy(
@@ -4233,7 +4332,8 @@ class MathViewModel @JvmOverloads constructor(
             currentSessionSeconds = 0,
             completedSessionsToday = nextCompleted,
             unrecordedDbSeconds = 0,
-            lastSessionCompleted = true
+            lastSessionCompleted = true,
+            activeDateKey = today
         )
 
         recordDailyActivity(1)
@@ -4244,13 +4344,15 @@ class MathViewModel @JvmOverloads constructor(
                 wrongDelta = 0,
                 studyTimeSecondsDelta = unrecorded,
                 examsCompletedDelta = 0,
-                practiceSessionsCompletedDelta = 1
+                practiceSessionsCompletedDelta = 1,
+                dateKeyOverride = today
             )
         }
     }
 
     fun resetCurrentStudySession() {
-        val current = _studySessionTimer.value
+        val today = getTodayDateStr()
+        val current = ensureStudyTimerDateCurrent(today)
         if (current.currentSessionSeconds <= 0 && !current.isRunning && current.unrecordedDbSeconds <= 0) {
             stopStudyTimerJob()
             return
@@ -4262,13 +4364,15 @@ class MathViewModel @JvmOverloads constructor(
             .putInt("study_timer_current_session_sec", 0)
             .putInt("study_timer_unrecorded_db_sec", 0)
             .putLong("study_timer_last_wall_ms", 0L)
+            .putString("study_timer_active_date_key", today)
             .apply()
 
         _studySessionTimer.value = current.copy(
             isRunning = false,
             currentSessionSeconds = 0,
             unrecordedDbSeconds = 0,
-            lastSessionCompleted = false
+            lastSessionCompleted = false,
+            activeDateKey = today
         )
 
         if (unrecorded > 0) {
@@ -4279,7 +4383,8 @@ class MathViewModel @JvmOverloads constructor(
                     wrongDelta = 0,
                     studyTimeSecondsDelta = unrecorded,
                     examsCompletedDelta = 0,
-                    practiceSessionsCompletedDelta = 0
+                    practiceSessionsCompletedDelta = 0,
+                    dateKeyOverride = today
                 )
             }
         }
@@ -4290,12 +4395,16 @@ class MathViewModel @JvmOverloads constructor(
         val current = _studySessionTimer.value
         prefs.edit().putInt("study_timer_daily_goal_min", clamped).apply()
         _studySessionTimer.value = current.copy(dailyGoalMinutes = clamped)
+        viewModelScope.launch {
+            repository.updateDailyStudyTargetMinutesOnly(clamped)
+        }
     }
 
     fun flushUnrecordedStudyTime() {
         val current = _studySessionTimer.value
         val unrecorded = current.unrecordedDbSeconds
         if (unrecorded <= 0) return
+        val targetDateKey = current.activeDateKey.takeIf { it.isNotBlank() } ?: getTodayDateStr()
         prefs.edit().putInt("study_timer_unrecorded_db_sec", 0).apply()
         _studySessionTimer.value = current.copy(unrecordedDbSeconds = 0)
         viewModelScope.launch {
@@ -4305,7 +4414,8 @@ class MathViewModel @JvmOverloads constructor(
                 wrongDelta = 0,
                 studyTimeSecondsDelta = unrecorded,
                 examsCompletedDelta = 0,
-                practiceSessionsCompletedDelta = 0
+                practiceSessionsCompletedDelta = 0,
+                dateKeyOverride = targetDateKey
             )
         }
     }
@@ -4317,7 +4427,7 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun onAppForegrounded() {
-        val current = _studySessionTimer.value
+        val current = ensureStudyTimerDateCurrent()
         if (!current.isRunning || !current.isVisibleOnHome) return
         val nowRealtime = clock.elapsedRealtime()
         if (lastTickElapsedRealtimeMs > 0L && nowRealtime >= lastTickElapsedRealtimeMs + 1000L) {

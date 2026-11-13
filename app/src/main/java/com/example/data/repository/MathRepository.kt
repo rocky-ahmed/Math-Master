@@ -405,6 +405,8 @@ class MathRepository(private val dao: MathDao) {
     }
 
     // Daily Study Goals & Activity (Room v4)
+    private val dailyStudyWriteMutex = kotlinx.coroutines.sync.Mutex()
+
     suspend fun recordDailyStudyDelta(
         questionsAttemptedDelta: Int,
         correctDelta: Int,
@@ -412,11 +414,13 @@ class MathRepository(private val dao: MathDao) {
         studyTimeSecondsDelta: Int,
         examsCompletedDelta: Int,
         practiceSessionsCompletedDelta: Int,
-        timestampMs: Long = System.currentTimeMillis()
-    ) {
-        val dateKey = todayDateKey(timestampMs)
+        timestampMs: Long = System.currentTimeMillis(),
+        dateKeyOverride: String? = null
+    ) = dailyStudyWriteMutex.lockWith {
+        val dateKey = dateKeyOverride?.takeIf { it.isNotBlank() } ?: todayDateKey(timestampMs)
         val existing = dao.getDailyStudyActivityByDate(dateKey)
         val updated = if (existing == null) {
+            val latestConfigured = dao.getLatestDailyStudyActivity()
             DailyStudyActivityEntity(
                 dateKey = dateKey,
                 questionsAttempted = max(0, questionsAttemptedDelta),
@@ -425,8 +429,8 @@ class MathRepository(private val dao: MathDao) {
                 studyTimeSeconds = max(0, studyTimeSecondsDelta),
                 examsCompleted = max(0, examsCompletedDelta),
                 practiceSessionsCompleted = max(0, practiceSessionsCompletedDelta),
-                dailyTargetQuestions = 20,
-                dailyTargetMinutes = 15,
+                dailyTargetQuestions = latestConfigured?.dailyTargetQuestions ?: 20,
+                dailyTargetMinutes = latestConfigured?.dailyTargetMinutes ?: 15,
                 updatedAt = timestampMs
             )
         } else {
@@ -447,6 +451,14 @@ class MathRepository(private val dao: MathDao) {
         targetQuestions: Int,
         targetMinutes: Int,
         timestampMs: Long = System.currentTimeMillis()
+    ) = dailyStudyWriteMutex.lockWith {
+        updateDailyStudyTargetsInternal(targetQuestions, targetMinutes, timestampMs)
+    }
+
+    private suspend fun updateDailyStudyTargetsInternal(
+        targetQuestions: Int,
+        targetMinutes: Int,
+        timestampMs: Long
     ) {
         val safeQuestions = targetQuestions.coerceIn(5, 200)
         val safeMinutes = targetMinutes.coerceIn(5, 240)
@@ -473,6 +485,31 @@ class MathRepository(private val dao: MathDao) {
             )
         }
         dao.upsertDailyStudyActivity(updated)
+    }
+
+    suspend fun updateDailyStudyTargetMinutesOnly(
+        targetMinutes: Int,
+        timestampMs: Long = System.currentTimeMillis()
+    ) = dailyStudyWriteMutex.lockWith {
+        val safeMinutes = targetMinutes.coerceIn(5, 240)
+        val dateKey = todayDateKey(timestampMs)
+        val existing = dao.getDailyStudyActivityByDate(dateKey)
+        val latestConfigured = existing ?: dao.getLatestDailyStudyActivity()
+        val preservedQuestions = latestConfigured?.dailyTargetQuestions ?: 20
+        updateDailyStudyTargetsInternal(
+            targetQuestions = preservedQuestions,
+            targetMinutes = safeMinutes,
+            timestampMs = timestampMs
+        )
+    }
+
+    private suspend inline fun <T> kotlinx.coroutines.sync.Mutex.lockWith(action: () -> T): T {
+        lock()
+        try {
+            return action()
+        } finally {
+            unlock()
+        }
     }
 
     // ==========================================
@@ -753,6 +790,8 @@ class MathRepository(private val dao: MathDao) {
         if (resolved) {
             advanceSpacedRevisionItem(revItemId, answeredCorrectly = true, nowMs = nowMs)
             resolveUnifiedMistake("BOOK_$rawId", nowMs = nowMs)
+        } else {
+            unresolveUnifiedMistake("BOOK_$rawId", nowMs = nowMs)
         }
     }
 
@@ -1124,6 +1163,19 @@ class MathRepository(private val dao: MathDao) {
                 resolved = true,
                 reviewIntervalDays = nextIntervalDays,
                 nextReviewAtMillis = nextSpacedReviewEpochMs(nextStageIndex, nowMs),
+                lastFailedAtMillis = nowMs
+            )
+        )
+    }
+
+    suspend fun unresolveUnifiedMistake(
+        mistakeKey: String,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        val existing = dao.getUnifiedMistakeByKey(mistakeKey) ?: return
+        dao.upsertUnifiedMistake(
+            existing.copy(
+                resolved = false,
                 lastFailedAtMillis = nowMs
             )
         )

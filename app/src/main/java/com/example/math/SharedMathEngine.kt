@@ -320,7 +320,7 @@ object SharedMathEngine {
             }
         }
 
-        val str = asciiSpacePreserved.replace(" ", "")
+        val str = unitStripped.replace(" ", "")
         // Normalize trailing .0
         val asDouble = str.toDoubleOrNull()
         if (asDouble != null && asDouble == floor(asDouble) && abs(asDouble) < 1e12) {
@@ -389,6 +389,18 @@ object SharedMathEngine {
                     changed = true
                     break
                 }
+            }
+        }
+        val enUnitMatch = Regex(
+            """^([+-]?\d+(?:\.\d+)?(?:\s+\d+\s*/\s*\d+|\s*/\s*\d+)?)\s*(sq\.?\s*cm|sq\.?\s*m|cu\.?\s*cm|cu\.?\s*m|cm\^2|cm\^3|m\^2|m\^3|km|cm|mm|kg|gm|sec|min|hrs|hr|deg|degrees|degree|meters|meter|liters|liter|units|unit|taka|tk|m|g|s)$""",
+            RegexOption.IGNORE_CASE
+        ).find(result)
+        if (enUnitMatch != null) {
+            val numberPart = enUnitMatch.groupValues[1].trim()
+            val unitPart = enUnitMatch.groupValues[2].trim()
+            val hasSpaceBeforeUnit = result.substring(numberPart.length).startsWith(" ")
+            if (unitPart.length > 1 || hasSpaceBeforeUnit) {
+                result = numberPart
             }
         }
         return result

@@ -242,6 +242,15 @@ object ExamScoringEngine {
 
         val safeTimeSpent = max(1, timeSpentSeconds)
         val avgTime = if (totalQ > 0) safeTimeSpent.toDouble() / totalQ.toDouble() else 0.0
+        val explicitPositiveEntries = questionTimeSeconds.entries.filter { it.key in questions.indices && it.value > 0 }
+        val recordedTimeSum = explicitPositiveEntries.sumOf { it.value }
+        val unrecordedTimeRemainder = (safeTimeSpent - recordedTimeSum).coerceAtLeast(0)
+        val unrecordedQuestionCount = (totalQ - explicitPositiveEntries.size).coerceAtLeast(1)
+        val fallbackPerUnvisitedQuestion = if (explicitPositiveEntries.isEmpty()) {
+            safeTimeSpent / max(1, totalQ)
+        } else {
+            unrecordedTimeRemainder / unrecordedQuestionCount
+        }
 
         val topicBreakdown = topicGroupMap.map { (topicTitle, indexedList) ->
             var tCorrect = 0
@@ -253,11 +262,16 @@ object ExamScoringEngine {
                 if (isOptionUnanswered(ans)) tUnanswered++
                 else if (ans == q.correctIndex) tCorrect++
                 else tWrong++
-                tTime += (questionTimeSeconds[idx] ?: (safeTimeSpent / max(1, totalQ)))
+                val explicitQTime = questionTimeSeconds[idx]?.takeIf { it > 0 }
+                tTime += (explicitQTime ?: fallbackPerUnvisitedQuestion)
             }
             val tAttempted = tCorrect + tWrong
             val tAcc = if (tAttempted > 0) (tCorrect * 100.0) / tAttempted else 0.0
-            val resolvedTopicId = QuizTopic.values().firstOrNull { it.titleBn == topicTitle }?.id ?: topicTitle
+            val resolvedTopicId = QuizTopic.values().firstOrNull {
+                it.titleBn == topicTitle || it.id.equals(topicTitle, ignoreCase = true)
+            }?.id ?: BcsSyllabusUnit.entries.firstOrNull {
+                it.titleBn == topicTitle || it.id.equals(topicTitle, ignoreCase = true)
+            }?.id ?: topicTitle
             TopicScoreBreakdown(
                 topicId = resolvedTopicId,
                 topicTitleBn = topicTitle,
@@ -267,7 +281,7 @@ object ExamScoringEngine {
                 wrongCount = tWrong,
                 unansweredCount = tUnanswered,
                 accuracyPercent = tAcc,
-                timeSpentSeconds = max(1, tTime)
+                timeSpentSeconds = if (explicitPositiveEntries.isNotEmpty()) tTime.coerceAtLeast(0) else max(1, tTime)
             )
         }
 

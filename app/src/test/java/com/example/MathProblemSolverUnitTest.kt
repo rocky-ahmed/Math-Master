@@ -1176,5 +1176,26 @@ class MathProblemSolverUnitTest {
         val largeFactor = com.example.math.SharedMathEngine.factorize("x^2 + 2000000000x + 1000000000000000000")
         assertTrue(largeFactor.isSuccess)
     }
-}
 
+    @Test
+    fun testBug79NormalizeAnswerTokenStripsBengaliAndEnglishUnitSuffixes() {
+        assertEquals("24", com.example.math.SharedMathEngine.normalizeAnswerToken("২৪ সেমি"))
+        assertEquals("24", com.example.math.SharedMathEngine.normalizeAnswerToken("24.0 সেমি"))
+        assertEquals("24", com.example.math.SharedMathEngine.normalizeAnswerToken("24 cm"))
+        assertEquals("24", com.example.math.SharedMathEngine.normalizeAnswerToken("24.0 sq cm"))
+        assertEquals("45", com.example.math.SharedMathEngine.normalizeAnswerToken("৪৫ ডিগ্রি"))
+        assertEquals("45", com.example.math.SharedMathEngine.normalizeAnswerToken("45 deg"))
+        assertEquals("3/2", com.example.math.SharedMathEngine.normalizeAnswerToken("১ ১/২ সেমি"))
+        assertEquals("3/2", com.example.math.SharedMathEngine.normalizeAnswerToken("1 1/2 cm"))
+
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("24.0 সেমি", "24"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("২৪.০ বর্গ সেমি", "24"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("24 cm", "২৪ সেমি"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("15 m", "15"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("১ ২/৪ সেমি", "1.5"))
+
+        // Preserve single-letter algebraic monomials without space
+        assertEquals("3m", com.example.math.SharedMathEngine.normalizeAnswerToken("3m"))
+        assertEquals("2x+3m", com.example.math.SharedMathEngine.normalizeAnswerToken("2x + 3m"))
+    }
+}

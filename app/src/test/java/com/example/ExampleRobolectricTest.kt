@@ -2644,7 +2644,393 @@ class ExampleRobolectricTest {
         val chooser = com.example.ui.components.DepthBuffer24FallbackConfigChooser()
         assertEquals(24, chooser.negotiatedDepthBits)
     }
+
+    @Test
+    fun `regression BUG-80 Daily Study Goal persists across new calendar days and syncs between Home Timer and Dashboard`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val db = com.example.data.db.MathDatabase.getInstance(app)
+        val dao = db.mathDao()
+        val repo = com.example.data.repository.MathRepository(dao)
+
+        val baseNowMs = System.currentTimeMillis() + 86_400_000L * 30L
+        val day1Ms = baseNowMs
+        val day2Ms = baseNowMs + 86_400_000L
+        repo.updateDailyStudyTargets(targetQuestions = 45, targetMinutes = 60, timestampMs = day1Ms)
+
+        // Recording activity on Day 2 must inherit Day 1's custom targets (45 questions, 60 minutes) instead of resetting to 20/15
+        repo.recordDailyStudyDelta(
+            questionsAttemptedDelta = 5,
+            correctDelta = 4,
+            wrongDelta = 1,
+            studyTimeSecondsDelta = 120,
+            examsCompletedDelta = 0,
+            practiceSessionsCompletedDelta = 1,
+            timestampMs = day2Ms
+        )
+
+        val day2Row = dao.getLatestDailyStudyActivity()
+        assertNotNull(day2Row)
+        assertEquals(45, day2Row?.dailyTargetQuestions)
+        assertEquals(60, day2Row?.dailyTargetMinutes)
+
+        // Verify ViewModel bidirectional sync between Home Study Timer and Dashboard targets
+        val vm = com.example.ui.MathViewModel(app)
+        vm.updateDailyStudyTargets(targetQuestions = 35, targetMinutes = 50)
+        assertEquals(50, vm.studySessionTimer.value.dailyGoalMinutes)
+
+        vm.setStudyDailyGoalMinutes(75)
+        assertEquals(75, vm.studySessionTimer.value.dailyGoalMinutes)
+
+        // Verify repository minutes-only sync preserves configured question target
+        val day3Ms = day2Ms + 86_400_000L
+        repo.updateDailyStudyTargets(targetQuestions = 35, targetMinutes = 50, timestampMs = day3Ms)
+        repo.updateDailyStudyTargetMinutesOnly(targetMinutes = 75, timestampMs = day3Ms + 1000L)
+        val day3Row = dao.getLatestDailyStudyActivity()
+        assertEquals(75, day3Row?.dailyTargetMinutes)
+        assertEquals(35, day3Row?.dailyTargetQuestions)
+    }
+
+    @Test
+    fun `regression BUG-82 ExamScoringEngine caps unvisited question time to unrecorded remainder and resolves BCS canonical topic IDs`() {
+        val bcsUnit = com.example.math.BcsSyllabusUnit.UNIT_1_ARITHMETIC
+        val algTopic = com.example.math.QuizTopic.ALGEBRA
+        val questions = (0 until 10).map { idx ->
+            com.example.math.QuizQuestion(
+                id = "q_$idx",
+                topicTitleBn = if (idx < 2) bcsUnit.titleBn else algTopic.titleBn,
+                questionBn = "প্রশ্ন $idx",
+                optionsBn = listOf("ক", "খ", "গ", "ঘ"),
+                correctIndex = 0,
+                correctAnswerText = "ক",
+                explanationBn = "ব্যাখ্যা",
+                difficulty = com.example.math.PracticeDifficulty.MEDIUM,
+                questionType = com.example.math.QuizQuestionType.MCQ
+            )
+        }
+        val detailed = com.example.math.ExamScoringEngine.evaluateExam(
+            attemptId = "exam_bug82",
+            examTitleBn = "মক টেস্ট",
+            examType = com.example.math.ExamPresetType.BCS_PRELIMINARY_MOCK.id,
+            questions = questions,
+            selectedAnswers = mapOf(0 to 0, 1 to 0),
+            markedForReview = emptySet(),
+            questionTimeSeconds = mapOf(0 to 60, 1 to 40),
+            marksPerCorrect = 1.0,
+            negativeMarksPerWrong = 0.0,
+            timeSpentSeconds = 100,
+            durationLimitSeconds = 600,
+            completedAt = 1_700_000_000_000L
+        )
+        val totalTopicTime = detailed.topicBreakdown.sumOf { it.timeSpentSeconds }
+        assertEquals("Sum of per-topic timeSpentSeconds must not exceed total exam timeSpentSeconds (100s)", 100, totalTopicTime)
+        val bcsTopicBreakdown = detailed.topicBreakdown.firstOrNull { it.topicTitleBn == bcsUnit.titleBn }
+        assertNotNull(bcsTopicBreakdown)
+        assertEquals(bcsUnit.id, bcsTopicBreakdown?.topicId)
+    }
+
+    @Test
+    fun `regression BUG-83 unresolving Book mistake syncs unified_mistake_notebook and submitBookPracticeAnswer guards blank input`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val db = com.example.data.db.MathDatabase.getInstance(app)
+        val dao = db.mathDao()
+        val repo = com.example.data.repository.MathRepository(dao)
+
+        repo.recordBookQuestionMistake(
+            questionId = "mistake_c6_q99",
+            bookId = com.example.math.BookId.CLASS_6.id,
+            chapterNumber = 1,
+            questionPromptBn = "১২ ও ১৮ এর গ.সা.গু. কত?",
+            wrongAnswerBn = "৩",
+            correctAnswerBn = "৬",
+            explanationBn = "গ.সা.গু. ৬",
+            sourceProvenance = "ORIGINAL_TEXTBOOK",
+            chapterTitleBn = "স্বাভাবিক সংখ্যা ও ভগ্নাংশ"
+        )
+        assertEquals(false, dao.getUnifiedMistakeByKey("BOOK_c6_q99")?.resolved)
+
+        repo.markBookMistakeResolved("mistake_c6_q99", resolved = true)
+        assertEquals(true, dao.getBookMistakeById("mistake_c6_q99")?.isResolved)
+        assertEquals(true, dao.getUnifiedMistakeByKey("BOOK_c6_q99")?.resolved)
+
+        repo.markBookMistakeResolved("mistake_c6_q99", resolved = false)
+        assertEquals(false, dao.getBookMistakeById("mistake_c6_q99")?.isResolved)
+        assertEquals(
+            "Unresolving a Book mistake must also mark unified_mistake_notebook entry as unresolved",
+            false,
+            dao.getUnifiedMistakeByKey("BOOK_c6_q99")?.resolved
+        )
+
+        // Verify submitBookPracticeAnswer ignores blank submissions when no option is selected and text input is blank
+        val vm = com.example.ui.MathViewModel(app)
+        vm.startBookPractice(com.example.math.BookId.CLASS_6, 1)
+        assertFalse(vm.bookPracticeSession.value.isAnswerSubmitted)
+        vm.submitBookPracticeAnswer()
+        assertFalse("submitBookPracticeAnswer must not submit when selection and text input are both empty", vm.bookPracticeSession.value.isAnswerSubmitted)
+    }
+
+    @Test
+    fun `regression BUG-81 Study Timer 2_0 midnight date rollover resets daily counters cleanly`() = kotlinx.coroutines.runBlocking {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val prefs = app.getSharedPreferences("math_master_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+
+        val db = com.example.data.db.MathDatabase.getInstance(app)
+        val dao = db.mathDao()
+
+        // Verify Room v9 live database version and all 20 registered @Entity tables
+        val sqliteDb = db.openHelper.writableDatabase
+        assertEquals("Room database version must be 9", 9, sqliteDb.version)
+        val expectedEntityTables = setOf(
+            "bookmarks", "quiz_scores", "user_progress", "practice_history",
+            "topic_analytics", "recent_formulas", "exam_attempts", "solver_history",
+            "daily_study_activity", "book_lesson_progress", "book_reading_state",
+            "book_notes", "book_mistakes", "book_spaced_revision", "bcs_user_profile",
+            "bcs_topic_progress", "bcs_mistake_notebook", "bcs_study_goals",
+            "unified_mistake_notebook", "formula_mastery_state"
+        )
+        val actualTables = mutableSetOf<String>()
+        sqliteDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%' AND name NOT LIKE 'room_%'").use { cursor ->
+            while (cursor.moveToNext()) {
+                actualTables.add(cursor.getString(0))
+            }
+        }
+        assertEquals("MathDatabase v9 must contain all 20 @Entity tables", expectedEntityTables, actualTables)
+
+        suspend fun awaitRoomCondition(predicate: suspend () -> Boolean) {
+            repeat(40) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (predicate()) return
+                kotlinx.coroutines.delay(15)
+            }
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+
+        var fakeDateKey = "2099-01-01"
+        var fakeElapsedRealtimeMs = 100_000L
+        val vm = com.example.ui.MathViewModel(app)
+        vm.currentDateKeyProvider = { fakeDateKey }
+        vm.clock = object : com.example.math.MonotonicClock {
+            override fun elapsedRealtime(): Long = fakeElapsedRealtimeMs
+        }
+        vm.setStudyTimerDateKeyForTesting(fakeDateKey)
+
+        // ---------------------------------------------------------------------
+        // Scenario 1: Midnight with zero pending seconds (unrecordedDbSeconds == 0)
+        // ---------------------------------------------------------------------
+        val day1 = "2099-01-01"
+        val day2 = "2099-01-02"
+        vm.startStudySession()
+        vm.tickStudySessionTimer(60) // >= 30s -> auto-flushes 60s to day1, leaving unrecordedDbSeconds = 0
+        assertEquals(0, vm.studySessionTimer.value.unrecordedDbSeconds)
+        vm.finishAndSaveStudySession()
+        assertEquals(60, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(60, vm.studySessionTimer.value.allTimeTotalSeconds)
+        assertEquals(1, vm.studySessionTimer.value.completedSessionsToday)
+
+        awaitRoomCondition {
+            val row = dao.getDailyStudyActivityByDate(day1)
+            row?.studyTimeSeconds == 60 && row.practiceSessionsCompleted == 1
+        }
+        assertEquals(60, dao.getDailyStudyActivityByDate(day1)?.studyTimeSeconds)
+        assertEquals(1, dao.getDailyStudyActivityByDate(day1)?.practiceSessionsCompleted)
+
+        // Roll over to day2 with zero pending seconds
+        fakeDateKey = day2
+        vm.ensureStudyTimerDateCurrent(day2)
+        assertEquals(day2, vm.studySessionTimer.value.activeDateKey)
+        assertEquals(0, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(0, vm.studySessionTimer.value.completedSessionsToday)
+        assertEquals(60, vm.studySessionTimer.value.allTimeTotalSeconds)
+        assertEquals(0, vm.studySessionTimer.value.unrecordedDbSeconds)
+        assertEquals("No empty record should be created on day2 when rolling over with 0 pending seconds", null, dao.getDailyStudyActivityByDate(day2))
+
+        // ---------------------------------------------------------------------
+        // Scenario 2 & 3: Midnight with pending seconds (unrecordedDbSeconds > 0)
+        //                 AND Midnight during an active session (day2 -> day3)
+        // ---------------------------------------------------------------------
+        val day3 = "2099-01-03"
+        vm.startStudySession()
+        vm.tickStudySessionTimer(20) // 20s pending (< 30s threshold) on day2
+        assertEquals(20, vm.studySessionTimer.value.currentSessionSeconds)
+        assertEquals(20, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(80, vm.studySessionTimer.value.allTimeTotalSeconds)
+        assertEquals(20, vm.studySessionTimer.value.unrecordedDbSeconds)
+
+        // Cross midnight into day3 while session is actively running and 20s are pending
+        fakeDateKey = day3
+        vm.tickStudySessionTimer(25) // 25s earned on day3
+        assertEquals(day3, vm.studySessionTimer.value.activeDateKey)
+        assertTrue("Active session must continue running across midnight", vm.studySessionTimer.value.isRunning)
+        assertEquals("Current session seconds must continue without unintended reset (20 + 25 = 45)", 45, vm.studySessionTimer.value.currentSessionSeconds)
+        assertEquals("New-day todayTotalSeconds must only count day3 seconds (25s)", 25, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals("AllTimeTotalSeconds must remain exact (60 + 20 + 25 = 105)", 105, vm.studySessionTimer.value.allTimeTotalSeconds)
+        assertEquals("Pending unrecordedDbSeconds on day3 must only hold day3's 25s", 25, vm.studySessionTimer.value.unrecordedDbSeconds)
+        assertEquals(0, vm.studySessionTimer.value.completedSessionsToday)
+
+        // Finish the cross-midnight session on day3, then verify both day2 (20s) and day3 (25s) in Room
+        vm.finishAndSaveStudySession()
+        assertEquals(1, vm.studySessionTimer.value.completedSessionsToday)
+        awaitRoomCondition {
+            val row2 = dao.getDailyStudyActivityByDate(day2)
+            val row3 = dao.getDailyStudyActivityByDate(day3)
+            row2?.studyTimeSeconds == 20 && row3?.studyTimeSeconds == 25 && row3.practiceSessionsCompleted == 1
+        }
+        assertEquals("Previous-day pending 20s must be flushed to day2", 20, dao.getDailyStudyActivityByDate(day2)?.studyTimeSeconds)
+        assertEquals(0, dao.getDailyStudyActivityByDate(day2)?.practiceSessionsCompleted)
+        assertEquals("day3 studyTimeSeconds must be 25s (no day2 seconds leaked into day3)", 25, dao.getDailyStudyActivityByDate(day3)?.studyTimeSeconds)
+        assertEquals(1, dao.getDailyStudyActivityByDate(day3)?.practiceSessionsCompleted)
+
+        // ---------------------------------------------------------------------
+        // Scenario 4: App backgrounded immediately before midnight and foregrounded afterward (day4 -> day5)
+        // ---------------------------------------------------------------------
+        val day4 = "2099-01-04"
+        val day5 = "2099-01-05"
+        fakeDateKey = day4
+        fakeElapsedRealtimeMs = 100_000L
+        vm.startStudySession()
+        fakeElapsedRealtimeMs = 118_000L
+        vm.tickStudySessionTimer(18) // 18s on day4
+        assertEquals(18, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(18, vm.studySessionTimer.value.unrecordedDbSeconds)
+
+        // Background immediately before midnight on day4 -> flushes 18s to day4
+        vm.onAppBackgrounded()
+        assertEquals(0, vm.studySessionTimer.value.unrecordedDbSeconds)
+
+        // Local midnight passes (day5) and 14s elapse before foregrounding
+        fakeDateKey = day5
+        fakeElapsedRealtimeMs = 132_000L // +14s
+        vm.onAppForegrounded()
+        assertEquals(day5, vm.studySessionTimer.value.activeDateKey)
+        assertEquals("Current session must continue across background midnight (18 + 14 = 32)", 32, vm.studySessionTimer.value.currentSessionSeconds)
+        assertEquals("day5 todayTotalSeconds must only include post-midnight 14s", 14, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(137, vm.studySessionTimer.value.allTimeTotalSeconds)
+        vm.finishAndSaveStudySession()
+        awaitRoomCondition {
+            val row4 = dao.getDailyStudyActivityByDate(day4)
+            val row5 = dao.getDailyStudyActivityByDate(day5)
+            row4?.studyTimeSeconds == 18 && row5?.studyTimeSeconds == 14 && row5.practiceSessionsCompleted == 1
+        }
+        assertEquals("day4 must remain 18s with no duplicate flush", 18, dao.getDailyStudyActivityByDate(day4)?.studyTimeSeconds)
+        assertEquals("day5 must record 14s", 14, dao.getDailyStudyActivityByDate(day5)?.studyTimeSeconds)
+        assertEquals(1, dao.getDailyStudyActivityByDate(day5)?.practiceSessionsCompleted)
+
+        // ---------------------------------------------------------------------
+        // Scenario 5: Multiple sessions spanning a date boundary (day5 -> day6)
+        // ---------------------------------------------------------------------
+        val day6 = "2099-01-06"
+        // Second session on day5 (40s completed on day5)
+        vm.startStudySession()
+        vm.tickStudySessionTimer(40)
+        vm.finishAndSaveStudySession()
+        assertEquals(54, vm.studySessionTimer.value.todayTotalSeconds) // 14 + 40
+        assertEquals(2, vm.studySessionTimer.value.completedSessionsToday)
+        assertEquals(177, vm.studySessionTimer.value.allTimeTotalSeconds)
+
+        // Third session starts on day5 (10s before midnight) and finishes on day6 (35s after midnight)
+        vm.startStudySession()
+        vm.tickStudySessionTimer(10)
+        assertEquals(64, vm.studySessionTimer.value.todayTotalSeconds) // 54 + 10
+        assertEquals(187, vm.studySessionTimer.value.allTimeTotalSeconds)
+
+        fakeDateKey = day6
+        vm.tickStudySessionTimer(35)
+        vm.finishAndSaveStudySession()
+        assertEquals(35, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(1, vm.studySessionTimer.value.completedSessionsToday)
+        assertEquals(222, vm.studySessionTimer.value.allTimeTotalSeconds)
+
+        // Another session on day6 (20s) + test simultaneous flush requests (idempotent in-memory zeroing)
+        vm.startStudySession()
+        vm.tickStudySessionTimer(20)
+        vm.flushUnrecordedStudyTime()
+        vm.flushUnrecordedStudyTime() // Simultaneous second flush must be a no-op
+        vm.finishAndSaveStudySession()
+        assertEquals(55, vm.studySessionTimer.value.todayTotalSeconds)
+        assertEquals(2, vm.studySessionTimer.value.completedSessionsToday)
+        assertEquals(242, vm.studySessionTimer.value.allTimeTotalSeconds)
+
+        awaitRoomCondition {
+            val row5 = dao.getDailyStudyActivityByDate(day5)
+            val row6 = dao.getDailyStudyActivityByDate(day6)
+            row5?.studyTimeSeconds == 64 && row5.practiceSessionsCompleted == 2 &&
+                row6?.studyTimeSeconds == 55 && row6.practiceSessionsCompleted == 2
+        }
+        assertEquals(64, dao.getDailyStudyActivityByDate(day5)?.studyTimeSeconds)
+        assertEquals(2, dao.getDailyStudyActivityByDate(day5)?.practiceSessionsCompleted)
+        assertEquals(55, dao.getDailyStudyActivityByDate(day6)?.studyTimeSeconds)
+        assertEquals(2, dao.getDailyStudyActivityByDate(day6)?.practiceSessionsCompleted)
+
+        val sumAcrossDays = listOf(day1, day2, day3, day4, day5, day6).sumOf { key ->
+            dao.getDailyStudyActivityByDate(key)?.studyTimeSeconds ?: 0
+        }
+        assertEquals("Sum of per-day Room studyTimeSeconds across day1..day6 must equal allTimeTotalSeconds (242s) with zero duplicate records", 242, sumAcrossDays)
+
+        // ---------------------------------------------------------------------
+        // Scenario 6: Cold-start recovery when unrecorded seconds were persisted in SharedPreferences
+        //             on day6 before process termination, then app cold-starts on day7
+        // ---------------------------------------------------------------------
+        vm.setStudyTimerVisibility(false)
+        prefs.edit()
+            .putInt("study_timer_unrecorded_db_sec", 19)
+            .putString("study_timer_active_date_key", day6)
+            .commit()
+
+        val coldStartVm = com.example.ui.MathViewModel(app)
+        assertEquals("Cold start must synchronously sanitize study_timer_unrecorded_db_sec to 0 (BUG-78)", 0, prefs.getInt("study_timer_unrecorded_db_sec", -1))
+        awaitRoomCondition {
+            dao.getDailyStudyActivityByDate(day6)?.studyTimeSeconds == 74
+        }
+        assertEquals("Cold-start recovered 19s must be attributed to day6 (55 + 19 = 74)", 74, dao.getDailyStudyActivityByDate(day6)?.studyTimeSeconds)
+        coldStartVm.setStudyTimerVisibility(false)
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
+
+    @Test
+    fun `regression BUG-84 module exit helpers preserve navigation context snapshot stack`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        val viewModel = com.example.ui.MathViewModel(app)
+
+        viewModel.navigateTo(com.example.ui.Screen.Tables)
+        viewModel.openTable(14)
+        assertEquals(com.example.ui.Screen.TableDetail, viewModel.currentScreen)
+        assertEquals(14, viewModel.selectedTableNumber.value)
+
+        viewModel.navigateTo(com.example.ui.Screen.Quizzes)
+        viewModel.startQuiz(com.example.math.QuizTopic.MULTIPLICATION, 5)
+        assertEquals(com.example.ui.Screen.QuizPlay, viewModel.currentScreen)
+
+        viewModel.exitQuizToTopicList()
+        assertEquals(com.example.ui.Screen.Quizzes, viewModel.currentScreen)
+        assertTrue(viewModel.navigateBack())
+        assertEquals(com.example.ui.Screen.TableDetail, viewModel.currentScreen)
+        assertEquals(14, viewModel.selectedTableNumber.value)
+
+        viewModel.navigateTo(com.example.ui.Screen.PracticeLab)
+        viewModel.startPracticeSession(
+            com.example.math.PracticeCategory.ARITHMETIC,
+            com.example.math.PracticeDifficulty.EASY,
+            5
+        )
+        assertEquals(com.example.ui.Screen.PracticeLabPlay, viewModel.currentScreen)
+        viewModel.exitPracticeToCategories()
+        assertEquals(com.example.ui.Screen.PracticeLab, viewModel.currentScreen)
+        assertTrue(viewModel.navigateBack())
+        assertEquals(com.example.ui.Screen.TableDetail, viewModel.currentScreen)
+        assertEquals(14, viewModel.selectedTableNumber.value)
+
+        viewModel.navigateTo(com.example.ui.Screen.MentalMath)
+        viewModel.startMentalMathChallenge(
+            com.example.math.MentalMathCategory.ADDITION,
+            com.example.math.MentalMathDifficulty.EASY,
+            com.example.math.MentalMathMode.SPRINT_60S,
+            60
+        )
+        assertEquals(com.example.ui.Screen.MentalMathPlay, viewModel.currentScreen)
+        viewModel.exitMentalMathToSetup()
+        assertEquals(com.example.ui.Screen.MentalMath, viewModel.currentScreen)
+        assertTrue(viewModel.navigateBack())
+        assertEquals(com.example.ui.Screen.TableDetail, viewModel.currentScreen)
+        assertEquals(14, viewModel.selectedTableNumber.value)
+    }
 }
-
-
-

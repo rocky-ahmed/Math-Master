@@ -35,6 +35,7 @@ class HomeNavigationAndOrderingUnitTest {
 
     @After
     fun tearDown() {
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
     }
 
     @Test
@@ -705,6 +706,19 @@ class HomeNavigationAndOrderingUnitTest {
             }
             return null
         }
+        val dispatcher = androidx.compose.ui.platform.AndroidUiDispatcher.CurrentThread[kotlin.coroutines.ContinuationInterceptor]
+        val callback = runCatching {
+            dispatcher?.javaClass?.getDeclaredField("dispatchCallback")?.apply { isAccessible = true }?.get(dispatcher)
+        }.getOrNull()
+        repeat(3) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            (callback as? Runnable)?.run()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            (callback as? android.view.Choreographer.FrameCallback)?.doFrame(System.nanoTime())
+            (callback as? Runnable)?.run()
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idleFor(50, java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
         val rootForTest = findRootForTest(rootView) ?: return result
         rootForTest.measureAndLayoutForTest()
         fun walk(node: androidx.compose.ui.semantics.SemanticsNode) {
@@ -962,6 +976,7 @@ class HomeNavigationAndOrderingUnitTest {
         assertEquals(116, vm.homeScrollPosition.value.firstVisibleItemScrollOffset)
         vm.setThemeMode(com.example.ui.theme.AppThemeMode.SYSTEM)
         vm.setStudyTimerVisibility(false)
+        controller.pause().stop().destroy()
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
     }
 }

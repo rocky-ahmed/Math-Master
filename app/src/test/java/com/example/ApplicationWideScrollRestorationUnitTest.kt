@@ -488,6 +488,8 @@ class ApplicationWideScrollRestorationUnitTest {
         val visitedDestinations = mutableSetOf<String>()
         fun recordCurrentScreen() {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(50, java.util.concurrent.TimeUnit.MILLISECONDS)
             visitedDestinations.add(vm.currentScreen.route)
         }
 

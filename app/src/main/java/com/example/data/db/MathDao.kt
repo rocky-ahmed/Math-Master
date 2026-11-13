@@ -154,6 +154,9 @@ interface MathDao {
     @Query("SELECT * FROM daily_study_activity WHERE dateKey = :dateKey LIMIT 1")
     suspend fun getDailyStudyActivityByDate(dateKey: String): DailyStudyActivityEntity?
 
+    @Query("SELECT * FROM daily_study_activity ORDER BY updatedAt DESC, dateKey DESC LIMIT 1")
+    suspend fun getLatestDailyStudyActivity(): DailyStudyActivityEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDailyStudyActivity(activity: DailyStudyActivityEntity)
 
