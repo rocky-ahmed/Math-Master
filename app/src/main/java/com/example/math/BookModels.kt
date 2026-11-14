@@ -378,7 +378,7 @@ data class BookLessonSection(
     )
 
     val id: String get() = lessonId
-    val code: String get() = sectionCodeBn
+    val code: String get() = sectionCodeBn.removePrefix("পাঠ").trim()
     val printedPageStart: Int get() = printedPage
     val printedPageEnd: Int get() = printedPageEndValue
     val keyPointsBn: List<String> get() = keyDefinitionsBn

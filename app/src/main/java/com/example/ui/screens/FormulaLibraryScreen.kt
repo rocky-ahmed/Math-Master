@@ -681,12 +681,14 @@ private fun FormulaCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f)
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = 2.dp)
                 ) {
                     // Subject Chip
                     Surface(
@@ -708,7 +710,10 @@ private fun FormulaCard(
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = formula.subject.primaryColor
-                                )
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -741,7 +746,12 @@ private fun FormulaCard(
                                 fontWeight = FontWeight.Bold,
                                 color = formula.difficultyLevel.badgeColor
                             ),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .testTag("formula_difficulty_badge_${formula.id}")
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }

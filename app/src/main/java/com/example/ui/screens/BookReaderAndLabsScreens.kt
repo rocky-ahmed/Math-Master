@@ -37,6 +37,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -148,62 +149,67 @@ fun BookPdfReaderScreen(
     var pageJumpInput by remember(printedPage) {
         mutableStateOf(BengaliNumberFormatter.toBengaliDigits(printedPage))
     }
-    var renderedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var renderedBitmap by remember(bookId, printedPage) { mutableStateOf<Bitmap?>(null) }
+    var isPdfLoading by remember(bookId, printedPage) { mutableStateOf(false) }
+    var pdfErrorMessageBn by remember(bookId, printedPage) { mutableStateOf<String?>(null) }
+    var pdfRetryToken by remember { mutableIntStateOf(0) }
 
     val structuredContent = remember(bookId, printedPage) {
         BookCurriculumRepository.getStructuredPageContent(bookId, printedPage)
     }
     val chapters = remember(bookId) { BookCurriculumRepository.getChapters(bookId) }
 
-    LaunchedEffect(bookId, printedPage, showPdfCanvasMode, zoomScale) {
-        if (!showPdfCanvasMode) return@LaunchedEffect
+    LaunchedEffect(bookId, printedPage, showPdfCanvasMode, zoomScale, pdfRetryToken) {
+        if (!showPdfCanvasMode) {
+            isPdfLoading = false
+            pdfErrorMessageBn = null
+            return@LaunchedEffect
+        }
         val scale = zoomScale.coerceIn(1.0f, 2.5f)
         val scaleBucket = (scale * 10f).roundToInt()
         val cacheKey = "${bookId.id}_p${printedPage}_z$scaleBucket"
-        BookPdfRenderCache.get(cacheKey)?.let { cached ->
-            renderedBitmap = cached
-            return@LaunchedEffect
-        }
-        if (scale != 1.0f) {
-            delay(100L)
-        }
-        withContext(Dispatchers.IO) {
-            BookPdfRenderCache.renderMutex.withLock {
-                BookPdfRenderCache.get(cacheKey)?.let { cached ->
-                    renderedBitmap = cached
-                    return@withLock
-                }
-                runCatching {
-                    val pdfFile = resolveOfflinePdfFile(context, bookId)
-                    if (pdfFile != null && pdfFile.exists()) {
-                        ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
-                            PdfRenderer(pfd).use { renderer ->
-                                val pdfZeroIndex = (bookId.printedToPdfPage(printedPage) - 1)
-                                    .coerceIn(0, (renderer.pageCount - 1).coerceAtLeast(0))
-                                renderer.openPage(pdfZeroIndex).use { page ->
-                                    val width = (page.width * scale).roundToInt().coerceIn(300, 1600)
-                                    val height = (page.height * scale).roundToInt().coerceIn(400, 2200)
-                                    val bmp = try {
-                                        Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
-                                    } catch (_: OutOfMemoryError) {
-                                        BookPdfRenderCache.evictAll()
-                                        Bitmap.createBitmap(
-                                            (width / 2).coerceAtLeast(300),
-                                            (height / 2).coerceAtLeast(400),
-                                            Bitmap.Config.RGB_565
-                                        )
-                                    }
-                                    bmp.eraseColor(android.graphics.Color.WHITE)
-                                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    BookPdfRenderCache.put(cacheKey, bmp)
-                                    renderedBitmap = bmp
-                                }
-                            }
-                        }
-                    }
-                }
+        if (pdfRetryToken == 0) {
+            BookPdfRenderCache.get(cacheKey)?.let { cached ->
+                renderedBitmap = cached
+                isPdfLoading = false
+                pdfErrorMessageBn = null
+                return@LaunchedEffect
             }
         }
+        isPdfLoading = true
+        pdfErrorMessageBn = null
+        if (scale != 1.0f) {
+            delay(80L)
+        }
+        val renderResult: Result<Bitmap> = withContext(Dispatchers.IO) {
+            BookPdfRenderCache.renderMutex.withLock {
+                if (pdfRetryToken == 0) {
+                    BookPdfRenderCache.get(cacheKey)?.let { cached ->
+                        return@withLock Result.success(cached)
+                    }
+                }
+                renderPdfPageWithAutoRecovery(
+                    context = context,
+                    bookId = bookId,
+                    printedPage = printedPage,
+                    scale = scale,
+                    cacheKey = cacheKey,
+                    forceReExtract = pdfRetryToken > 0
+                )
+            }
+        }
+        renderResult.fold(
+            onSuccess = { bmp ->
+                renderedBitmap = bmp
+                isPdfLoading = false
+                pdfErrorMessageBn = null
+            },
+            onFailure = {
+                renderedBitmap = null
+                isPdfLoading = false
+                pdfErrorMessageBn = "পিডিএফ পৃষ্ঠা রেন্ডার করা যায়নি। নিচের বাটনে ট্যাপ করে পুনরায় চেষ্টা করুন অথবা ডিজিটাল পাঠ্যবই ভিউ ব্যবহার করুন।"
+            }
+        )
     }
 
     Scaffold(
@@ -433,24 +439,73 @@ fun BookPdfReaderScreen(
                             }
 
                             val bmp = renderedBitmap
+                            val errMessage = pdfErrorMessageBn
                             if (bmp != null) {
                                 Image(
                                     bitmap = bmp.asImageBitmap(),
                                     contentDescription = "PDF Page $printedPage",
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(Color.White, RoundedCornerShape(12.dp)),
+                                        .background(Color.White, RoundedCornerShape(12.dp))
+                                        .testTag("pdf_rendered_bitmap_image"),
                                     contentScale = ContentScale.FillWidth
                                 )
+                            } else if (errMessage != null && !isPdfLoading) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                                        .padding(16.dp)
+                                        .testTag("pdf_render_error_box"),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = errMessage,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Button(
+                                            onClick = { pdfRetryToken++ },
+                                            modifier = Modifier.testTag("btn_pdf_retry")
+                                        ) {
+                                            Text("পুনরায় চেষ্টা করুন")
+                                        }
+                                        OutlinedButton(
+                                            onClick = {
+                                                showPdfCanvasMode = false
+                                                viewModel.updateBookReaderPreferences(
+                                                    bookId = bookId,
+                                                    preferredViewMode = "STRUCTURED"
+                                                )
+                                            },
+                                            modifier = Modifier.testTag("btn_pdf_fallback_structured")
+                                        ) {
+                                            Text("ডিজিটাল পাঠ্যবই ভিউ")
+                                        }
+                                    }
+                                }
                             } else {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(220.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                                        .testTag("pdf_loading_box"),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("পিডিএফ পৃষ্ঠা লোড হচ্ছে...")
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                                        Text("পিডিএফ পৃষ্ঠা লোড হচ্ছে...")
+                                    }
                                 }
                             }
                         }
@@ -654,19 +709,85 @@ fun BookPdfReaderScreen(
     }
 }
 
-internal fun resolveOfflinePdfFile(context: android.content.Context, bookId: BookId): File? {
+internal fun renderPdfPageWithAutoRecovery(
+    context: android.content.Context,
+    bookId: BookId,
+    printedPage: Int,
+    scale: Float,
+    cacheKey: String,
+    forceReExtract: Boolean = false
+): Result<Bitmap> {
+    for (attempt in 0..1) {
+        val shouldForce = forceReExtract || attempt == 1
+        val attemptResult = runCatching {
+            val pdfFile = resolveOfflinePdfFile(context, bookId, forceRefresh = shouldForce)
+                ?: throw IllegalStateException("PDF asset file unavailable for ${bookId.id}")
+            if (!pdfFile.exists() || pdfFile.length() < 4_096L) {
+                throw IllegalStateException("PDF file invalid or empty: ${pdfFile.absolutePath}")
+            }
+            ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+                PdfRenderer(pfd).use { renderer ->
+                    if (renderer.pageCount <= 0) {
+                        throw IllegalStateException("PDF has 0 pages")
+                    }
+                    val pdfZeroIndex = (bookId.printedToPdfPage(printedPage) - 1)
+                        .coerceIn(0, (renderer.pageCount - 1).coerceAtLeast(0))
+                    renderer.openPage(pdfZeroIndex).use { page ->
+                        val width = (page.width * scale).roundToInt().coerceIn(300, 1600)
+                        val height = (page.height * scale).roundToInt().coerceIn(400, 2200)
+                        val bmp = try {
+                            Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+                        } catch (_: OutOfMemoryError) {
+                            BookPdfRenderCache.evictAll()
+                            Bitmap.createBitmap(
+                                (width / 2).coerceAtLeast(300),
+                                (height / 2).coerceAtLeast(400),
+                                Bitmap.Config.RGB_565
+                            )
+                        }
+                        bmp.eraseColor(android.graphics.Color.WHITE)
+                        page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        BookPdfRenderCache.put(cacheKey, bmp)
+                        bmp
+                    }
+                }
+            }
+        }
+        if (attemptResult.isSuccess) {
+            return attemptResult
+        }
+    }
+    return Result.failure(IllegalStateException("Failed to render PDF page after recovery attempt"))
+}
+
+internal fun isValidPdfFileHeader(file: File): Boolean {
+    if (!file.exists() || file.length() < 4_096L) return false
+    return runCatching {
+        val header = ByteArray(5)
+        file.inputStream().use { input ->
+            val readCount = input.read(header)
+            readCount == 5 && String(header, Charsets.US_ASCII) == "%PDF-"
+        }
+    }.getOrDefault(false)
+}
+
+internal fun resolveOfflinePdfFile(
+    context: android.content.Context,
+    bookId: BookId,
+    forceRefresh: Boolean = false
+): File? {
     // 1. Primary path: unpack the bundled NCTB PDF from APK assets (app/src/main/assets/books/*.pdf)
     val cachedAssetFile = synchronized(BookPdfRenderCache.extractionLock) {
         runCatching {
             val outFile = File(context.cacheDir, "cached_${bookId.id}.pdf")
-            if (!outFile.exists() || outFile.length() < 4_096L) {
+            if (forceRefresh || !isValidPdfFileHeader(outFile)) {
                 val tmpFile = File(context.cacheDir, "cached_${bookId.id}_${System.nanoTime()}.pdf.tmp")
                 context.assets.open(bookId.assetFileName).use { input ->
                     tmpFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
-                if (tmpFile.exists() && tmpFile.length() >= 4_096L) {
+                if (isValidPdfFileHeader(tmpFile)) {
                     if (outFile.exists()) outFile.delete()
                     if (!tmpFile.renameTo(outFile)) {
                         tmpFile.copyTo(outFile, overwrite = true)
@@ -676,12 +797,12 @@ internal fun resolveOfflinePdfFile(context: android.content.Context, bookId: Boo
                     tmpFile.delete()
                 }
             }
-            outFile.takeIf { it.exists() && it.length() >= 4_096L }
+            outFile.takeIf { isValidPdfFileHeader(it) }
         }.getOrNull()
     }
     if (cachedAssetFile != null) return cachedAssetFile
 
-    // 2. Fallback for local non-packaged JVM test environments: check workspace public/assets/aistudio/
+    // 2. Fallback for local non-packaged JVM test environments: check workspace assets
     val rawFileName = when (bookId) {
         BookId.CLASS_6 -> "Class_6_ffa30c8b.pdf"
         BookId.CLASS_7 -> "Class_7_8a4de8c4.pdf"
@@ -689,10 +810,12 @@ internal fun resolveOfflinePdfFile(context: android.content.Context, bookId: Boo
         BookId.CLASS_9_10 -> "Class_9-10_6131d29f.pdf"
     }
     val candidatePaths = listOf(
+        File("app/src/main/assets/${bookId.assetFileName}"),
+        File("/app/applet/app/src/main/assets/${bookId.assetFileName}"),
         File("public/assets/aistudio/$rawFileName"),
         File("/app/applet/public/assets/aistudio/$rawFileName")
     )
-    return candidatePaths.firstOrNull { it.exists() && it.length() > 0L }
+    return candidatePaths.firstOrNull { isValidPdfFileHeader(it) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

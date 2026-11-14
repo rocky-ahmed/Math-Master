@@ -463,9 +463,9 @@ object FormulaLibraryProvider {
             subCategory = "মডুলার পাটিগণিত (Modular Arithmetic)",
             titleBn = "একক স্থানীয় অঙ্ক ও ঘাতের পর্যায়কাল (Cyclicity)",
             titleEn = "Unit Digit Cyclicity & Modular Reduction",
-            formulaExpression = "a^b (mod 10) = (a mod 10)^((b − 1 mod 4) + 1) mod 10",
-            latexExpression = "a^b \\pmod{10}",
-            plainTextExpression = "a^b mod 10 using cycle of 4",
+            formulaExpression = "a^b (mod 10) = (a mod 10)^(((b − 1) mod 4) + 1) mod 10",
+            latexExpression = "a^b \\pmod{10} = (a \\bmod 10)^{((b - 1) \\bmod 4) + 1} \\bmod 10",
+            plainTextExpression = "a^b mod 10 = (a mod 10)^(((b - 1) mod 4) + 1) mod 10",
             explanationBn = "যেকোনো সংখ্যার ঘাতের একক স্থানীয় অঙ্ক প্রতি ৪ ঘাত পরপর পুনরাবৃত্তি করে। তাই সূচককে ৪ দিয়ে ভাগ করে একক স্থানীয় অঙ্ক নির্ণয় করা যায়।",
             variables = listOf(
                 "a" to "ভিত্তি সংখ্যা (Base)",

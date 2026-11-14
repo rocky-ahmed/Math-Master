@@ -81,11 +81,117 @@ object FormulaInteractiveEngine {
         }
     }
 
+    private fun evaluateModularCyclicityFormula(
+        entry: LibraryFormula,
+        specs: List<FormulaVariableInputSpec>,
+        rawInputs: Map<String, String>
+    ): FormulaCalculationResult {
+        val parsedLongs = linkedMapOf<String, Long>()
+        for (spec in specs) {
+            val rawOriginal = rawInputs[spec.symbol]?.trim().orEmpty()
+            val normalized = BengaliNumberFormatter.toEnglishDigits(rawOriginal)
+                .replace("−", "-")
+                .replace("–", "-")
+                .trim()
+            if (normalized.isEmpty() || normalized.toBigDecimalOrNull() == null) {
+                return FormulaCalculationResult(
+                    isSuccess = false,
+                    formulaTitleBn = entry.titleBn,
+                    expressionBn = entry.formulaExpression,
+                    variableDefinitionsBn = emptyList(),
+                    substitutionStepsBn = emptyList(),
+                    finalAnswerBn = "",
+                    errorMessageBn = "'${spec.labelBn}' এর জন্য বৈধ পূর্ণসংখ্যা লিখুন।"
+                )
+            }
+            if (normalized.contains('.') || !normalized.matches(Regex("^[+-]?\\d+$"))) {
+                return FormulaCalculationResult(
+                    isSuccess = false,
+                    formulaTitleBn = entry.titleBn,
+                    expressionBn = entry.formulaExpression,
+                    variableDefinitionsBn = emptyList(),
+                    substitutionStepsBn = emptyList(),
+                    finalAnswerBn = "",
+                    errorMessageBn = "'${spec.labelBn}' পূর্ণসংখ্যা হতে হবে (দশমিক বা ভগ্নাংশ গ্রহণযোগ্য নয়)।"
+                )
+            }
+            val parsedLong = normalized.toLongOrNull()
+                ?: return FormulaCalculationResult(
+                    isSuccess = false,
+                    formulaTitleBn = entry.titleBn,
+                    expressionBn = entry.formulaExpression,
+                    variableDefinitionsBn = emptyList(),
+                    substitutionStepsBn = emptyList(),
+                    finalAnswerBn = "",
+                    errorMessageBn = "'${spec.labelBn}' এর মান অনুমোদিত পূর্ণসংখ্যার সীমার বাইরে।"
+                )
+            parsedLongs[spec.symbol] = parsedLong
+        }
+
+        val baseA = parsedLongs["a"] ?: parsedLongs.values.firstOrNull() ?: 7L
+        val expB = parsedLongs["b"] ?: parsedLongs.values.drop(1).firstOrNull() ?: 1L
+        val expSpecLabel = specs.find { it.symbol == "b" }?.labelBn
+            ?: specs.getOrNull(1)?.labelBn
+            ?: "ঘাত (b)"
+
+        if (expB == 0L) {
+            return FormulaCalculationResult(
+                isSuccess = false,
+                formulaTitleBn = entry.titleBn,
+                expressionBn = entry.formulaExpression,
+                variableDefinitionsBn = emptyList(),
+                substitutionStepsBn = emptyList(),
+                finalAnswerBn = "",
+                errorMessageBn = "'$expSpecLabel' এর মান কমপক্ষে ১ (b ≥ ১ ধনাত্মক পূর্ণসংখ্যা) হওয়া আবশ্যক; b = ০ এই সূত্রের ডোমেইনের অন্তর্ভুক্ত নয়।"
+            )
+        }
+        if (expB < 0L) {
+            return FormulaCalculationResult(
+                isSuccess = false,
+                formulaTitleBn = entry.titleBn,
+                expressionBn = entry.formulaExpression,
+                variableDefinitionsBn = emptyList(),
+                substitutionStepsBn = emptyList(),
+                finalAnswerBn = "",
+                errorMessageBn = "'$expSpecLabel' ঋণাত্মক হতে পারবে না; এই সূত্রের জন্য ধনাত্মক পূর্ণসংখ্যা (b ≥ ১) আবশ্যক।"
+            )
+        }
+
+        val baseMod10 = ((baseA % 10L) + 10L) % 10L
+        val reducedExp = (((expB - 1L) % 4L + 4L) % 4L) + 1L
+        var unitDigit = 1L
+        repeat(reducedExp.toInt()) {
+            unitDigit = (unitDigit * baseMod10) % 10L
+        }
+
+        val defs = specs.map { spec ->
+            val v = parsedLongs[spec.symbol] ?: 0L
+            "${spec.symbol} = ${spec.labelBn} = ${BengaliNumberFormatter.toBn(v)}"
+        }
+        val steps = listOf(
+            "ভিত্তির একক রিসিডিউ (Euclidean mod 10): ${BengaliNumberFormatter.toBn(baseA)} mod 10 = ${BengaliNumberFormatter.toBn(baseMod10)}",
+            "সূচক সংকোচন: ((${BengaliNumberFormatter.toBn(expB)} − ১) mod 4) + ১ = ${BengaliNumberFormatter.toBn(reducedExp)}",
+            "একক স্থানীয় অঙ্ক: ${BengaliNumberFormatter.toBn(baseMod10)}^${BengaliNumberFormatter.toBn(reducedExp)} mod 10 = ${BengaliNumberFormatter.toBn(unitDigit)}"
+        )
+
+        return FormulaCalculationResult(
+            isSuccess = true,
+            formulaTitleBn = entry.titleBn,
+            expressionBn = entry.formulaExpression,
+            variableDefinitionsBn = defs,
+            substitutionStepsBn = steps,
+            finalAnswerBn = BengaliNumberFormatter.toBn(unitDigit)
+        )
+    }
+
     fun evaluateFormula(
         entry: LibraryFormula,
         rawInputs: Map<String, String>
     ): FormulaCalculationResult {
         val specs = getVariableSpecsForFormula(entry)
+        if (entry.id == "nt_bdmo_5") {
+            return evaluateModularCyclicityFormula(entry, specs, rawInputs)
+        }
         val parsed = linkedMapOf<String, Double>()
 
         for (spec in specs) {
@@ -739,6 +845,16 @@ object VisualKnowledgeCheckProvider {
             )
             else -> listOf(
                 VisualKnowledgeCheckQuestion(
+                    id = "vkc_pythagoras_1",
+                    tabIndex = tabIndex,
+                    questionBn = "সমকোণী ত্রিভুজের লম্ব a = ৮ এবং ভূমি b = ৫ হলে অতিভুজের বর্গ (c² = a² + b²) কত হবে?",
+                    optionsBn = listOf("৮৯ (৬৪ + ২৫)", "৪১ (১৬ + ২৫)", "৩৯ (৬৪ − ২৫)", "১৩ (৮ + ৫)"),
+                    correctIndex = 0,
+                    explanationBn = "পিথাগোরাসের উপপাদ্য অনুযায়ী c² = a² + b² = ৮² + ৫² = ৬৪ + ২৫ = ৮৯ এবং অতিভুজ c = √৮৯ ≈ ৯.৪৩ একক।",
+                    relatedQuizTopic = QuizTopic.GEOMETRY_MENSURATION,
+                    relatedSolverTopic = SolverTopic.SQUARES_CUBES_ROOTS
+                ),
+                VisualKnowledgeCheckQuestion(
                     id = "vkc_graph_1",
                     tabIndex = tabIndex,
                     questionBn = "y = mx + c সরলরেখার সমীকরণে ঢাল (m) ধনাত্মক হলে রেখাটি কোন দিকে অগ্রসর হয়?",
@@ -749,6 +865,39 @@ object VisualKnowledgeCheckProvider {
                     relatedSolverTopic = SolverTopic.LINEAR_EQUATIONS
                 )
             )
+        }
+    }
+
+    fun getKnowledgeChecksForContext(
+        tabIndex: Int,
+        selectedFormulaId: String? = null
+    ): List<VisualKnowledgeCheckQuestion> {
+        val baseList = getKnowledgeChecksForTab(tabIndex)
+        if (tabIndex != 3 || selectedFormulaId.isNullOrBlank()) return baseList
+        return when (selectedFormulaId) {
+            "vis_pythagoras" -> baseList
+            "vis_alg_sq_plus", "vis_rect_area" -> getKnowledgeChecksForTab(1).reversed() + baseList
+            "vis_circle_area", "vis_circle_prop" -> getKnowledgeChecksForTab(0) + baseList
+            else -> baseList
+        }
+    }
+
+    fun getDiscoveryInvariantBn(
+        tabIndex: Int,
+        selectedFormulaId: String? = null
+    ): String {
+        return when (tabIndex) {
+            0 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): যেকোনো সদৃশ জ্যামিতিক আকৃতির বাহু k গুণ বৃদ্ধি পেলে পরিসীমা k গুণ, ক্ষেত্রফল k² গুণ এবং ৩ডি আয়তন k³ গুণ বৃদ্ধি পায়।"
+            1 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সমীকরণের উভয় পক্ষে একই সংখ্যা যোগ, বিয়োগ বা অশূন্য সংখ্যা দ্বারা গুণ-ভাগ করলে সমতার ভারসাম্য অপরিবর্তিত থাকে।"
+            2 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সংখ্যারেখায় যেকোনো দুটি মূলদ সংখ্যার মধ্যবিন্দু (a+b)/2 নিজেও একটি মূলদ সংখ্যা (অসীম ঘনত্ব ধর্ম)।"
+            3 -> when (selectedFormulaId) {
+                "vis_pythagoras" -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সমকোণী ত্রিভুজের অতিভুজের ওপর অঙ্কিত বর্গক্ষেত্রের ক্ষেত্রফল (c²) অপর দুই বাহুর ওপর অঙ্কিত বর্গক্ষেত্রদ্বয়ের ক্ষেত্রফলের সমষ্টির (a² + b²) সমান।"
+                "vis_circle_area", "vis_circle_prop" -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): বৃত্তের ব্যাসার্ধ r গুণ বৃদ্ধি পেলে পরিধি r গুণ এবং ক্ষেত্রফল (πr²) বর্গের অনুপাতে বৃদ্ধি পায়।"
+                "vis_cube_vol" -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): ঘনকের ধার a হলে এর ৬টি বর্গাকার তলের মোট ক্ষেত্রফল 6a² এবং ত্রিমাত্রিক আয়তন V = a³ ঘন একক।"
+                "vis_simple_interest" -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সরল মুনাফায় (I = Prn/100) মূলধন ও সুদের হার স্থির থাকলে মুনাফা সময়ের (n) সমানুপাতিক।"
+                else -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): (a+b)² বর্গক্ষেত্রটি চারটি অংশে বিভক্ত: একটি a² বর্গ, একটি b² বর্গ এবং দুটি ab আয়তক্ষেত্র।"
+            }
+            else -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): অয়লারের বহুতলক সূত্র অনুযায়ী যেকোনো উত্তল ঘনবস্তুর তল (F), শীর্ষবিন্দু (V) ও ধারের (E) সম্পর্ক সর্বদা F + V − E = ২।"
         }
     }
 }

@@ -51,7 +51,7 @@ object BookCurriculumRepository {
             isBackCoverPage -> "সমাপনী পৃষ্ঠা ও মুদ্রণ তথ্য (NCTB)"
             isMathematiciansAppendix -> "গণিতবিদদের সংক্ষিপ্ত পরিচিতি (পৃষ্ঠা ৩৫৫–৩৫৬)"
             isAnswerKeyPage -> "উত্তরমালা (অধ্যায়ভিত্তিক সংক্ষিপ্ত উত্তর)"
-            matchingLesson != null -> "পাঠ ${matchingLesson.code}: ${matchingLesson.titleBn}"
+            matchingLesson != null -> "পাঠ ${matchingLesson.code.removePrefix("পাঠ").trim()}: ${matchingLesson.titleBn}"
             else -> "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)}: ${chapter.titleBn}"
         }
 
@@ -196,13 +196,13 @@ object BookCurriculumRepository {
                 // 2. Lesson search
                 if (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.LESSON) {
                     for (lesson in chapter.lessons) {
-                        if (matches(lesson.titleBn, lesson.code, lesson.conceptExplanationBn, lesson.keyPointsBn.joinToString(" "))) {
+                        if (matches(lesson.titleBn, lesson.code, lesson.sectionCodeBn, lesson.conceptExplanationBn, lesson.keyPointsBn.joinToString(" "))) {
                             results.add(
                                 BookSearchResult(
                                     id = "les_${lesson.id}",
                                     bookId = book,
                                     chapterNumber = chapter.chapterNumber,
-                                    titleBn = "পাঠ ${lesson.code}: ${lesson.titleBn}",
+                                    titleBn = "পাঠ ${lesson.code.removePrefix("পাঠ").trim()}: ${lesson.titleBn}",
                                     subtitleBn = "${book.shortLabelBn} • অধ্যায় $chNumBn • পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageStart)}",
                                     snippetBn = lesson.conceptExplanationBn,
                                     resultType = BookSearchFilterType.LESSON,

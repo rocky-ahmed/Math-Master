@@ -175,13 +175,17 @@ data class FormulaVisualResult(
  */
 object VisualMathEngine {
 
-    fun formatNumberBn(value: Double, decimals: Int = 2): String {
-        return if (value % 1.0 == 0.0) {
-            BengaliNumberFormatter.toBn(value.toLong())
+    fun formatNumberBn(value: Double, decimals: Int = 2, keepTrailingZeros: Boolean = false): String {
+        val roundedInt = kotlin.math.round(value)
+        return if (kotlin.math.abs(value - roundedInt) < 1e-9) {
+            BengaliNumberFormatter.toBn(roundedInt.toLong())
         } else {
-            val formatted = String.format(Locale.US, "%.${decimals}f", value)
-                .trimEnd('0')
-                .trimEnd('.')
+            val rawFormatted = String.format(Locale.US, "%.${decimals}f", value)
+            val formatted = if (keepTrailingZeros) {
+                rawFormatted
+            } else {
+                rawFormatted.trimEnd('0').trimEnd('.')
+            }
             BengaliNumberFormatter.toBn(formatted)
         }
     }
@@ -555,18 +559,23 @@ object VisualMathEngine {
             param2Min = 1.0,
             param2Max = 20.0,
             calculate = { a, b, _ ->
-                val cSq = a * a + b * b
+                val aSq = a * a
+                val bSq = b * b
+                val cSq = aSq + bSq
                 val c = sqrt(cSq)
+                val isExactInt = kotlin.math.abs(c - kotlin.math.round(c)) < 1e-9
+                val cFormatted = formatNumberBn(c, decimals = 2, keepTrailingZeros = !isExactInt)
+                val eqSign = if (isExactInt) "=" else "≈"
                 FormulaVisualResult(
                     outputValue = c,
                     outputLabelBn = "অতিভুজ (c)",
                     calculationStepsBn = listOf(
                         "প্রদত্ত লম্ব a = ${formatNumberBn(a)}, ভূমি b = ${formatNumberBn(b)}",
                         "পিথাগোরাসের সূত্র: c² = a² + b² = ${formatNumberBn(a)}² + ${formatNumberBn(b)}²",
-                        "বর্গ মান: c² = ${formatNumberBn(a * a)} + ${formatNumberBn(b * b)} = ${formatNumberBn(cSq)}",
-                        "বর্গমূল: c = √(${formatNumberBn(cSq)}) = ${formatNumberBn(c)} একক"
+                        "বর্গ মান: c² = ${formatNumberBn(aSq)} + ${formatNumberBn(bSq)} = ${formatNumberBn(cSq)}",
+                        "বর্গমূল: c = √(${formatNumberBn(cSq)}) $eqSign $cFormatted একক"
                     ),
-                    diagramNotesBn = "সমকোণী ত্রিভুজ যার বাহুত্রয় (${formatNumberBn(a)}, ${formatNumberBn(b)}, ${formatNumberBn(c)})"
+                    diagramNotesBn = "সমকোণী ত্রিভুজ যার বাহুত্রয় (a = ${formatNumberBn(a)}, b = ${formatNumberBn(b)}, c $eqSign $cFormatted)"
                 )
             }
         ),

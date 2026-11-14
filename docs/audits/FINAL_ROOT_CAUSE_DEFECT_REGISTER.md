@@ -1,11 +1,11 @@
-# Math Master — Final Canonical Historical Root-Cause Defect Register (`BUG-01` through `BUG-93`)
+# Math Master — Final Canonical Historical Root-Cause Defect Register (`BUG-01` through `BUG-97`)
 
 **Application**: গণিত মাস্টার (*Math Master*)  
 **Application ID**: `com.aistudio.applet.ghqqzu` (`namespace = "com.example"`)  
 **Repository**: `https://github.com/rocky-ahmed/Math-Master` (`main`)  
 **Database Version**: Room `v10` (`21` `@Entity` tables, non-destructive `MIGRATION_1_2` through `MIGRATION_9_10`)  
-**Automated Verification Baseline**: **`245 / 245` unit & Robolectric tests passing (`0` failures, `0` errors, `0` skipped) across `13` test suites**  
-**Reconciliation Audit Date**: `2026-11-13`  
+**Automated Verification Baseline**: **`250 / 250` unit & Robolectric tests passing (`0` failures, `0` errors, `0` skipped) across `14` test suites**  
+**Reconciliation Audit Date**: `2026-11-14`  
 **Audit Scope**: Strict evidence-based historical traceability reconciliation across all on-disk audit/engineering/QA reports, Kotlin production source files (`app/src/main/java/com/example/**`), and JUnit4/Robolectric test suites (`app/src/test/java/com/example/**`).
 
 ---
@@ -289,9 +289,20 @@ Every source file, line range, and `@Test` method name in the table below has be
 
 ---
 
-## 6. Automated Test Suite Baseline Summary (`245 / 245 PASS`)
+### Phase 10: Screenshot-Evidenced UI, Mathematical Logic & Runtime Remediation (`BUG-94` – `BUG-97`)
 
-All **93** canonical root-cause defects (`BUG-01` through `BUG-93`) are covered by the **13** automated JVM and Robolectric test suites (`gradle :app:testDebugUnitTest`):
+| Canonical ID | Local / Historical Alias(es) | Earliest Dated Report & Classification (Rule C) | Module & Severity | Defect Title & Original Root Cause | Verified Production Source Fix (File & Lines) | Verified Automated Regression Test (Class & Method) | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`BUG-94`** | Canonical `BUG-94` | Principal Engineer Screenshot Audit (`2026-11-13`) — `NEWLY_DISCOVERED_DEFECT` | Module 10: Visual Math Explorer (`CRITICAL` / `P0`) | **Pythagorean Calculation Formatting Precision, Authoritative Canvas Result Binding & Right-Triangle Bounding-Box Clipping** — `formatNumberBn` stripped trailing zeros (`6.40` -> `"৬.৪"`), `vis_pythagoras` used `=` instead of `≈` on irrational roots, `drawPythagorasVisual` clipped the top vertex due to insufficient top/side margins and omitted the computed hypotenuse value on the canvas label, and `drawCubeVolumeVisual3D`/`drawCircleAreaVisual` recalculated outputs inline instead of using `calcResult.outputValue`. | `VisualMathModels.kt:178–190, 557–575` (`keepTrailingZeros` support + `vis_pythagoras` exact vs approximate step/caption formatting), `VisualExplorerScreen.kt:3003–3013, 3088–3099, 3142–3270` (authoritative `calcResult.outputValue` passed to canvas renderers + safe bounding-box margins in `drawPythagorasVisual`) | `PrincipalAuditBug94To97RegressionTest::bug94_pythagorasCalculation_verifiesAllRequiredCasesAndDynamicUpdates` | **VERIFIED (`PASS`)** |
+| **`BUG-95`** | Canonical `BUG-95` | Principal Engineer Screenshot Audit (`2026-11-13`) — `NEWLY_DISCOVERED_DEFECT` | Module 10: Guided Discovery & Mini Knowledge Check (`HIGH` / `P1`) | **Missing `Modifier.weight(1f)` on Knowledge Check Header Title Causing Vertical 1-Char-Per-Line Toggle Button Wrapping & Static Tab 3 Invariant** — `VisualKnowledgeCheckAndLinksBar` omitted `Modifier.weight(1f)` on the title `Text`, starving the collapse/expand `OutlinedButton` (`"কুইজ ও অনুশীলন খুলুন"` / `"সংক্ষিপ্ত করুন"`) into a narrow vertical column, used a horizontal `LazyRow` that clipped long answer options, and showed a static `(a+b)²` / `y = mx + c` check on Tab 3 even when Pythagoras (`vis_pythagoras`) was selected. | `VisualExplorerScreen.kt:174–395` (`Modifier.weight(1f)` on title, `maxLines = 1, softWrap = false` on toggle & link buttons, `FlowRow` for answer options and bottom links, compact collapsed banner, and `selectedFormulaId` context binding), `SecondaryModuleUpgrades.kt:739–802` (`getKnowledgeChecksForContext` & `getDiscoveryInvariantBn`) | `PrincipalAuditBug94To97RegressionTest::bug95_guidedDiscoveryAndMiniKnowledgeCheck_syncsWithFormulaAndPreventsVerticalButtonWrapping` | **VERIFIED (`PASS`)** |
+| **`BUG-96`** | Canonical `BUG-96` | Principal Engineer Screenshot Audit (`2026-11-13` / `2026-11-14`) — `NEWLY_DISCOVERED_DEFECT` | Module 05: Formula Library (`HIGH` / `P1`) | **Un-Wrapped `Row` in `FormulaCard` Header Forcing Difficulty Badge (`"মাধ্যমিক (Intermediate)"`) into a 22-Line Vertical Column, Ambiguous Modular Exponent Grouping in `nt_bdmo_5`, & Silent Domain Clamping/Truncation in `FormulaInteractiveEngine`** — Placing 3 wide metadata chips inside a non-wrapping `Row` left ~14dp for the difficulty badge, wrapping it 1 character per line into a ~360dp-tall vertical column; `nt_bdmo_5` wrote `(b − 1 mod 4) + 1` without parentheses around `(b − 1)`; and `FormulaInteractiveEngine` parsed `a, b` via `Double.toLong().coerceAtLeast(...)`, silently converting $b \le 0$ to $1$, clamping $a < 0$ to $0$, and truncating fractional inputs. | `FormulaLibraryScreen.kt:681–775` (`FlowRow` with `Modifier.weight(1f)`, `Alignment.Top` outer `Row`, and `maxLines = 1, softWrap = false` on badges), `FormulaLibraryModels.kt:466` (`a^b (mod 10) = (a mod 10)^(((b − 1) mod 4) + 1) mod 10`), `SecondaryModuleUpgrades.kt:84–192` (`evaluateModularCyclicityFormula` enforcing strict integer $a \in \mathbb{Z}$, $b \ge 1$ validation, overflow rejection, and Euclidean modulo `((baseA % 10L) + 10L) % 10L`) | `PrincipalAuditBug94To97RegressionTest::bug96_formulaLibrary_difficultyBadgeRendersHorizontallyAndCyclicityFormulaIsUnambiguous` & `PrincipalAuditBug94To97RegressionTest::bug96_modularCyclicityInteractiveEngine_enforcesStrictDomainAndEuclideanModulo` | **VERIFIED (`PASS`)** |
+| **`BUG-97`** | Canonical `BUG-97` | Principal Engineer Screenshot Audit (`2026-11-13`) — `NEWLY_DISCOVERED_DEFECT` | Module 14: NCTB Book PDF Reader (`HIGH` / `P1`) | **Duplicate `"পাঠ পাঠ"` Section Heading Prefix & Silent Exception Swallowing / Non-Recovering Cache in `BookPdfReaderScreen`** — `BookLessonSection.sectionCodeBn` already started with `"পাঠ "` in Class 6/7 curricula while `BookCurriculumRepository` prepended `"পাঠ "` again (`"পাঠ পাঠ ১.১–১.২"`), and `BookPdfReaderScreen` silently swallowed `PdfRenderer` failures with no loading/error/retry state and no `%PDF-` header validation on cached files. | `BookModels.kt:381` (`code` strips `"পাঠ"` prefix), `BookCurriculumRepository.kt:54, 198–205`, `BookReaderAndLabsScreens.kt:150–208, 432–495, 651–736` (`isPdfLoading`, `pdfErrorMessageBn`, `pdfRetryToken`, `renderPdfPageWithAutoRecovery`, `isValidPdfFileHeader`) | `PrincipalAuditBug94To97RegressionTest::bug97_bookReader_eliminatesDuplicatePathPrefixAndRecoversCorruptedPdfCache` | **VERIFIED (`PASS`)** |
+
+---
+
+## 6. Automated Test Suite Baseline Summary (`250 / 250 PASS`)
+
+All **97** canonical root-cause defects (`BUG-01` through `BUG-97`) are covered by the **14** automated JVM and Robolectric test suites (`gradle :app:testDebugUnitTest`):
 
 | # | Test Suite Class (`app/src/test/java/com/example/`) | Total Tests | Passed | Failed | Skipped | Primary Canonical Bug IDs Covered |
 | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
@@ -306,8 +317,10 @@ All **93** canonical root-cause defects (`BUG-01` through `BUG-93`) are covered 
 | 9 | `ApplicationWideScrollRestorationUnitTest.kt` | `10` | `10` | `0` | `0` | `BUG-36`, `BUG-37`, `BUG-38`, `BUG-39` |
 | 10 | `UiSpacingAndLayoutAuditUnitTest.kt` | `8` | `8` | `0` | `0` | `BUG-59`, `BUG-60`, `BUG-61`, `BUG-62`, `BUG-63`, `BUG-64`, `BUG-65`, `BUG-66`, `BUG-67` |
 | 11 | `PrincipalAuditBug87To92RegressionTest.kt` | `6` | `6` | `0` | `0` | `BUG-87`, `BUG-88`, `BUG-89`, `BUG-90`, `BUG-91`, `BUG-92` |
-| 12 | `StudyTimerCompactLayoutRegressionTest.kt` | `2` | `2` | `0` | `0` | `BUG-78`, `BUG-86` |
-| 13 | `ExampleUnitTest.kt` | `1` | `1` | `0` | `0` | Baseline JUnit harness sanity check |
-| **Total** | **All 13 Automated Test Suites** | **`245`** | **`245`** | **`0`** | **`0`** | **100% Automated JVM & Robolectric Pass Rate (`BUG-73` Physical GPU Hardware Validation Tracked in `docs/qa/FINAL_DEVICE_QA_REPORT.md`)** |
+| 12 | `PrincipalAuditBug94To97RegressionTest.kt` | `5` | `5` | `0` | `0` | `BUG-94`, `BUG-95`, `BUG-96`, `BUG-97` |
+| 13 | `StudyTimerCompactLayoutRegressionTest.kt` | `2` | `2` | `0` | `0` | `BUG-78`, `BUG-86` |
+| 14 | `ExampleUnitTest.kt` | `1` | `1` | `0` | `0` | Baseline JUnit harness sanity check |
+| **Total** | **All 14 Automated Test Suites** | **`250`** | **`250`** | **`0`** | **`0`** | **100% Automated JVM & Robolectric Pass Rate (`BUG-73` Physical GPU Hardware Validation Tracked in `docs/qa/FINAL_DEVICE_QA_REPORT.md`)** |
+
 
 

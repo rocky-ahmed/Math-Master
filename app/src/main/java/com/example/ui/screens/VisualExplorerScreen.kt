@@ -10,19 +10,25 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -76,6 +82,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.math.BengaliNumberFormatter
@@ -176,32 +183,38 @@ fun VisualExplorerScreen(
             }
         }
 
+        val selectedFormulaIdForBar by rememberManagedUiState(
+            viewModel,
+            "visual_explorer:tab_3:selectedFormulaId",
+            VisualMathEngine.formulaVisualizerList.first().id
+        )
+
         // Interactive Mini Knowledge Check & Cross-Module Practice Links
         VisualKnowledgeCheckAndLinksBar(
             tabIndex = selectedSection.ordinal.coerceAtMost(3),
+            selectedFormulaId = if (selectedSection == VisualExplorerSection.FORMULAS) selectedFormulaIdForBar else null,
             viewModel = viewModel
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VisualKnowledgeCheckAndLinksBar(
     tabIndex: Int,
+    selectedFormulaId: String? = null,
     viewModel: MathViewModel
 ) {
-    val questions = remember(tabIndex) { VisualKnowledgeCheckProvider.getKnowledgeChecksForTab(tabIndex) }
+    val questions = remember(tabIndex, selectedFormulaId) {
+        VisualKnowledgeCheckProvider.getKnowledgeChecksForContext(tabIndex, selectedFormulaId)
+    }
     var expanded by rememberManagedUiState(viewModel, "visual_explorer:kc_expanded:$tabIndex", false)
-    var qIdx by rememberManagedUiState(viewModel, "visual_explorer:kc_qIdx:$tabIndex", 0)
-    var chosenOpt by remember(tabIndex, qIdx) { mutableStateOf<Int?>(null) }
+    var qIdx by rememberManagedUiState(viewModel, "visual_explorer:kc_qIdx:$tabIndex:${selectedFormulaId.orEmpty()}", 0)
+    var chosenOpt by remember(tabIndex, selectedFormulaId, qIdx) { mutableStateOf<Int?>(null) }
 
     val currentQ = questions.getOrNull(qIdx.coerceIn(0, (questions.size - 1).coerceAtLeast(0)))
-    val invariantNoteBn = remember(tabIndex) {
-        when (tabIndex) {
-            0 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): যেকোনো সদৃশ জ্যামিতিক আকৃতির বাহু k গুণ বৃদ্ধি পেলে পরিসীমা k গুণ, ক্ষেত্রফল k² গুণ এবং ৩ডি আয়তন k³ গুণ বৃদ্ধি পায়।"
-            1 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সমীকরণের উভয় পক্ষে একই সংখ্যা যোগ, বিয়োগ বা অশূন্য সংখ্যা দ্বারা গুণ-ভাগ করলে সমতার ভারসাম্য অপরিবর্তিত থাকে।"
-            2 -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): সংখ্যারেখায় যেকোনো দুটি মূলদ সংখ্যার মধ্যবিন্দু (a+b)/2 নিজেও একটি মূলদ সংখ্যা (অসীম ঘনত্ব ধর্ম)।"
-            else -> "গাণিতিক ইনভ্যারিয়েন্ট (Guided Discovery): (a+b)² বর্গক্ষেত্রটি চারটি অংশে বিভক্ত: একটি a² বর্গ, একটি b² বর্গ এবং দুটি ab আয়তক্ষেত্র।"
-        }
+    val invariantNoteBn = remember(tabIndex, selectedFormulaId) {
+        VisualKnowledgeCheckProvider.getDiscoveryInvariantBn(tabIndex, selectedFormulaId)
     }
 
     val topicIdForTab = when (tabIndex) {
@@ -214,41 +227,50 @@ private fun VisualKnowledgeCheckAndLinksBar(
     Surface(
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("visual_knowledge_check_bar")
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
                 text = invariantNoteBn,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 6.dp)
+                    .padding(bottom = 4.dp)
                     .testTag("visual_guided_discovery_banner")
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "ধারণা যাচাই (Mini Knowledge Check) ও অনুশীলন লিংক",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
                 OutlinedButton(
                     onClick = { expanded = !expanded },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.testTag("btn_toggle_visual_kc")
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 40.dp)
+                        .testTag("btn_toggle_visual_kc")
                 ) {
                     Text(
                         text = if (expanded) "সংক্ষিপ্ত করুন" else "কুইজ ও অনুশীলন খুলুন",
                         style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -256,12 +278,15 @@ private fun VisualKnowledgeCheckAndLinksBar(
             AnimatedVisibility(visible = expanded && currentQ != null) {
                 if (currentQ != null) {
                     Column(
-                        modifier = Modifier.padding(top = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier
+                            .padding(top = 8.dp)
+                            .heightIn(max = 280.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
@@ -276,22 +301,27 @@ private fun VisualKnowledgeCheckAndLinksBar(
                                         qIdx = (qIdx + 1) % questions.size
                                         chosenOpt = null
                                     },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.testTag("btn_next_visual_kc")
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .defaultMinSize(minHeight = 36.dp)
+                                        .testTag("btn_next_visual_kc")
                                 ) {
                                     Text(
                                         text = "পরবর্তী প্রশ্ন (${BengaliNumberFormatter.toBengaliDigits((qIdx + 1).toString())}/${BengaliNumberFormatter.toBengaliDigits(questions.size.toString())})",
-                                        style = MaterialTheme.typography.labelSmall
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
                         }
-                        LazyRow(
+
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(currentQ.optionsBn.size) { idx ->
-                                val opt = currentQ.optionsBn[idx]
+                            currentQ.optionsBn.forEachIndexed { idx, opt ->
                                 FilterChip(
                                     selected = chosenOpt == idx,
                                     onClick = {
@@ -310,7 +340,12 @@ private fun VisualKnowledgeCheckAndLinksBar(
                                             isCorrect = (idx == currentQ.correctIndex)
                                         )
                                     },
-                                    label = { Text(opt, style = MaterialTheme.typography.labelSmall) },
+                                    label = {
+                                        Text(
+                                            text = opt,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    },
                                     modifier = Modifier.testTag("visual_kc_opt_$idx")
                                 )
                             }
@@ -326,9 +361,10 @@ private fun VisualKnowledgeCheckAndLinksBar(
                             )
                         }
 
-                        Row(
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             OutlinedButton(
                                 onClick = {
@@ -338,29 +374,47 @@ private fun VisualKnowledgeCheckAndLinksBar(
                                     )
                                 },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 40.dp)
                                     .testTag("btn_visual_link_quiz"),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("সম্পর্কিত কুইজ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "সম্পর্কিত কুইজ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.FormulaLibrary) },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 40.dp)
                                     .testTag("btn_visual_link_formula"),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("সূত্র লাইব্রেরি", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "সূত্র লাইব্রেরি",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.ProblemSolver) },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 40.dp)
                                     .testTag("btn_visual_link_solver"),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Text("সমস্যা সমাধানকারী", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = "সমস্যা সমাধানকারী",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
@@ -3003,11 +3057,11 @@ fun VisualFormulaTab(viewModel: MathViewModel) {
                             when (selectedFormula.id) {
                                 "vis_alg_sq_plus" -> drawSquareOfSumVisual(inputA, inputB, primaryColor, secondaryColor, accentColor)
                                 "vis_rect_area" -> drawSquareOfSumVisual(inputA, inputB, primaryColor, secondaryColor, accentColor)
-                                "vis_pythagoras" -> drawPythagorasVisual(inputA, inputB, primaryColor, secondaryColor, onSurfaceArgb)
+                                "vis_pythagoras" -> drawPythagorasVisual(inputA, inputB, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                                 "vis_simple_interest" -> drawSimpleInterestVisual(inputA, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                                 // BUG-53 FIX: Render a true 3D projected Cube via Math3DEngine instead of drawCircle!
-                                "vis_cube_vol" -> drawCubeVolumeVisual3D(inputA, primaryColor, accentColor, secondaryColor, onSurfaceArgb, primaryArgb)
-                                "vis_circle_area", "vis_circle_prop" -> drawCircleAreaVisual(inputA, primaryColor, secondaryColor, onSurfaceArgb)
+                                "vis_cube_vol" -> drawCubeVolumeVisual3D(inputA, calcResult.outputValue, primaryColor, accentColor, secondaryColor, onSurfaceArgb, primaryArgb)
+                                "vis_circle_area", "vis_circle_prop" -> drawCircleAreaVisual(inputA, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                                 else -> drawGenericBarVisual(inputA, inputB, calcResult.outputValue, primaryColor, secondaryColor, onSurfaceArgb)
                             }
                         }
@@ -3085,9 +3139,14 @@ fun VisualFormulaTab(viewModel: MathViewModel) {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    val isExactIntOutput = abs(calcResult.outputValue - kotlin.math.round(calcResult.outputValue)) < 1e-9
                     MetricHighlightBox(
                         title = calcResult.outputLabelBn,
-                        value = VisualMathEngine.formatNumberBn(calcResult.outputValue, 2),
+                        value = VisualMathEngine.formatNumberBn(
+                            value = calcResult.outputValue,
+                            decimals = 2,
+                            keepTrailingZeros = !isExactIntOutput && selectedFormula.id == "vis_pythagoras"
+                        ),
                         unit = "",
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -3142,17 +3201,26 @@ private fun DrawScope.drawSquareOfSumVisual(
 private fun DrawScope.drawPythagorasVisual(
     a: Double,
     b: Double,
+    hypotenuseC: Double,
     primaryColor: Color,
     secondaryColor: Color,
     labelColorArgb: Int
 ) {
-    val maxIn = max(a, b).coerceAtLeast(1.0).toFloat()
-    val scale = (min(size.width, size.height) * 0.65f) / maxIn
-    val hPx = (a.toFloat() * scale).coerceAtLeast(40f)
-    val bPx = (b.toFloat() * scale).coerceAtLeast(40f)
+    val leftMargin = 54f
+    val rightMargin = 86f
+    val topMargin = 24f
+    val bottomMargin = 34f
 
-    val originX = (size.width - bPx) / 2f
-    val originY = (size.height + hPx) / 2f
+    val availW = (size.width - leftMargin - rightMargin).coerceAtLeast(60f)
+    val availH = (size.height - topMargin - bottomMargin).coerceAtLeast(60f)
+    val maxSide = max(a, b).coerceAtLeast(1.0).toFloat()
+    val scale = min(availW / maxSide, availH / maxSide)
+
+    val hPx = (a.toFloat() * scale).coerceIn(36f, availH)
+    val bPx = (b.toFloat() * scale).coerceIn(36f, availW)
+
+    val originX = leftMargin + (availW - bPx) / 2f
+    val originY = topMargin + (availH + hPx) / 2f
 
     val pTop = Offset(originX, originY - hPx)
     val pCorner = Offset(originX, originY)
@@ -3174,9 +3242,12 @@ private fun DrawScope.drawPythagorasVisual(
         style = Stroke(width = 2.5f)
     )
 
-    drawCanvasText("a=${VisualMathEngine.formatNumberBn(a, 0)}", pCorner.x - 28f, pCorner.y - hPx / 2f, labelColorArgb, 22f)
-    drawCanvasText("b=${VisualMathEngine.formatNumberBn(b, 0)}", pCorner.x + bPx / 2f, pCorner.y + 24f, labelColorArgb, 22f)
-    drawCanvasText("অতিভুজ c", (pTop.x + pRight.x) / 2f + 28f, (pTop.y + pRight.y) / 2f - 8f, secondaryColor.toArgb(), 22f)
+    val isExactIntC = abs(hypotenuseC - kotlin.math.round(hypotenuseC)) < 1e-9
+    val cText = VisualMathEngine.formatNumberBn(hypotenuseC, 2, keepTrailingZeros = !isExactIntC)
+
+    drawCanvasText("a=${VisualMathEngine.formatNumberBn(a, 0)}", pCorner.x - 30f, pCorner.y - hPx / 2f + 6f, labelColorArgb, 22f)
+    drawCanvasText("b=${VisualMathEngine.formatNumberBn(b, 0)}", pCorner.x + bPx / 2f, pCorner.y + 26f, labelColorArgb, 22f)
+    drawCanvasText("অতিভুজ c=$cText", (pTop.x + pRight.x) / 2f + 46f, (pTop.y + pRight.y) / 2f - 8f, secondaryColor.toArgb(), 21f)
 }
 
 private fun DrawScope.drawSimpleInterestVisual(
@@ -3204,6 +3275,7 @@ private fun DrawScope.drawSimpleInterestVisual(
 // BUG-53 FIX: True 3D Projected Cube for "vis_cube_vol" Formula Visualization
 private fun DrawScope.drawCubeVolumeVisual3D(
     sideA: Double,
+    volumeOutput: Double,
     primaryColor: Color,
     secondaryColor: Color,
     tertiaryColor: Color,
@@ -3233,7 +3305,7 @@ private fun DrawScope.drawCubeVolumeVisual3D(
         accentColorArgb = accentColorArgb
     )
     drawCanvasText(
-        text = "ঘনক: ধার a = ${VisualMathEngine.formatNumberBn(sideA, 1)}, আয়তন V = a³ = ${VisualMathEngine.formatNumberBn(sideA * sideA * sideA, 1)}",
+        text = "ঘনক: ধার a = ${VisualMathEngine.formatNumberBn(sideA, 1)}, আয়তন V = a³ = ${VisualMathEngine.formatNumberBn(volumeOutput, 1)}",
         x = size.width / 2f,
         y = size.height - 4f,
         colorArgb = labelColorArgb,
@@ -3243,6 +3315,7 @@ private fun DrawScope.drawCubeVolumeVisual3D(
 
 private fun DrawScope.drawCircleAreaVisual(
     radius: Double,
+    areaOutput: Double,
     primaryColor: Color,
     secondaryColor: Color,
     labelColorArgb: Int
@@ -3266,7 +3339,7 @@ private fun DrawScope.drawCircleAreaVisual(
     drawCircle(color = primaryColor, radius = rPx, center = Offset(cx, cy), style = Stroke(width = 3.5f))
     drawLine(color = Color(0xFFDC2626), start = Offset(cx, cy), end = Offset(cx + rPx, cy), strokeWidth = 3.5f)
     drawCanvasText("r = ${VisualMathEngine.formatNumberBn(radius, 1)}", cx + rPx / 2f, cy - 10f, labelColorArgb, 22f)
-    drawCanvasText("A = πr² ≈ ${VisualMathEngine.formatNumberBn(PI * radius * radius, 2)}", cx, size.height - 4f, labelColorArgb, 22f)
+    drawCanvasText("A = πr² ≈ ${VisualMathEngine.formatNumberBn(areaOutput, 2)}", cx, size.height - 4f, labelColorArgb, 22f)
 }
 
 private fun DrawScope.drawGenericBarVisual(
