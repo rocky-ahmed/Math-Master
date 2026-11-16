@@ -47,22 +47,37 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.math.BengaliNumberFormatter
 import com.example.math.InterestCalculationMode
+import com.example.math.MathProblemSolverEngine
+import com.example.math.NumberSystemProvider
+import com.example.math.SharedMathEngine
+import com.example.math.SolverAtomicArithmeticEngine
+import com.example.math.SolverMode
 import com.example.math.SolverTopic
 import com.example.ui.theme.MathSpacing
+import java.math.BigInteger
+import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.round
 
 data class TopicValidationState(
     val messageBn: String,
     val isError: Boolean = true
 )
 
+data class TopicValidationOutcome(
+    val canSolve: Boolean,
+    val banner: TopicValidationState? = null
+)
+
 /**
- * Computes live, non-blocking topic-aware input validation guidance for the active topic.
+ * Evaluates explicit solve eligibility (`canSolve`) and live Bengali guidance across all 16 Solver topics.
  */
-fun computeTopicInputValidation(
+fun evaluateTopicInputValidation(
     topic: SolverTopic,
     arithmeticExpr: String,
     fractionNum1: String,
     fractionDen1: String,
+    fractionOp: String = "+",
     fractionNum2: String,
     fractionDen2: String,
     percentageSubType: Int,
@@ -72,6 +87,7 @@ fun computeTopicInputValidation(
     ratioTotal: String,
     ratioR1: String,
     ratioR2: String,
+    ratioR3: String = "",
     profitLossSubType: Int,
     plCp: String,
     plSp: String,
@@ -79,12 +95,15 @@ fun computeTopicInputValidation(
     plMp: String,
     averageInput: String,
     interestMode: InterestCalculationMode,
+    compoundingFreq: Int = 1,
     siP: String,
     siR: String,
     siT: String,
     siI: String,
+    workSubType: Int = 0,
     workTimeA: String,
     workTimeB: String,
+    workTimeC: String = "",
     sdtSpeed: String,
     sdtDistance: String,
     sdtTime: String,
@@ -96,31 +115,46 @@ fun computeTopicInputValidation(
     quadA: String,
     quadB: String,
     quadC: String,
+    quadRelation: String = "=",
     factorInput: String,
     simplifyInput: String
-): TopicValidationState? {
+): TopicValidationOutcome {
+    fun invalid(messageBn: String, isError: Boolean = true) =
+        TopicValidationOutcome(canSolve = false, banner = TopicValidationState(messageBn, isError))
+
+    val valid = TopicValidationOutcome(canSolve = true, banner = null)
+
     return when (topic) {
         SolverTopic.BASIC_ARITHMETIC -> {
             val trimmed = arithmeticExpr.trim()
             if (trimmed.isEmpty()) {
-                TopicValidationState("অনুগ্রহ করে একটি গাণিতিক রাশি লিখুন (যেমন: (২৫ + ১৫) × ২)।")
+                invalid("অনুগ্রহ করে একটি গাণিতিক রাশি লিখুন (যেমন: (২৫ + ১৫) × ২)।")
             } else {
                 var depth = 0
-                var unbalanced = false
+                var unbalancedParen = false
                 for (ch in trimmed) {
                     if (ch == '(') depth++
                     else if (ch == ')') {
                         depth--
                         if (depth < 0) {
-                            unbalanced = true
+                            unbalancedParen = true
                             break
                         }
                     }
                 }
-                if (unbalanced || depth != 0) {
-                    TopicValidationState("বন্ধনী () সঠিকভাবে মেলেনি। দয়া করে পরীক্ষা করুন।")
+                if (unbalancedParen || depth != 0) {
+                    invalid("বন্ধনী () সঠিকভাবে মেলেনি। দয়া করে পরীক্ষা করুন।")
                 } else {
-                    null
+                    try {
+                        SolverAtomicArithmeticEngine.evaluate(trimmed)
+                        valid
+                    } catch (e: SolverAtomicArithmeticEngine.DomainValidationException) {
+                        invalid(e.message ?: "রাশিটি বিশ্লেষণ করা যায়নি।")
+                    } catch (e: ArithmeticException) {
+                        invalid("গণিত ত্রুটি: ${e.message ?: "কোনো সংখ্যাকে শূন্য (০) দিয়ে ভাগ করা যায় না।"}")
+                    } catch (_: Exception) {
+                        invalid("রাশিটি সঠিকভাবে বিশ্লেষণ করা যায়নি। সঠিক চিহ্ন (+, -, ×, ÷) ব্যবহার করুন।")
+                    }
                 }
             }
         }
@@ -131,10 +165,55 @@ fun computeTopicInputValidation(
             val d2 = parseBnToLong(fractionDen2)
             when {
                 n1 == null || d1 == null || n2 == null || d2 == null ->
-                    TopicValidationState("সবগুলো লব ও হরের ঘরে বৈধ পূর্ণসংখ্যা লিখুন।")
+                    invalid("সবগুলো লব ও হরের ঘরে বৈধ পূর্ণসংখ্যা লিখুন।")
+                n1 == Long.MIN_VALUE || d1 == Long.MIN_VALUE || n2 == Long.MIN_VALUE || d2 == Long.MIN_VALUE ->
+                    invalid("সংখ্যার মান সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
                 d1 == 0L || d2 == 0L ->
-                    TopicValidationState("ভগ্নাংশের হর শূন্য (০) হতে পারে না।")
-                else -> null
+                    invalid("ভগ্নাংশের হর শূন্য (০) হতে পারে না।")
+                (fractionOp == "/" || fractionOp == "÷") && n2 == 0L ->
+                    invalid("শূন্য (০) দ্বারা ভাগ করা সংজ্ঞায়িত নয়।")
+                else -> {
+                    var sNum1 = n1
+                    var sDen1 = d1
+                    if (sDen1 < 0L) {
+                        sNum1 = -sNum1
+                        sDen1 = -sDen1
+                    }
+                    var sNum2 = n2
+                    var sDen2 = d2
+                    if (sDen2 < 0L) {
+                        sNum2 = -sNum2
+                        sDen2 = -sDen2
+                    }
+                    try {
+                        val (resNum, resDen) = when (fractionOp) {
+                            "+" -> {
+                                val lcm = NumberSystemProvider.lcm(sDen1, sDen2)
+                                if (lcm <= 0L) throw ArithmeticException("LCM overflow")
+                                val t1 = Math.multiplyExact(sNum1, lcm / sDen1)
+                                val t2 = Math.multiplyExact(sNum2, lcm / sDen2)
+                                Math.addExact(t1, t2) to lcm
+                            }
+                            "-" -> {
+                                val lcm = NumberSystemProvider.lcm(sDen1, sDen2)
+                                if (lcm <= 0L) throw ArithmeticException("LCM overflow")
+                                val t1 = Math.multiplyExact(sNum1, lcm / sDen1)
+                                val t2 = Math.multiplyExact(sNum2, lcm / sDen2)
+                                Math.subtractExact(t1, t2) to lcm
+                            }
+                            "*", "×" -> Math.multiplyExact(sNum1, sNum2) to Math.multiplyExact(sDen1, sDen2)
+                            "/", "÷" -> Math.multiplyExact(sNum1, sDen2) to Math.multiplyExact(sDen1, sNum2)
+                            else -> return invalid("অসমর্থিত অপারেটর: $fractionOp")
+                        }
+                        if (resNum == Long.MIN_VALUE || resDen == Long.MIN_VALUE) {
+                            invalid("ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
+                        } else {
+                            valid
+                        }
+                    } catch (_: ArithmeticException) {
+                        invalid("গণনাটি সমর্থিত গাণিতিক সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
+                    }
+                }
             }
         }
         SolverTopic.PERCENTAGE -> {
@@ -142,139 +221,493 @@ fun computeTopicInputValidation(
             val v2 = parseBnToDouble(percentVal2)
             when {
                 v1 == null || v2 == null ->
-                    TopicValidationState("শতকরা হিসাবের জন্য উভয় ঘরে বৈধ সংখ্যা লিখুন।")
+                    invalid("শতকরা হিসাবের জন্য উভয় ঘরে বৈধ সসীম সংখ্যা লিখুন।")
+                percentageSubType == 0 && (!(v1 * v2).isFinite() || !((v1 * v2) / 100.0).isFinite()) ->
+                    invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
                 percentageSubType == 1 && v2 == 0.0 ->
-                    TopicValidationState("মোট সংখ্যা (Y) শূন্য (০) হতে পারে না।")
+                    invalid("মোট সংখ্যা (Y) শূন্য (০) হতে পারে না।")
+                percentageSubType == 1 && (!(v1 / v2).isFinite() || !((v1 / v2) * 100.0).isFinite()) ->
+                    invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
                 percentageSubType == 2 && v1 == 0.0 ->
-                    TopicValidationState("শতকরা পরিবর্তন বের করতে আদি মান শূন্য হতে পারে না।")
-                else -> null
+                    invalid("শতকরা পরিবর্তন বের করতে আদি মান শূন্য হতে পারে না।")
+                percentageSubType == 2 && (!(v2 - v1).isFinite() || !((abs(v2 - v1) / v1) * 100.0).isFinite()) ->
+                    invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                percentageSubType !in 0..2 && (!(v1 * v2).isFinite() || !(v1 + v2 + (v1 * v2) / 100.0).isFinite()) ->
+                    invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                else -> valid
             }
         }
         SolverTopic.RATIO_PROPORTION -> {
             val r1 = parseBnToDouble(ratioR1)
             val r2 = parseBnToDouble(ratioR2)
             val tot = parseBnToDouble(ratioTotal)
-            when {
-                r1 == null || r2 == null ->
-                    TopicValidationState("অনুপাতের পদগুলোতে বৈধ সংখ্যা লিখুন।")
-                ratioSubType == 0 && tot == null ->
-                    TopicValidationState("মোট বণ্টনযোগ্য পরিমাণ লিখুন।")
-                ratioSubType == 1 && (tot == null || r1 == 0.0) ->
-                    TopicValidationState("চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C-এর বৈধ মান দিন (A ≠ ০)।")
-                else -> null
+            val r3 = parseBnToDouble(ratioR3)
+            when (ratioSubType) {
+                0 -> when {
+                    tot == null || r1 == null || r2 == null ->
+                        invalid("বণ্টনযোগ্য মোট পরিমাণ এবং ১ম ও ২য় অনুপাতে বৈধ সসীম সংখ্যা লিখুন।")
+                    tot < 0.0 ->
+                        invalid("বণ্টনযোগ্য মোট পরিমাণ ঋণাত্মক হতে পারবে না (অবশ্যই ≥ ০ হতে হবে)।")
+                    r1 <= 0.0 || r2 <= 0.0 ->
+                        invalid("বণ্টনের জন্য অনুপাতের প্রতিটি পদ অবশ্যই ধনাত্মক (> ০) হতে হবে।")
+                    ratioR3.isNotBlank() && (r3 == null || r3 <= 0.0) ->
+                        invalid("৩য় অনুপাত পদটি বৈধ ধনাত্মক (> ০) সংখ্যা হতে হবে বা ঘরটি ফাঁকা রাখুন।")
+                    else -> {
+                        val sumRatios = r1 + r2 + (if (ratioR3.isNotBlank()) r3!! else 0.0)
+                        val s1 = tot * (r1 / sumRatios)
+                        val s2 = tot * (r2 / sumRatios)
+                        val s3 = if (ratioR3.isNotBlank()) tot * (r3!! / sumRatios) else 0.0
+                        if (!sumRatios.isFinite() || sumRatios <= 0.0 || !s1.isFinite() || !s2.isFinite() || !s3.isFinite()) {
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        } else {
+                            valid
+                        }
+                    }
+                }
+                1 -> when {
+                    r1 == null || r2 == null || tot == null || r1 <= 0.0 || r2 <= 0.0 || tot <= 0.0 ->
+                        invalid("চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C অবশ্যই শূন্যের চেয়ে বড় (> ০) হতে হবে।")
+                    !(r2 * tot).isFinite() || !((r2 * tot) / r1).isFinite() ->
+                        invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    else -> valid
+                }
+                else -> when {
+                    r1 == null || r2 == null || r1 <= 0.0 || r2 <= 0.0 ->
+                        invalid("অনুপাত সরলীকরণের জন্য উভয় পদ অবশ্যই ধনাত্মক (> ০) সংখ্যা হতে হবে।")
+                    else -> {
+                        var sr1 = r1
+                        var sr2 = r2
+                        while ((sr1 != kotlin.math.floor(sr1) || sr2 != kotlin.math.floor(sr2)) && sr1 < 1e9 && sr2 < 1e9) {
+                            sr1 *= 10.0
+                            sr2 *= 10.0
+                        }
+                        if (!sr1.isFinite() || !sr2.isFinite() || sr1 > 9e15 || sr2 > 9e15 ||
+                            round(sr1).toLong() <= 0L || round(sr2).toLong() <= 0L
+                        ) {
+                            invalid("অনুপাত সরলীকরণের মান সমর্থিত সীমার বাইরে বা অতি ক্ষুদ্র।")
+                        } else {
+                            valid
+                        }
+                    }
+                }
             }
         }
         SolverTopic.PROFIT_LOSS -> {
             when (profitLossSubType) {
-                0 -> if (parseBnToDouble(plCp) == null || parseBnToDouble(plSp) == null) {
-                    TopicValidationState("ক্রয়মূল্য ও বিক্রয়মূল্যের বৈধ মান লিখুন।")
-                } else null
-                1 -> if (parseBnToDouble(plCp) == null || parseBnToDouble(plPercent) == null) {
-                    TopicValidationState("ক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
-                } else null
-                2 -> if (parseBnToDouble(plSp) == null || parseBnToDouble(plPercent) == null) {
-                    TopicValidationState("বিক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
-                } else null
-                else -> if (parseBnToDouble(plMp) == null || parseBnToDouble(plPercent) == null) {
-                    TopicValidationState("ধার্যমূল্য ও ছাড়ের হার লিখুন।")
-                } else null
+                0 -> {
+                    val cp = parseBnToDouble(plCp)
+                    val sp = parseBnToDouble(plSp)
+                    when {
+                        cp == null || sp == null ->
+                            invalid("ক্রয়মূল্য ও বিক্রয়মূল্যের বৈধ সসীম মান লিখুন।")
+                        cp <= 0.0 || sp < 0.0 ->
+                            invalid("ক্রয়মূল্য অবশ্যই ধনাত্মক (> ০) এবং বিক্রয়মূল্য অঋণাত্মক (≥ ০) হতে হবে।")
+                        !(sp - cp).isFinite() || !((abs(sp - cp) / cp) * 100.0).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                }
+                1 -> {
+                    val cp = parseBnToDouble(plCp)
+                    val pct = parseBnToDouble(plPercent)
+                    when {
+                        cp == null || pct == null ->
+                            invalid("ক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
+                        cp <= 0.0 || pct < -100.0 ->
+                            invalid("বৈধ ধনাত্মক ক্রয়মূল্য (CP > ০) এবং শতকরা হার (≥ -১০০%) প্রদান করুন।")
+                        !((abs(pct) / 100.0) * cp).isFinite() || !(cp + (pct / 100.0) * cp).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                }
+                2 -> {
+                    val sp = parseBnToDouble(plSp)
+                    val pct = parseBnToDouble(plPercent)
+                    val factor = if (pct != null) 100.0 + pct else null
+                    when {
+                        sp == null || pct == null ->
+                            invalid("বিক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
+                        sp <= 0.0 ->
+                            invalid("বৈধ ধনাত্মক বিক্রয়মূল্য (SP > ০) প্রদান করুন।")
+                        factor == null || factor <= 0.0 ->
+                            invalid("১০০% বা তার বেশি ক্ষতি বাস্তবসম্মত নয়।")
+                        !(sp * 100.0).isFinite() || !((sp * 100.0) / factor).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                }
+                else -> {
+                    val mp = parseBnToDouble(plMp)
+                    val pct = parseBnToDouble(plPercent)
+                    when {
+                        mp == null || pct == null ->
+                            invalid("ধার্যমূল্য ও ছাড়ের হার লিখুন।")
+                        mp <= 0.0 || pct !in 0.0..100.0 ->
+                            invalid("বৈধ ধনাত্মক ধার্যমূল্য (MP > ০) এবং ছাড়ের হার (০% থেকে ১০০%) প্রদান করুন।")
+                        !(mp * (pct / 100.0)).isFinite() || !(mp - mp * (pct / 100.0)).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                }
             }
         }
         SolverTopic.AVERAGE -> {
-            val nums = averageInput.split(",", " ", "،").mapNotNull { parseBnToDouble(it.trim()) }
-            if (nums.isEmpty()) {
-                TopicValidationState("কমা দিয়ে সংখ্যাগুলোর তালিকা লিখুন (যেমন: ১০, ২০, ৩০)।")
-            } else null
+            when (val parsed = parseStrictBnDoubleList(averageInput)) {
+                is StrictListParseResult.Invalid -> invalid(parsed.messageBn)
+                is StrictListParseResult.Valid -> {
+                    val sum = parsed.values.sum()
+                    val avg = sum / parsed.values.size
+                    if (!sum.isFinite() || !avg.isFinite()) {
+                        invalid("সংখ্যাগুলোর সমষ্টি বা গড় সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    } else {
+                        valid
+                    }
+                }
+            }
         }
         SolverTopic.SIMPLE_INTEREST -> {
+            val visibleMalformed = if (interestMode == InterestCalculationMode.COMPOUND) {
+                listOf(siP, siR, siT).any { it.isNotBlank() && parseBnToDouble(it) == null }
+            } else {
+                listOf(siP, siR, siT, siI).any { it.isNotBlank() && parseBnToDouble(it) == null }
+            }
+            if (visibleMalformed) {
+                return invalid("মুনাফার হিসাবের সব প্রদত্ত ঘরে বৈধ সসীম সংখ্যা লিখুন।")
+            }
             val p = parseBnToDouble(siP)
             val r = parseBnToDouble(siR)
             val t = parseBnToDouble(siT)
             val i = parseBnToDouble(siI)
             if (interestMode == InterestCalculationMode.COMPOUND) {
-                if (p == null || r == null || t == null) {
-                    TopicValidationState("চক্রবৃদ্ধি মুনাফার জন্য আসল (P), হার (r) ও সময় (t) দিন।")
-                } else null
+                when {
+                    p == null || r == null || t == null ->
+                        invalid("চক্রবৃদ্ধি মুনাফার জন্য আসল (P), হার (r) ও সময় (t) দিন।")
+                    p <= 0.0 || r < 0.0 || t < 0.0 ->
+                        invalid("আসল (P > ০), মুনাফার হার (r ≥ ০) এবং সময় (t ≥ ০) সসীম বৈধ মান হতে হবে।")
+                    compoundingFreq !in 1..365 ->
+                        invalid("চক্রবৃদ্ধি পর্ব (m) অবশ্যই ১ থেকে ৩৬৫ এর মধ্যে পূর্ণসংখ্যা হতে হবে।")
+                    else -> {
+                        val totalPeriods = compoundingFreq.toDouble() * t
+                        if (!totalPeriods.isFinite() || totalPeriods > 10_000.0) {
+                            invalid("মোট চক্রবৃদ্ধি মেয়াদ (m × t) সমর্থিত সীমা (১০,০০০ পর্ব) অতিক্রম করেছে।")
+                        } else {
+                            val growth = (1.0 + r / (100.0 * compoundingFreq)).pow(totalPeriods)
+                            val amt = p * growth
+                            val ci = amt - p
+                            val si = (p * r * t) / 100.0
+                            if (!growth.isFinite() || !amt.isFinite() || !ci.isFinite() || !si.isFinite()) {
+                                invalid("চক্রবৃদ্ধি মুনাফার ফলাফল সমর্থিত গাণিতিক সীমার বাইরে।")
+                            } else {
+                                valid
+                            }
+                        }
+                    }
+                }
             } else {
                 val count = listOf(p, r, t, i).count { it != null }
-                if (count < 3) {
-                    TopicValidationState("সরল মুনাফায় P, r, t, I এর মধ্যে যেকোনো ৩টি মান দিন (৪র্থটি স্বয়ংক্রিয় বের হবে)।", isError = false)
-                } else null
+                when {
+                    count < 3 ->
+                        invalid("সরল মুনাফায় P, r, t, I এর মধ্যে যেকোনো ৩টি মান দিন (৪র্থটি স্বয়ংক্রিয় বের হবে)।", isError = false)
+                    count == 4 ->
+                        invalid("সব ৪টি মান দেওয়া হয়েছে। গণনার জন্য P, r, t, I এর যেকোনো ১টি ঘর ফাঁকা রাখুন।", isError = true)
+                    p != null && r != null && t != null && i == null -> when {
+                        p <= 0.0 || r < 0.0 || t <= 0.0 ->
+                            invalid("মুনাফা (I) নির্ণয়ে আসল (P > ০), সময় (t > ০) এবং হার (r ≥ ০) বৈধ হতে হবে।")
+                        !(p * r * t).isFinite() || !((p * r * t) / 100.0).isFinite() || !(p + (p * r * t) / 100.0).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                    p == null && i != null && r != null && t != null -> when {
+                        i <= 0.0 || r <= 0.0 || t <= 0.0 ->
+                            invalid("আসল (P) নির্ণয়ে মুনাফা (I > ০), হার (r > ০) ও সময় (t > ০) ধনাত্মক হতে হবে।")
+                        !(i * 100.0).isFinite() || !(r * t).isFinite() || !((i * 100.0) / (r * t)).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                    r == null && p != null && i != null && t != null -> when {
+                        p <= 0.0 || i < 0.0 || t <= 0.0 ->
+                            invalid("মুনাফার হার (r) নির্ণয়ে আসল (P > ০), সময় (t > ০) এবং মুনাফা (I ≥ ০) বৈধ হতে হবে।")
+                        !(i * 100.0).isFinite() || !(p * t).isFinite() || !((i * 100.0) / (p * t)).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                    t == null && p != null && i != null && r != null -> when {
+                        p <= 0.0 || i < 0.0 || r <= 0.0 ->
+                            invalid("সময় (t) নির্ণয়ে আসল (P > ০), হার (r > ০) এবং মুনাফা (I ≥ ০) বৈধ হতে হবে।")
+                        !(i * 100.0).isFinite() || !(p * r).isFinite() || !((i * 100.0) / (p * r)).isFinite() ->
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        else -> valid
+                    }
+                    else -> invalid("P, r, t, I এর মধ্যে ঠিক ৩টি মান দিন এবং ১টি ফাঁকা রাখুন।")
+                }
             }
         }
         SolverTopic.TIME_AND_WORK -> {
             val a = parseBnToDouble(workTimeA)
             val b = parseBnToDouble(workTimeB)
+            val c = parseBnToDouble(workTimeC)
             when {
                 a == null || b == null ->
-                    TopicValidationState("কাজ বা নলের সময়ের ঘরে বৈধ সংখ্যা লিখুন।")
+                    invalid("কাজ বা নলের সময়ের ঘরে বৈধ সসীম সংখ্যা লিখুন।")
                 a <= 0.0 || b <= 0.0 ->
-                    TopicValidationState("সময়ের মান ধনাত্মক (> ০) হতে হবে।")
-                else -> null
+                    invalid("সময়ের মান ধনাত্মক (> ০) হতে হবে।")
+                workSubType == 0 -> {
+                    val res = (a * b) / (a + b)
+                    if (!(a * b).isFinite() || !res.isFinite()) {
+                        invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    } else valid
+                }
+                workSubType == 1 -> when {
+                    c == null || c <= 0.0 ->
+                        invalid("৩ জনের কাজের জন্য C-এর সময় অবশ্যই সসীম ও ধনাত্মক (> ০) হতে হবে।")
+                    else -> {
+                        val rate = (1.0 / a) + (1.0 / b) + (1.0 / c)
+                        val totalDays = if (rate > 0.0) 1.0 / rate else Double.NaN
+                        if (!rate.isFinite() || rate <= 0.0 || !totalDays.isFinite()) {
+                            invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                        } else valid
+                    }
+                }
+                else -> when {
+                    a >= b ->
+                        invalid("খালি করার নলের সময় পূর্ণকারী নলের চেয়ে বড় হতে হবে (পূর্ণকারী < খালি করার নল)।")
+                    !(a * b).isFinite() || !((a * b) / (b - a)).isFinite() ->
+                        invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    else -> valid
+                }
             }
         }
         SolverTopic.SPEED_DISTANCE_TIME -> {
-            val provided = listOf(
-                parseBnToDouble(sdtSpeed),
-                parseBnToDouble(sdtDistance),
-                parseBnToDouble(sdtTime)
-            ).count { it != null }
-            if (provided != 2) {
-                TopicValidationState("গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর মধ্যে ঠিক ২টি মান দিন (১টি ফাঁকা রাখুন)।", isError = false)
-            } else null
+            if (listOf(sdtSpeed, sdtDistance, sdtTime).any { it.isNotBlank() && parseBnToDouble(it) == null }) {
+                return invalid("গতিবেগ, দূরত্ব ও সময়ের প্রদত্ত মানগুলো অবশ্যই বৈধ সসীম সংখ্যা হতে হবে।")
+            }
+            val s = parseBnToDouble(sdtSpeed)
+            val d = parseBnToDouble(sdtDistance)
+            val t = parseBnToDouble(sdtTime)
+            val provided = listOf(s, d, t).count { it != null }
+            when {
+                provided < 2 ->
+                    invalid("গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর মধ্যে ঠিক ২টি মান দিন (১টি ফাঁকা রাখুন)।", isError = false)
+                provided > 2 ->
+                    invalid("সব ৩টি মান দেওয়া হয়েছে। গণনার জন্য ঠিক ২টি মান দিন এবং ১টি ফাঁকা রাখুন।", isError = true)
+                s != null && s <= 0.0 ->
+                    invalid("গতিবেগ (S) অবশ্যই শূন্যের চেয়ে বেশি (> ০) হতে হবে।")
+                t != null && t <= 0.0 ->
+                    invalid("সময় (T) অবশ্যই শূন্যের চেয়ে বেশি (> ০) হতে হবে।")
+                d != null && d < 0.0 ->
+                    invalid("দূরত্ব (D) কখনো ঋণাত্মক হতে পারে না (অবশ্যই ≥ ০ হতে হবে)।")
+                d != null && t != null && s == null -> {
+                    val sKmh = d / t
+                    val sMs = sKmh * (5.0 / 18.0)
+                    if (!sKmh.isFinite() || !sMs.isFinite()) {
+                        invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    } else valid
+                }
+                s != null && t != null && d == null -> {
+                    if (!(s * t).isFinite()) {
+                        invalid("গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    } else valid
+                }
+                d != null && s != null && t == null -> {
+                    val calcT = d / s
+                    val rawSec = calcT * 3600.0
+                    if (!calcT.isFinite() || !rawSec.isFinite() || rawSec > (Long.MAX_VALUE / 2).toDouble()) {
+                        invalid("সময়ের গণনা সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                    } else valid
+                }
+                else -> invalid("গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর মধ্যে ঠিক ২টি মান দিন।")
+            }
         }
         SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
             if (parseBnToLong(divNumber) == null) {
-                TopicValidationState("বিভাজ্যতা যাচাইয়ের জন্য একটি পূর্ণসংখ্যা লিখুন।")
-            } else null
+                invalid("বিভাজ্যতা যাচাইয়ের জন্য একটি বৈধ পূর্ণসংখ্যা লিখুন।")
+            } else {
+                valid
+            }
         }
         SolverTopic.HCF_LCM -> {
-            val nums = hcfLcmInput.split(",", " ", "،").mapNotNull { parseBnToLong(it.trim()) }
-            if (nums.size < 2) {
-                TopicValidationState("গ.সা.গু ও ল.সা.গু নির্ণয়ে কমা দিয়ে কমপক্ষে ২টি পূর্ণসংখ্যা লিখুন।")
-            } else null
+            when (val parsed = parseStrictBnPositiveLongList(hcfLcmInput)) {
+                is StrictListParseResult.Invalid -> invalid(parsed.messageBn)
+                is StrictListParseResult.Valid -> {
+                    val maxLongBig = BigInteger.valueOf(Long.MAX_VALUE)
+                    var cumulativeBigLcm = BigInteger.valueOf(parsed.values[0])
+                    var overflow = false
+                    for (idx in 1 until parsed.values.size) {
+                        val nextBig = BigInteger.valueOf(parsed.values[idx])
+                        val gBig = cumulativeBigLcm.gcd(nextBig)
+                        cumulativeBigLcm = cumulativeBigLcm.divide(gBig).multiply(nextBig)
+                        if (cumulativeBigLcm > maxLongBig) {
+                            overflow = true
+                            break
+                        }
+                    }
+                    if (overflow) {
+                        invalid("প্রদত্ত সংখ্যাগুলোর ল.সা.গু গণনা সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
+                    } else {
+                        valid
+                    }
+                }
+            }
         }
         SolverTopic.SQUARES_CUBES_ROOTS -> {
             val n = parseBnToDouble(sqCubeNumber)
             when {
-                n == null -> TopicValidationState("একটি বৈধ সংখ্যা লিখুন।")
-                sqCubeOp == 1 && n < 0.0 -> TopicValidationState("বাস্তব বর্গমূলের জন্য ঋণাত্মক নয় এমন সংখ্যা (≥ ০) দিন।")
-                else -> null
+                n == null -> invalid("একটি বৈধ সসীম সংখ্যা লিখুন।")
+                sqCubeOp == 0 && !(n * n).isFinite() ->
+                    invalid("বর্গফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
+                sqCubeOp == 1 && n < 0.0 ->
+                    invalid("বাস্তব বর্গমূলের জন্য ঋণাত্মক নয় এমন সংখ্যা (≥ ০) দিন।")
+                sqCubeOp == 2 && !(n * n * n).isFinite() ->
+                    invalid("ঘনফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।")
+                else -> valid
             }
         }
         SolverTopic.LINEAR_EQUATIONS -> {
             val eq = linearEqInput.trim()
             when {
-                eq.isEmpty() -> TopicValidationState("একটি সরল সমীকরণ বা অসমতা লিখুন (যেমন: 3x + 12 = 45)।")
+                eq.isEmpty() -> invalid("একটি সরল সমীকরণ বা অসমতা লিখুন (যেমন: 3x + 12 = 45)।")
                 !eq.any { it in listOf('=', '<', '>', '≤', '≥') } ->
-                    TopicValidationState("সমীকরণ বা অসমতা চিহ্ন (=, <, >, ≤, ≥) যুক্ত করুন।")
-                else -> null
+                    invalid("সমীকরণ বা অসমতা চিহ্ন (=, <, >, ≤, ≥) যুক্ত করুন।")
+                else -> {
+                    val res = MathProblemSolverEngine.solveLinearEquation(eq, SolverMode.QUICK)
+                    if (res.isSuccess) valid else invalid(res.errorMessageBn ?: "সমীকরণটি সমাধান করা যায়নি।")
+                }
             }
         }
         SolverTopic.QUADRATIC_EQUATIONS -> {
             val a = parseBnToDouble(quadA)
             val b = parseBnToDouble(quadB)
             val c = parseBnToDouble(quadC)
+            val disc = if (a != null && b != null && c != null) (b * b - 4.0 * a * c) else Double.NaN
             when {
                 a == null || b == null || c == null ->
-                    TopicValidationState("সহগ a, b, c-এর ঘরে বৈধ সংখ্যা লিখুন।")
-                a == 0.0 ->
-                    TopicValidationState("দ্বিঘাত সমীকরণে x²-এর সহগ (a) শূন্য হতে পারে না।")
-                else -> null
+                    invalid("সহগ a, b, c-এর ঘরে বৈধ সসীম সংখ্যা লিখুন।")
+                abs(a) < 1e-12 ->
+                    invalid("দ্বিঘাত সমীকরণে x²-এর সহগ (a) শূন্য হতে পারে না।")
+                quadRelation.trim() !in listOf("=", "<", "≤", "<=", ">", "≥", ">=") ->
+                    invalid("অসমর্থিত সম্পর্ক চিহ্ন: $quadRelation")
+                !disc.isFinite() ->
+                    invalid("নিশ্চায়কের মান সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।")
+                quadRelation.trim() == "=" && (!(-b / (2.0 * a)).isFinite() || !((4.0 * a * c - b * b) / (4.0 * a)).isFinite()) ->
+                    invalid("শীর্ষবিন্দু বা গণনার ফলাফল সমর্থিত সীমার বাইরে।")
+                else -> valid
             }
         }
         SolverTopic.FACTORIZATION -> {
             if (factorInput.isBlank()) {
-                TopicValidationState("উৎপাদকে বিশ্লেষণের জন্য একটি সংখ্যা বা বীজগণিতীয় রাশি লিখুন।")
-            } else null
+                invalid("উৎপাদকে বিশ্লেষণের জন্য একটি সংখ্যা বা বীজগণিতীয় রাশি লিখুন।")
+            } else {
+                val res = SharedMathEngine.factorize(factorInput)
+                if (res.isSuccess) valid else invalid(res.errorMessageBn ?: "প্রদত্ত রাশিটির উৎপাদকে বিশ্লেষণ সম্ভব হয়নি।")
+            }
         }
         SolverTopic.SIMPLIFICATION -> {
             if (simplifyInput.isBlank()) {
-                TopicValidationState("সরলীকরণের জন্য করণী, ভগ্নাংশ বা বীজগণিতীয় রাশি লিখুন।")
-            } else null
+                invalid("সরলীকরণের জন্য করণী, ভগ্নাংশ বা বীজগণিতীয় রাশি লিখুন।")
+            } else {
+                val res = SharedMathEngine.simplify(simplifyInput)
+                if (res.isSuccess) valid else invalid(res.errorMessageBn ?: "রাশিটি সরলীকরণ করা সম্ভব হয়নি।")
+            }
         }
     }
 }
+
+/**
+ * Computes live, non-blocking topic-aware input validation guidance for the active topic.
+ */
+fun computeTopicInputValidation(
+    topic: SolverTopic,
+    arithmeticExpr: String,
+    fractionNum1: String,
+    fractionDen1: String,
+    fractionOp: String = "+",
+    fractionNum2: String,
+    fractionDen2: String,
+    percentageSubType: Int,
+    percentVal1: String,
+    percentVal2: String,
+    ratioSubType: Int,
+    ratioTotal: String,
+    ratioR1: String,
+    ratioR2: String,
+    ratioR3: String = "",
+    profitLossSubType: Int,
+    plCp: String,
+    plSp: String,
+    plPercent: String,
+    plMp: String,
+    averageInput: String,
+    interestMode: InterestCalculationMode,
+    compoundingFreq: Int = 1,
+    siP: String,
+    siR: String,
+    siT: String,
+    siI: String,
+    workSubType: Int = 0,
+    workTimeA: String,
+    workTimeB: String,
+    workTimeC: String = "",
+    sdtSpeed: String,
+    sdtDistance: String,
+    sdtTime: String,
+    divNumber: String,
+    hcfLcmInput: String,
+    sqCubeNumber: String,
+    sqCubeOp: Int,
+    linearEqInput: String,
+    quadA: String,
+    quadB: String,
+    quadC: String,
+    quadRelation: String = "=",
+    factorInput: String,
+    simplifyInput: String
+): TopicValidationState? = evaluateTopicInputValidation(
+    topic = topic,
+    arithmeticExpr = arithmeticExpr,
+    fractionNum1 = fractionNum1,
+    fractionDen1 = fractionDen1,
+    fractionOp = fractionOp,
+    fractionNum2 = fractionNum2,
+    fractionDen2 = fractionDen2,
+    percentageSubType = percentageSubType,
+    percentVal1 = percentVal1,
+    percentVal2 = percentVal2,
+    ratioSubType = ratioSubType,
+    ratioTotal = ratioTotal,
+    ratioR1 = ratioR1,
+    ratioR2 = ratioR2,
+    ratioR3 = ratioR3,
+    profitLossSubType = profitLossSubType,
+    plCp = plCp,
+    plSp = plSp,
+    plPercent = plPercent,
+    plMp = plMp,
+    averageInput = averageInput,
+    interestMode = interestMode,
+    compoundingFreq = compoundingFreq,
+    siP = siP,
+    siR = siR,
+    siT = siT,
+    siI = siI,
+    workSubType = workSubType,
+    workTimeA = workTimeA,
+    workTimeB = workTimeB,
+    workTimeC = workTimeC,
+    sdtSpeed = sdtSpeed,
+    sdtDistance = sdtDistance,
+    sdtTime = sdtTime,
+    divNumber = divNumber,
+    hcfLcmInput = hcfLcmInput,
+    sqCubeNumber = sqCubeNumber,
+    sqCubeOp = sqCubeOp,
+    linearEqInput = linearEqInput,
+    quadA = quadA,
+    quadB = quadB,
+    quadC = quadC,
+    quadRelation = quadRelation,
+    factorInput = factorInput,
+    simplifyInput = simplifyInput
+).banner
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -360,14 +793,16 @@ fun TopicInputCard(
     simplifyInput: String = "√72",
     onSimplifyChange: (String) -> Unit = {},
     // Actions
+    isSolveInFlight: Boolean = false,
     onResetClick: () -> Unit = {},
     onSolveClick: () -> Unit
 ) {
-    val validationState = computeTopicInputValidation(
+    val validationOutcome = evaluateTopicInputValidation(
         topic = topic,
         arithmeticExpr = arithmeticExpr,
         fractionNum1 = fractionNum1,
         fractionDen1 = fractionDen1,
+        fractionOp = fractionOp,
         fractionNum2 = fractionNum2,
         fractionDen2 = fractionDen2,
         percentageSubType = percentageSubType,
@@ -377,6 +812,7 @@ fun TopicInputCard(
         ratioTotal = ratioTotal,
         ratioR1 = ratioR1,
         ratioR2 = ratioR2,
+        ratioR3 = ratioR3,
         profitLossSubType = profitLossSubType,
         plCp = plCp,
         plSp = plSp,
@@ -384,12 +820,15 @@ fun TopicInputCard(
         plMp = plMp,
         averageInput = averageInput,
         interestMode = interestMode,
+        compoundingFreq = compoundingFreq,
         siP = siP,
         siR = siR,
         siT = siT,
         siI = siI,
+        workSubType = workSubType,
         workTimeA = workTimeA,
         workTimeB = workTimeB,
+        workTimeC = workTimeC,
         sdtSpeed = sdtSpeed,
         sdtDistance = sdtDistance,
         sdtTime = sdtTime,
@@ -401,9 +840,11 @@ fun TopicInputCard(
         quadA = quadA,
         quadB = quadB,
         quadC = quadC,
+        quadRelation = quadRelation,
         factorInput = factorInput,
         simplifyInput = simplifyInput
     )
+    val validationState = validationOutcome.banner
 
     Card(
         shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
@@ -594,6 +1035,7 @@ fun TopicInputCard(
                                 value = fractionNum1,
                                 onValueChange = { onFractionChange(it, fractionDen1, fractionOp, fractionNum2, fractionDen2) },
                                 label = { Text("১ম লব") },
+                                modifier = Modifier.testTag("fraction_num1"),
                                 singleLine = true
                             )
                             Spacer(modifier = Modifier.height(4.dp))
@@ -601,6 +1043,7 @@ fun TopicInputCard(
                                 value = fractionDen1,
                                 onValueChange = { onFractionChange(fractionNum1, it, fractionOp, fractionNum2, fractionDen2) },
                                 label = { Text("১ম হর") },
+                                modifier = Modifier.testTag("fraction_den1"),
                                 singleLine = true
                             )
                         }
@@ -660,6 +1103,7 @@ fun TopicInputCard(
                                 value = fractionNum2,
                                 onValueChange = { onFractionChange(fractionNum1, fractionDen1, fractionOp, it, fractionDen2) },
                                 label = { Text("২য় লব") },
+                                modifier = Modifier.testTag("fraction_num2"),
                                 singleLine = true
                             )
                             Spacer(modifier = Modifier.height(4.dp))
@@ -667,6 +1111,7 @@ fun TopicInputCard(
                                 value = fractionDen2,
                                 onValueChange = { onFractionChange(fractionNum1, fractionDen1, fractionOp, fractionNum2, it) },
                                 label = { Text("২য় হর") },
+                                modifier = Modifier.testTag("fraction_den2"),
                                 singleLine = true
                             )
                         }
@@ -734,7 +1179,9 @@ fun TopicInputCard(
                                 selected = ratioSubType == index,
                                 onClick = { onRatioChange(index, ratioTotal, ratioR1, ratioR2, ratioR3) },
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("ratio_subtype_$index")
                             )
                         }
                     }
@@ -744,7 +1191,9 @@ fun TopicInputCard(
                             value = ratioTotal,
                             onValueChange = { onRatioChange(ratioSubType, it, ratioR1, ratioR2, ratioR3) },
                             label = { Text("বণ্টনযোগ্য মোট পরিমাণ") },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("ratio_input_total"),
                             singleLine = true
                         )
                         Spacer(modifier = Modifier.height(6.dp))
@@ -753,21 +1202,27 @@ fun TopicInputCard(
                                 value = ratioR1,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
                                 label = { Text("১ম অনুপাত") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r1"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = ratioR2,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
                                 label = { Text("২য় অনুপাত") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r2"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = ratioR3,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, ratioR2, it) },
                                 label = { Text("৩য় (ঐচ্ছিক)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r3"),
                                 singleLine = true
                             )
                         }
@@ -783,21 +1238,27 @@ fun TopicInputCard(
                                 value = ratioR1,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
                                 label = { Text("A") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r1"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = ratioR2,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
                                 label = { Text("B") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r2"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = ratioTotal,
                                 onValueChange = { onRatioChange(ratioSubType, it, ratioR1, ratioR2, ratioR3) },
                                 label = { Text("C") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_total"),
                                 singleLine = true
                             )
                         }
@@ -807,14 +1268,18 @@ fun TopicInputCard(
                                 value = ratioR1,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
                                 label = { Text("১ম পদ") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r1"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = ratioR2,
                                 onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
                                 label = { Text("২য় পদ") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("ratio_input_r2"),
                                 singleLine = true
                             )
                         }
@@ -831,7 +1296,9 @@ fun TopicInputCard(
                                 selected = profitLossSubType == index,
                                 onClick = { onProfitLossChange(index, plCp, plSp, plPercent, plMp) },
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("pl_subtype_$index")
                             )
                         }
                     }
@@ -842,14 +1309,18 @@ fun TopicInputCard(
                                 value = plCp,
                                 onValueChange = { onProfitLossChange(profitLossSubType, it, plSp, plPercent, plMp) },
                                 label = { Text("ক্রয়মূল্য (টাকা)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_cp"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = plSp,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, it, plPercent, plMp) },
                                 label = { Text("বিক্রয়মূল্য (টাকা)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_sp"),
                                 singleLine = true
                             )
                         }
@@ -858,14 +1329,18 @@ fun TopicInputCard(
                                 value = plCp,
                                 onValueChange = { onProfitLossChange(profitLossSubType, it, plSp, plPercent, plMp) },
                                 label = { Text("ক্রয়মূল্য") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_cp"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = plPercent,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
                                 label = { Text("লাভ/ক্ষতি % (- হলে ক্ষতি)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_percent"),
                                 singleLine = true
                             )
                         }
@@ -874,14 +1349,18 @@ fun TopicInputCard(
                                 value = plSp,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, it, plPercent, plMp) },
                                 label = { Text("বিক্রয়মূল্য") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_sp"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = plPercent,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
                                 label = { Text("লাভ/ক্ষতি % (- হলে ক্ষতি)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_percent"),
                                 singleLine = true
                             )
                         }
@@ -890,14 +1369,18 @@ fun TopicInputCard(
                                 value = plMp,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, plPercent, it) },
                                 label = { Text("ধার্যমূল্য (টাকা)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_mp"),
                                 singleLine = true
                             )
                             OutlinedTextField(
                                 value = plPercent,
                                 onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
                                 label = { Text("ছাড়ের হার (%)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("pl_input_percent"),
                                 singleLine = true
                             )
                         }
@@ -955,14 +1438,18 @@ fun TopicInputCard(
                             value = siP,
                             onValueChange = { onInterestChange(it, siR, siT, siI) },
                             label = { Text("আসল (P)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("si_input_p"),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = siR,
                             onValueChange = { onInterestChange(siP, it, siT, siI) },
                             label = { Text("হার % (r)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("si_input_r"),
                             singleLine = true
                         )
                     }
@@ -972,7 +1459,9 @@ fun TopicInputCard(
                             value = siT,
                             onValueChange = { onInterestChange(siP, siR, it, siI) },
                             label = { Text("সময় বছর (t)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("si_input_t"),
                             singleLine = true
                         )
                         if (interestMode == InterestCalculationMode.SIMPLE) {
@@ -980,7 +1469,9 @@ fun TopicInputCard(
                                 value = siI,
                                 onValueChange = { onInterestChange(siP, siR, siT, it) },
                                 label = { Text("মুনাফা (I)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("si_input_i"),
                                 singleLine = true
                             )
                         }
@@ -997,7 +1488,9 @@ fun TopicInputCard(
                                 selected = workSubType == index,
                                 onClick = { onWorkChange(index, workTimeA, workTimeB, workTimeC) },
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("work_subtype_$index")
                             )
                         }
                     }
@@ -1007,14 +1500,18 @@ fun TopicInputCard(
                             value = workTimeA,
                             onValueChange = { onWorkChange(workSubType, it, workTimeB, workTimeC) },
                             label = { Text(if (workSubType == 2) "পূর্ণকারী নল (ঘন্টা)" else "A এর সময় (দিন)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("work_input_a"),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = workTimeB,
                             onValueChange = { onWorkChange(workSubType, workTimeA, it, workTimeC) },
                             label = { Text(if (workSubType == 2) "খালি করার নল (ঘন্টা)" else "B এর সময় (দিন)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("work_input_b"),
                             singleLine = true
                         )
                         if (workSubType == 1) {
@@ -1022,7 +1519,9 @@ fun TopicInputCard(
                                 value = workTimeC,
                                 onValueChange = { onWorkChange(workSubType, workTimeA, workTimeB, it) },
                                 label = { Text("C এর সময় (দিন)") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("work_input_c"),
                                 singleLine = true
                             )
                         }
@@ -1040,21 +1539,27 @@ fun TopicInputCard(
                             value = sdtSpeed,
                             onValueChange = { onSdtChange(it, sdtDistance, sdtTime) },
                             label = { Text("গতিবেগ (km/h)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("sdt_input_speed"),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = sdtDistance,
                             onValueChange = { onSdtChange(sdtSpeed, it, sdtTime) },
                             label = { Text("দূরত্ব (km)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("sdt_input_distance"),
                             singleLine = true
                         )
                         OutlinedTextField(
                             value = sdtTime,
                             onValueChange = { onSdtChange(sdtSpeed, sdtDistance, it) },
                             label = { Text("সময় (ঘন্টা)") },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("sdt_input_time"),
                             singleLine = true
                         )
                     }
@@ -1284,6 +1789,7 @@ fun TopicInputCard(
 
             Button(
                 onClick = onSolveClick,
+                enabled = validationOutcome.canSolve && !isSolveInFlight,
                 colors = ButtonDefaults.buttonColors(containerColor = topic.primaryColor),
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier

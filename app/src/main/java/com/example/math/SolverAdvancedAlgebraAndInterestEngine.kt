@@ -25,6 +25,7 @@ object SolverAdvancedAlgebraAndInterestEngine {
     private val df = DecimalFormat("0.####", usSymbols)
 
     private fun formatNum(n: Double): String {
+        if (!n.isFinite()) return "অসংজ্ঞায়িত"
         if (abs(n) < 1e-12) return "০"
         val asLong = n.toLong()
         return if (n == asLong.toDouble() && abs(n) < 9e15) {
@@ -55,21 +56,32 @@ object SolverAdvancedAlgebraAndInterestEngine {
         m: Int = 1,
         mode: SolverMode
     ): SolverResult {
-        if (p <= 0.0 || r < 0.0 || t < 0.0 || m <= 0) {
+        if (!p.isFinite() || !r.isFinite() || !t.isFinite() || p <= 0.0 || r < 0.0 || t < 0.0 || m !in 1..365) {
             return SolverResult(
                 topic = SolverTopic.SIMPLE_INTEREST,
                 mode = mode,
-                originalProblemBn = "P=$p, r=$r%, t=$t, m=$m",
+                originalProblemBn = "চক্রবৃদ্ধি মুনাফা যাচাই",
                 finalAnswerBn = "সমাধান সম্ভব নয়",
                 isSuccess = false,
-                errorMessageBn = "চক্রবৃদ্ধি মুনাফার জন্য আসল (P > ০), হার (r ≥ ০), সময় (t ≥ ০) এবং পর্ব সংখ্যা (m ≥ ১) বৈধ হতে হবে।"
+                errorMessageBn = "চক্রবৃদ্ধি মুনাফার জন্য সসীম আসল (P > ০), হার (r ≥ ০), সময় (t ≥ ০) এবং পর্ব সংখ্যা (m: ১–৩৬৫ পূর্ণসংখ্যা) দিন।"
             )
         }
 
-        val totalPeriodsDouble = m * t
-        val isIntegerPeriods = abs(totalPeriodsDouble - totalPeriodsDouble.roundToInt()) < 1e-9 &&
-            totalPeriodsDouble.roundToInt() in 0..240
-        val nPeriods = totalPeriodsDouble.roundToInt()
+        val totalPeriodsDouble = m.toDouble() * t
+        if (!totalPeriodsDouble.isFinite() || totalPeriodsDouble > 10_000.0) {
+            return SolverResult(
+                topic = SolverTopic.SIMPLE_INTEREST,
+                mode = mode,
+                originalProblemBn = "P=${formatNum(p)}, r=${formatNum(r)}%, t=${formatNum(t)}, m=${BengaliNumberFormatter.toBn(m)}",
+                finalAnswerBn = "সমাধান সম্ভব নয়",
+                isSuccess = false,
+                errorMessageBn = "মোট চক্রবৃদ্ধি পর্ব (N = m × t) সমর্থিত নিরাপদ সীমা (১০,০০০)-এর বেশি হতে পারে না।"
+            )
+        }
+        val roundedPeriods = kotlin.math.round(totalPeriodsDouble)
+        val isIntegerPeriods = abs(totalPeriodsDouble - roundedPeriods) < 1e-9 &&
+            roundedPeriods >= 0.0 && roundedPeriods <= 240.0
+        val nPeriods = if (isIntegerPeriods) roundedPeriods.toInt() else 0
 
         val steps = mutableListOf<SolutionStep>()
         var stepIdx = 1
@@ -105,6 +117,17 @@ object SolverAdvancedAlgebraAndInterestEngine {
         val ciDouble = exactCI?.toDouble() ?: (amountDouble - p)
         val siDouble = (p * r * t) / 100.0
         val diffCiSi = ciDouble - siDouble
+
+        if (!amountDouble.isFinite() || !ciDouble.isFinite() || !siDouble.isFinite() || !diffCiSi.isFinite()) {
+            return SolverResult(
+                topic = SolverTopic.SIMPLE_INTEREST,
+                mode = mode,
+                originalProblemBn = "P=${formatNum(p)}, r=${formatNum(r)}%, t=${formatNum(t)}, m=${BengaliNumberFormatter.toBn(m)}",
+                finalAnswerBn = "সমাধান সম্ভব নয়",
+                isSuccess = false,
+                errorMessageBn = "চক্রবৃদ্ধি গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য বা ওভারফ্লো)।"
+            )
+        }
 
         val amountDispBn = if (exactA != null && exactA!!.isTerminatingDecimal) {
             BengaliNumberFormatter.toBn(exactA!!.toExactDecimalString()!!)
@@ -694,20 +717,29 @@ object SolverAdvancedAlgebraAndInterestEngine {
         mode: SolverMode
     ): SolverResult {
         val op = normalizeRelationSymbol(rawRelation)
+        if (!a.isFinite() || !b.isFinite() || !c.isFinite() || abs(a) < 1e-12) {
+            return SolverResult(
+                topic = SolverTopic.QUADRATIC_EQUATIONS,
+                mode = mode,
+                originalProblemBn = "দ্বিঘাত অসমতা যাচাই",
+                finalAnswerBn = "সমাধান সম্ভব নয়",
+                isSuccess = false,
+                errorMessageBn = "দ্বিঘাত অসমতায় সহগগুলো সসীম বাস্তব সংখ্যা হতে হবে এবং x² এর সহগ (a) শূন্য হতে পারবে না।"
+            )
+        }
         val eqBn = "${formatNum(a)}x² ${if (b >= 0) "+ ${formatNum(b)}x" else "− ${formatNum(abs(b))}x"} ${if (c >= 0) "+ ${formatNum(c)}" else "− ${formatNum(abs(c))}"} $op ০"
 
-        if (abs(a) < 1e-12 || a.isNaN() || b.isNaN() || c.isNaN()) {
+        val disc = b * b - 4.0 * a * c
+        if (!disc.isFinite()) {
             return SolverResult(
                 topic = SolverTopic.QUADRATIC_EQUATIONS,
                 mode = mode,
                 originalProblemBn = eqBn,
                 finalAnswerBn = "সমাধান সম্ভব নয়",
                 isSuccess = false,
-                errorMessageBn = "দ্বিঘাত অসমতায় x² এর সহগ (a) শূন্য হতে পারে না।"
+                errorMessageBn = "নিশ্চায়ক Δ গণনার মান সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
             )
         }
-
-        val disc = b * b - 4.0 * a * c
         val discBn = formatNum(disc)
         val steps = mutableListOf<SolutionStep>()
         var stepIdx = 1

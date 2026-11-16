@@ -20,7 +20,8 @@ object MathProblemSolverEngine {
     private val dfCurrency = DecimalFormat("0.##", usSymbols)
 
     private fun formatNum(n: Double): String {
-        return if (n == n.toLong().toDouble()) {
+        if (!n.isFinite()) return "অসংজ্ঞায়িত"
+        return if (abs(n) <= 9e15 && n == n.toLong().toDouble()) {
             BengaliNumberFormatter.toBn(n.toLong().toString())
         } else {
             BengaliNumberFormatter.toBn(df.format(n))
@@ -358,6 +359,14 @@ object MathProblemSolverEngine {
         val2: Double,
         mode: SolverMode
     ): SolverResult {
+        if (!val1.isFinite() || !val2.isFinite()) {
+            return errorResult(
+                SolverTopic.PERCENTAGE,
+                mode,
+                "শতকরা যাচাই",
+                "শতকরা হিসাবের জন্য উভয় ঘরে সসীম বৈধ সংখ্যা লিখুন।"
+            )
+        }
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
 
@@ -367,6 +376,14 @@ object MathProblemSolverEngine {
                 val percent = val1
                 val base = val2
                 val result = (percent * base) / 100.0
+                if (!result.isFinite() || !(percent * base).isFinite()) {
+                    return errorResult(
+                        SolverTopic.PERCENTAGE,
+                        mode,
+                        "${formatNum(base)} এর ${formatNum(percent)}%",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -419,6 +436,14 @@ object MathProblemSolverEngine {
                     )
                 }
                 val result = (part / total) * 100.0
+                if (!result.isFinite() || !(part / total).isFinite()) {
+                    return errorResult(
+                        SolverTopic.PERCENTAGE,
+                        mode,
+                        "$part of $total",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -466,6 +491,14 @@ object MathProblemSolverEngine {
                 val diff = newVal - oldVal
                 val isIncrease = diff >= 0
                 val pctChange = (abs(diff) / oldVal) * 100.0
+                if (!diff.isFinite() || !pctChange.isFinite()) {
+                    return errorResult(
+                        SolverTopic.PERCENTAGE,
+                        mode,
+                        "Old: $oldVal, New: $newVal",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -503,6 +536,14 @@ object MathProblemSolverEngine {
                 val a = val1
                 val b = val2
                 val net = a + b + (a * b) / 100.0
+                if (!net.isFinite() || !(a * b).isFinite()) {
+                    return errorResult(
+                        SolverTopic.PERCENTAGE,
+                        mode,
+                        "${formatNum(a)}%, ${formatNum(b)}%",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -551,18 +592,42 @@ object MathProblemSolverEngine {
         r3: Double? = null,
         mode: SolverMode
     ): SolverResult {
+        if (!total.isFinite() || !r1.isFinite() || !r2.isFinite() || (r3 != null && !r3.isFinite())) {
+            return errorResult(
+                SolverTopic.RATIO_PROPORTION,
+                mode,
+                "অনুপাত যাচাই",
+                "অনুপাতের সকল সংখ্যা সসীম বাস্তব সংখ্যা হতে হবে।"
+            )
+        }
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
 
         when (type) {
             RatioType.DIVIDE_QUANTITY -> {
-                val sumRatios = r1 + r2 + (r3 ?: 0.0)
-                if (sumRatios <= 0.0) {
+                if (total < 0.0) {
                     return errorResult(
                         SolverTopic.RATIO_PROPORTION,
                         mode,
-                        "অনুপাত যোগফল $sumRatios",
-                        "অনুপাতের রাশিগুলোর সমষ্টি অবশ্যই ধনাত্মক হতে হবে।"
+                        "মোট পরিমাণ $total",
+                        "বণ্টনযোগ্য মোট পরিমাণ ঋণাত্মক হতে পারবে না (অবশ্যই ≥ ০ হতে হবে)।"
+                    )
+                }
+                if (r1 <= 0.0 || r2 <= 0.0 || (r3 != null && r3 <= 0.0)) {
+                    return errorResult(
+                        SolverTopic.RATIO_PROPORTION,
+                        mode,
+                        "অনুপাত পদ যাচাই",
+                        "বণ্টনের জন্য অনুপাতের প্রতিটি পদ অবশ্যই ধনাত্মক (> ০) হতে হবে।"
+                    )
+                }
+                val sumRatios = r1 + r2 + (r3 ?: 0.0)
+                if (!sumRatios.isFinite() || sumRatios <= 0.0) {
+                    return errorResult(
+                        SolverTopic.RATIO_PROPORTION,
+                        mode,
+                        "অনুপাত যোগফল",
+                        "অনুপাতের রাশিগুলোর সমষ্টি বৈধ ও সসীম ধনাত্মক হতে হবে।"
                     )
                 }
 
@@ -583,6 +648,14 @@ object MathProblemSolverEngine {
                 val share1 = total * (r1 / sumRatios)
                 val share2 = total * (r2 / sumRatios)
                 val share3 = r3?.let { total * (it / sumRatios) }
+                if (!share1.isFinite() || !share2.isFinite() || (share3 != null && !share3.isFinite())) {
+                    return errorResult(
+                        SolverTopic.RATIO_PROPORTION,
+                        mode,
+                        "${formatNum(total)} বণ্টন",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -649,16 +722,17 @@ object MathProblemSolverEngine {
                 val a = r1
                 val b = r2
                 val c = total
-                if (a == 0.0) {
+                if (a <= 0.0 || b <= 0.0 || c <= 0.0) {
                     return errorResult(
                         SolverTopic.RATIO_PROPORTION,
                         mode,
-                        "a = 0",
-                        "সমানুপাতের প্রথম রাশি শূন্য হতে পারে না।"
+                        "A=${formatNum(a)}, B=${formatNum(b)}, C=${formatNum(c)}",
+                        "চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C অবশ্যই শূন্যের চেয়ে বড় (> ০) হতে হবে।"
                     )
                 }
-                val d = (b * c) / a
-                if (d.isInfinite() || d.isNaN()) {
+                val prodBc = b * c
+                val d = prodBc / a
+                if (!prodBc.isFinite() || !d.isFinite()) {
                     return errorResult(
                         SolverTopic.RATIO_PROPORTION,
                         mode,
@@ -700,11 +774,27 @@ object MathProblemSolverEngine {
                 )
             }
             RatioType.SIMPLIFY -> {
+                if (r1 <= 0.0 || r2 <= 0.0) {
+                    return errorResult(
+                        SolverTopic.RATIO_PROPORTION,
+                        mode,
+                        "${formatNum(r1)} : ${formatNum(r2)}",
+                        "অনুপাত সরলীকরণের জন্য উভয় পদ অবশ্যই ধনাত্মক (> ০) সংখ্যা হতে হবে।"
+                    )
+                }
                 var scaledR1 = r1
                 var scaledR2 = r2
                 while ((scaledR1 != kotlin.math.floor(scaledR1) || scaledR2 != kotlin.math.floor(scaledR2)) && scaledR1 < 1e9 && scaledR2 < 1e9) {
                     scaledR1 *= 10.0
                     scaledR2 *= 10.0
+                }
+                if (!scaledR1.isFinite() || !scaledR2.isFinite() || scaledR1 > 9e15 || scaledR2 > 9e15) {
+                    return errorResult(
+                        SolverTopic.RATIO_PROPORTION,
+                        mode,
+                        "${formatNum(r1)} : ${formatNum(r2)}",
+                        "অনুপাত সরলীকরণের মান সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
                 }
                 val l1 = kotlin.math.round(scaledR1).toLong()
                 val l2 = kotlin.math.round(scaledR2).toLong()
@@ -788,18 +878,26 @@ object MathProblemSolverEngine {
 
         when (type) {
             ProfitLossType.FIND_PROFIT_LOSS_PERCENT -> {
-                if (cp == null || sp == null || cp <= 0.0) {
+                if (cp == null || sp == null || !cp.isFinite() || !sp.isFinite() || cp <= 0.0 || sp < 0.0) {
                     return errorResult(
                         SolverTopic.PROFIT_LOSS,
                         mode,
                         "CP=$cp, SP=$sp",
-                        "ক্রয়মূল্য অবশ্যই শূন্যের চেয়ে বড় হতে হবে।"
+                        "ক্রয়মূল্য অবশ্যই ধনাত্মক (> ০) এবং বিক্রয়মূল্য অঋণাত্মক (≥ ০) হতে হবে।"
                     )
                 }
 
                 val diff = sp - cp
                 val isProfit = diff >= 0
                 val pct = (abs(diff) / cp) * 100.0
+                if (!diff.isFinite() || !pct.isFinite()) {
+                    return errorResult(
+                        SolverTopic.PROFIT_LOSS,
+                        mode,
+                        "CP=${formatNum(cp)}, SP=${formatNum(sp)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -850,17 +948,25 @@ object MathProblemSolverEngine {
                 )
             }
             ProfitLossType.FIND_SP_FROM_CP_AND_PERCENT -> {
-                if (cp == null || percent == null || cp <= 0.0) {
+                if (cp == null || percent == null || !cp.isFinite() || !percent.isFinite() || cp <= 0.0 || percent < -100.0) {
                     return errorResult(
                         SolverTopic.PROFIT_LOSS,
                         mode,
                         "CP=$cp, %=$percent",
-                        "ক্রয়মূল্য ও শতকরা হার প্রদান করুন।"
+                        "বৈধ ধনাত্মক ক্রয়মূল্য (CP > ০) এবং শতকরা হার (≥ -১০০%) প্রদান করুন।"
                     )
                 }
                 val isProfit = percent >= 0
                 val amount = (abs(percent) / 100.0) * cp
                 val finalSp = if (isProfit) cp + amount else cp - amount
+                if (!amount.isFinite() || !finalSp.isFinite()) {
+                    return errorResult(
+                        SolverTopic.PROFIT_LOSS,
+                        mode,
+                        "CP=${formatNum(cp)}, %=${formatNum(percent)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -899,12 +1005,12 @@ object MathProblemSolverEngine {
                 )
             }
             ProfitLossType.FIND_CP_FROM_SP_AND_PERCENT -> {
-                if (sp == null || percent == null || sp <= 0.0) {
+                if (sp == null || percent == null || !sp.isFinite() || !percent.isFinite() || sp <= 0.0) {
                     return errorResult(
                         SolverTopic.PROFIT_LOSS,
                         mode,
                         "SP=$sp, %=$percent",
-                        "বিক্রয়মূল্য ও শতকরা হার প্রদান করুন।"
+                        "বৈধ ধনাত্মক বিক্রয়মূল্য (SP > ০) ও শতকরা হার প্রদান করুন।"
                     )
                 }
                 val factor = 100.0 + percent
@@ -917,6 +1023,14 @@ object MathProblemSolverEngine {
                     )
                 }
                 val finalCp = (sp * 100.0) / factor
+                if (!finalCp.isFinite() || !(sp * 100.0).isFinite()) {
+                    return errorResult(
+                        SolverTopic.PROFIT_LOSS,
+                        mode,
+                        "SP=${formatNum(sp)}, %=${formatNum(percent)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -951,10 +1065,26 @@ object MathProblemSolverEngine {
                 )
             }
             ProfitLossType.DISCOUNT_MARKED_PRICE -> {
-                val markedPrice = mp ?: (sp ?: 100.0)
-                val discountPct = percent ?: 10.0
+                if (mp == null || percent == null || !mp.isFinite() || !percent.isFinite() || mp <= 0.0 || percent !in 0.0..100.0) {
+                    return errorResult(
+                        SolverTopic.PROFIT_LOSS,
+                        mode,
+                        "MP=$mp, Discount=$percent%",
+                        "বৈধ ধনাত্মক ধার্যমূল্য (MP > ০) এবং ছাড়ের হার (০% থেকে ১০০%) প্রদান করুন।"
+                    )
+                }
+                val markedPrice = mp
+                val discountPct = percent
                 val discountAmount = markedPrice * (discountPct / 100.0)
                 val sellingPrice = markedPrice - discountAmount
+                if (!discountAmount.isFinite() || !sellingPrice.isFinite()) {
+                    return errorResult(
+                        SolverTopic.PROFIT_LOSS,
+                        mode,
+                        "MP=${formatNum(mp)}, Discount=${formatNum(percent)}%",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -995,12 +1125,12 @@ object MathProblemSolverEngine {
     // 6. AVERAGE
     // -------------------------------------------------------------
     fun solveAverage(numbers: List<Double>, mode: SolverMode): SolverResult {
-        if (numbers.isEmpty()) {
+        if (numbers.isEmpty() || numbers.any { !it.isFinite() }) {
             return errorResult(
                 SolverTopic.AVERAGE,
                 mode,
-                "খালি তালিকা",
-                "কমপক্ষে একটি বা দুটি সংখ্যা ইনপুট দিন।"
+                "অবৈধ তালিকা",
+                "কমপক্ষে একটি সসীম বৈধ সংখ্যা ইনপুট দিন।"
             )
         }
 
@@ -1010,6 +1140,14 @@ object MathProblemSolverEngine {
         val count = numbers.size
         val sum = numbers.sum()
         val avg = sum / count
+        if (!sum.isFinite() || !avg.isFinite()) {
+            return errorResult(
+                SolverTopic.AVERAGE,
+                mode,
+                "সমষ্টি/গড় যাচাই",
+                "সংখ্যাগুলোর সমষ্টি বা গড় সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+            )
+        }
 
         val numsBn = numbers.joinToString(" + ") { formatNum(it) }
 
@@ -1075,13 +1213,48 @@ object MathProblemSolverEngine {
         a: Double?, // Total Amount
         mode: SolverMode
     ): SolverResult {
+        val providedArgs = listOf(p, r, t, i)
+        if (providedArgs.any { it != null && !it.isFinite() }) {
+            return errorResult(
+                SolverTopic.SIMPLE_INTEREST,
+                mode,
+                "অবৈধ সংখ্যা",
+                "সরল মুনাফার সকল মান অবশ্যই সসীম বাস্তব সংখ্যা হতে হবে।"
+            )
+        }
+        val providedCount = providedArgs.count { it != null }
+        if (providedCount != 3) {
+            return errorResult(
+                SolverTopic.SIMPLE_INTEREST,
+                mode,
+                if (providedCount == 4) "৪টি মান দেওয়া হয়েছে" else "অসম্পূর্ণ তথ্য",
+                "P, r, t, I এর মধ্যে ঠিক ৩টি রাশির মান দিন এবং নির্ণেয় ১টি ঘর ফাঁকা রাখুন।"
+            )
+        }
+
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
 
         // Case 1: Solve for Interest (I) and Total Amount (A) given P, r, t
-        if (p != null && r != null && t != null) {
+        if (p != null && r != null && t != null && i == null) {
+            if (p <= 0.0 || r < 0.0 || t <= 0.0) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=$p, r=$r, t=$t",
+                    "মুনাফা (I) নির্ণয়ে আসল (P > ০), সময় (t > ০) এবং হার (r ≥ ০) বৈধ হতে হবে।"
+                )
+            }
             val calcI = (p * r * t) / 100.0
             val calcA = p + calcI
+            if (!calcI.isFinite() || !calcA.isFinite() || !(p * r * t).isFinite()) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=${formatNum(p)}, r=${formatNum(r)}, t=${formatNum(t)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                )
+            }
 
             steps.add(
                 SolutionStep(
@@ -1134,8 +1307,24 @@ object MathProblemSolverEngine {
         }
 
         // Case 2: Solve for Principal (P) given I, r, t
-        if (i != null && r != null && t != null && r > 0 && t > 0) {
+        if (p == null && i != null && r != null && t != null) {
+            if (i <= 0.0 || r <= 0.0 || t <= 0.0) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "I=$i, r=$r, t=$t",
+                    "আসল (P) নির্ণয়ে মুনাফা (I > ০), হার (r > ০) ও সময় (t > ০) ধনাত্মক হতে হবে।"
+                )
+            }
             val calcP = (i * 100.0) / (r * t)
+            if (!calcP.isFinite() || !(i * 100.0).isFinite() || !(r * t).isFinite()) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "I=${formatNum(i)}, r=${formatNum(r)}, t=${formatNum(t)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                )
+            }
 
             steps.add(
                 SolutionStep(
@@ -1169,8 +1358,24 @@ object MathProblemSolverEngine {
         }
 
         // Case 3: Solve for Rate (r) given P, I, t
-        if (p != null && i != null && t != null && p > 0 && t > 0) {
+        if (r == null && p != null && i != null && t != null) {
+            if (p <= 0.0 || i < 0.0 || t <= 0.0) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=$p, I=$i, t=$t",
+                    "মুনাফার হার (r) নির্ণয়ে আসল (P > ০), সময় (t > ০) এবং মুনাফা (I ≥ ০) বৈধ হতে হবে।"
+                )
+            }
             val calcR = (i * 100.0) / (p * t)
+            if (!calcR.isFinite() || !(i * 100.0).isFinite() || !(p * t).isFinite()) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=${formatNum(p)}, I=${formatNum(i)}, t=${formatNum(t)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                )
+            }
 
             steps.add(
                 SolutionStep(
@@ -1204,8 +1409,24 @@ object MathProblemSolverEngine {
         }
 
         // Case 4: Solve for Time (t) given P, I, r
-        if (p != null && i != null && r != null && p > 0 && r > 0) {
+        if (t == null && p != null && i != null && r != null) {
+            if (p <= 0.0 || i < 0.0 || r <= 0.0) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=$p, I=$i, r=$r",
+                    "সময় (t) নির্ণয়ে আসল (P > ০), হার (r > ০) এবং মুনাফা (I ≥ ০) বৈধ হতে হবে।"
+                )
+            }
             val calcT = (i * 100.0) / (p * r)
+            if (!calcT.isFinite() || !(i * 100.0).isFinite() || !(p * r).isFinite()) {
+                return errorResult(
+                    SolverTopic.SIMPLE_INTEREST,
+                    mode,
+                    "P=${formatNum(p)}, I=${formatNum(i)}, r=${formatNum(r)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                )
+            }
 
             steps.add(
                 SolutionStep(
@@ -1270,12 +1491,12 @@ object MathProblemSolverEngine {
         timeC: Double? = null,
         mode: SolverMode
     ): SolverResult {
-        if (timeA <= 0.0 || timeB <= 0.0) {
+        if (!timeA.isFinite() || !timeB.isFinite() || timeA <= 0.0 || timeB <= 0.0) {
             return errorResult(
                 SolverTopic.TIME_AND_WORK,
                 mode,
                 "A=$timeA, B=$timeB",
-                "কাজের সময় অবশ্যই ধনাত্মক হতে হবে।"
+                "কাজের সময় অবশ্যই সসীম ও ধনাত্মক (> ০) হতে হবে।"
             )
         }
 
@@ -1285,6 +1506,14 @@ object MathProblemSolverEngine {
         when (type) {
             WorkType.TWO_PERSONS -> {
                 val totalDays = (timeA * timeB) / (timeA + timeB)
+                if (!totalDays.isFinite() || !(timeA * timeB).isFinite()) {
+                    return errorResult(
+                        SolverTopic.TIME_AND_WORK,
+                        mode,
+                        "A=${formatNum(timeA)}, B=${formatNum(timeB)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -1336,9 +1565,25 @@ object MathProblemSolverEngine {
                 )
             }
             WorkType.THREE_PERSONS -> {
-                val tC = timeC ?: 12.0
+                if (timeC == null || !timeC.isFinite() || timeC <= 0.0) {
+                    return errorResult(
+                        SolverTopic.TIME_AND_WORK,
+                        mode,
+                        "A=${formatNum(timeA)}, B=${formatNum(timeB)}, C=$timeC",
+                        "৩ জনের কাজের জন্য C-এর সময় অবশ্যই সসীম ও ধনাত্মক (> ০) হতে হবে।"
+                    )
+                }
+                val tC = timeC
                 val combinedRate = (1.0 / timeA) + (1.0 / timeB) + (1.0 / tC)
-                val totalDays = 1.0 / combinedRate
+                val totalDays = if (combinedRate > 0.0) 1.0 / combinedRate else Double.NaN
+                if (!combinedRate.isFinite() || combinedRate <= 0.0 || !totalDays.isFinite()) {
+                    return errorResult(
+                        SolverTopic.TIME_AND_WORK,
+                        mode,
+                        "A=${formatNum(timeA)}, B=${formatNum(timeB)}, C=${formatNum(tC)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -1391,6 +1636,14 @@ object MathProblemSolverEngine {
                 }
 
                 val netHours = (timeA * timeB) / (timeB - timeA)
+                if (!netHours.isFinite() || !(timeA * timeB).isFinite()) {
+                    return errorResult(
+                        SolverTopic.TIME_AND_WORK,
+                        mode,
+                        "Fill=${formatNum(timeA)}, Empty=${formatNum(timeB)}",
+                        "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                    )
+                }
 
                 steps.add(
                     SolutionStep(
@@ -1443,21 +1696,64 @@ object MathProblemSolverEngine {
         time: Double?,
         mode: SolverMode
     ): SolverResult {
+        val providedArgs = listOf(speed, distance, time)
+        if (providedArgs.any { it != null && !it.isFinite() }) {
+            return errorResult(
+                SolverTopic.SPEED_DISTANCE_TIME,
+                mode,
+                "অবৈধ সংখ্যা",
+                "গতিবেগ, দূরত্ব ও সময়ের মান অবশ্যই সসীম বাস্তব সংখ্যা হতে হবে।"
+            )
+        }
+        val providedCount = providedArgs.count { it != null }
+        if (providedCount != 2) {
+            return errorResult(
+                SolverTopic.SPEED_DISTANCE_TIME,
+                mode,
+                if (providedCount == 3) "৩টি মান দেওয়া হয়েছে" else "অসম্পূর্ণ তথ্য",
+                "গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর মধ্যে ঠিক ২টি রাশির মান দিন এবং ১টি ফাঁকা রাখুন।"
+            )
+        }
+        if (speed != null && speed <= 0.0) {
+            return errorResult(
+                SolverTopic.SPEED_DISTANCE_TIME,
+                mode,
+                "Speed=$speed",
+                "গতিবেগ (S) অবশ্যই শূন্যের চেয়ে বেশি (> ০) হতে হবে।"
+            )
+        }
+        if (time != null && time <= 0.0) {
+            return errorResult(
+                SolverTopic.SPEED_DISTANCE_TIME,
+                mode,
+                "Time=$time",
+                "সময় (T) অবশ্যই শূন্যের চেয়ে বেশি (> ০) হতে হবে।"
+            )
+        }
+        if (distance != null && distance < 0.0) {
+            return errorResult(
+                SolverTopic.SPEED_DISTANCE_TIME,
+                mode,
+                "Distance=$distance",
+                "দূরত্ব (D) কখনো ঋণাত্মক হতে পারে না (অবশ্যই ≥ ০ হতে হবে)।"
+            )
+        }
+
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
 
-        // Case 1: Solve for Speed (S = D / T)
+        // Case 1: Solve for Speed (S = D / T); supports D = 0 -> S = 0
         if (distance != null && time != null && speed == null) {
-            if (time <= 0.0) {
+            val sKmh = distance / time
+            val sMs = sKmh * (5.0 / 18.0)
+            if (!sKmh.isFinite() || !sMs.isFinite()) {
                 return errorResult(
                     SolverTopic.SPEED_DISTANCE_TIME,
                     mode,
-                    "Time=$time",
-                    "সময় অবশ্যই শূন্যের চেয়ে বেশি হতে হবে।"
+                    "D=${formatNum(distance)}, T=${formatNum(time)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
                 )
             }
-            val sKmh = distance / time
-            val sMs = sKmh * (5.0 / 18.0)
 
             steps.add(
                 SolutionStep(
@@ -1513,6 +1809,14 @@ object MathProblemSolverEngine {
         // Case 2: Solve for Distance (D = S * T)
         if (speed != null && time != null && distance == null) {
             val d = speed * time
+            if (!d.isFinite()) {
+                return errorResult(
+                    SolverTopic.SPEED_DISTANCE_TIME,
+                    mode,
+                    "S=${formatNum(speed)}, T=${formatNum(time)}",
+                    "গণনার ফলাফল সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+                )
+            }
 
             steps.add(
                 SolutionStep(
@@ -1545,17 +1849,18 @@ object MathProblemSolverEngine {
             )
         }
 
-        // Case 3: Solve for Time (T = D / S)
+        // Case 3: Solve for Time (T = D / S); supports D = 0 -> T = 0
         if (distance != null && speed != null && time == null) {
-            if (speed <= 0.0) {
+            val t = distance / speed
+            val rawTotalSeconds = t * 3600.0
+            if (!t.isFinite() || !rawTotalSeconds.isFinite() || rawTotalSeconds > (Long.MAX_VALUE / 2).toDouble()) {
                 return errorResult(
                     SolverTopic.SPEED_DISTANCE_TIME,
                     mode,
-                    "Speed=$speed",
-                    "গতিবেগ শূন্য বা ঋণাত্মক হতে পারে না।"
+                    "D=${formatNum(distance)}, S=${formatNum(speed)}",
+                    "সময়ের গণনা সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
                 )
             }
-            val t = distance / speed
 
             steps.add(
                 SolutionStep(
@@ -1575,7 +1880,7 @@ object MathProblemSolverEngine {
                 )
             )
 
-            val totalSeconds = round(t * 3600.0).toLong()
+            val totalSeconds = round(rawTotalSeconds).toLong()
             val h = totalSeconds / 3600L
             val remSeconds = totalSeconds % 3600L
             val m = remSeconds / 60L
@@ -1831,15 +2136,15 @@ object MathProblemSolverEngine {
     // 11. HCF AND LCM
     // -------------------------------------------------------------
     fun solveHcfLcm(numbers: List<Long>, mode: SolverMode): SolverResult {
-        val validNums = numbers.filter { it > 0 }
-        if (validNums.size < 2) {
+        if (numbers.size < 2 || numbers.any { it <= 0L }) {
             return errorResult(
                 SolverTopic.HCF_LCM,
                 mode,
-                "কম সংখ্যা",
-                "গ.সা.গু ও ল.সা.গু নির্ণয়ের জন্য কমপক্ষে ২টি ধনাত্মক সংখ্যা ইনপুট দিন।"
+                "অবৈধ সংখ্যা তালিকা",
+                "গ.সা.গু ও ল.সা.গু নির্ণয়ের জন্য প্রতিটি সংখ্যাই ধনাত্মক পূর্ণসংখ্যা (> ০) হতে হবে এবং কমপক্ষে ২টি সংখ্যা দিতে হবে।"
             )
         }
+        val validNums = numbers
 
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
@@ -1853,7 +2158,21 @@ object MathProblemSolverEngine {
             validNums.reduce { acc, n -> NumberSystemProvider.gcd(acc, n) }
         }
 
-        val lcmVal = if (validNums.size == 2) {
+        val maxLongBig = java.math.BigInteger.valueOf(Long.MAX_VALUE)
+        var cumulativeBigLcm = java.math.BigInteger.valueOf(validNums[0])
+        var lcmOverflowed = false
+        for (i in 1 until validNums.size) {
+            val nextBig = java.math.BigInteger.valueOf(validNums[i])
+            val gBig = cumulativeBigLcm.gcd(nextBig)
+            cumulativeBigLcm = cumulativeBigLcm.divide(gBig).multiply(nextBig)
+            if (cumulativeBigLcm > maxLongBig) {
+                lcmOverflowed = true
+                break
+            }
+        }
+        val lcmVal = if (lcmOverflowed) {
+            -1L
+        } else if (validNums.size == 2) {
             NumberSystemProvider.lcm(a, b)
         } else {
             var currentLcm = validNums[0]
@@ -1864,7 +2183,7 @@ object MathProblemSolverEngine {
             currentLcm
         }
 
-        if (lcmVal <= 0L) {
+        if (lcmOverflowed || lcmVal <= 0L) {
             return errorResult(
                 SolverTopic.HCF_LCM,
                 mode,
@@ -2509,6 +2828,14 @@ object MathProblemSolverEngine {
         mode: SolverMode,
         relation: String = "="
     ): SolverResult {
+        if (!a.isFinite() || !b.isFinite() || !c.isFinite()) {
+            return errorResult(
+                SolverTopic.QUADRATIC_EQUATIONS,
+                mode,
+                "দ্বিঘাত সমীকরণ যাচাই",
+                "দ্বিঘাত সমীকরণের সহগ (a, b, c) অবশ্যই সসীম বাস্তব সংখ্যা হতে হবে।"
+            )
+        }
         if (relation.trim() != "=") {
             return SolverAdvancedAlgebraAndInterestEngine.solveQuadraticInequality(a, b, c, relation, mode)
         }

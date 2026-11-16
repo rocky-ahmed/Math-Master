@@ -625,6 +625,23 @@ object SharedMathEngine {
         val discriminant = b * b - 4.0 * a * c
         val vertexX = -b / (2.0 * a)
         val vertexY = a * vertexX * vertexX + b * vertexX + c
+        if (!discriminant.isFinite() || !vertexX.isFinite() || !vertexY.isFinite()) {
+            return QuadraticAnalysisResult(
+                a = a, b = b, c = c,
+                isValidQuadratic = false,
+                discriminant = Double.NaN,
+                natureOfRootsBn = "সংখ্যাধিক্য (Overflow)",
+                natureOfRootsEn = "Numeric overflow",
+                root1TextBn = "",
+                root2TextBn = "",
+                exactRootsTextBn = "",
+                vertexX = 0.0,
+                vertexY = 0.0,
+                stepsBn = emptyList(),
+                verificationBn = "",
+                errorMessageBn = "দ্বিঘাত সমীকরণের নিশ্চায়ক বা গণনার মান সমর্থিত সীমার বাইরে (সংখ্যাধিক্য)।"
+            )
+        }
 
         val aBn = formatDoubleBn(a)
         val bBn = formatDoubleBn(b)

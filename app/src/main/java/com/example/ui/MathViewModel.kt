@@ -80,6 +80,7 @@ import com.example.ui.theme.AppThemeMode
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -3067,26 +3068,36 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
-    fun saveSolverResultToHistory(
+    private val solverSaveInFlight = AtomicBoolean(false)
+    private val _isSolverPersistenceInFlight = MutableStateFlow(false)
+    val isSolverPersistenceInFlight: StateFlow<Boolean> = _isSolverPersistenceInFlight.asStateFlow()
+
+    @androidx.annotation.VisibleForTesting
+    internal var solverHistoryPersistDelegateForTesting: (suspend (SolverHistoryEntity) -> Unit)? = null
+
+    suspend fun persistSolverResultToHistory(
         topic: SolverTopic,
         inputs: Map<String, String>,
         result: SolverResult
-    ) {
-        if (!result.isSuccess) return
-        viewModelScope.launch {
-            val summary = inputs.entries.joinToString(", ") { "${it.key} = ${it.value}" }.ifBlank { result.originalProblemBn }
-            val entity = SolverHistoryEntity(
-                topicId = topic.name,
-                topicTitleBn = topic.titleBn,
-                categoryTitleBn = topic.titleEn,
-                inputSummaryBn = summary,
-                inputsJson = SimilarProblemGenerator.serializeInputs(inputs),
-                finalAnswerBn = result.finalAnswerBn,
-                stepsJson = SimilarProblemGenerator.serializeSteps(result.steps),
-                formulaUsedBn = result.formulaUsedBn ?: "",
-                verificationBn = result.verificationBn ?: "",
-                timestamp = System.currentTimeMillis()
-            )
+    ): Boolean {
+        if (!result.isSuccess) return false
+        val summary = inputs.entries.joinToString(", ") { "${it.key} = ${it.value}" }.ifBlank { result.originalProblemBn }
+        val entity = SolverHistoryEntity(
+            topicId = topic.name,
+            topicTitleBn = topic.titleBn,
+            categoryTitleBn = topic.titleEn,
+            inputSummaryBn = summary,
+            inputsJson = SimilarProblemGenerator.serializeInputs(inputs),
+            finalAnswerBn = result.finalAnswerBn,
+            stepsJson = SimilarProblemGenerator.serializeSteps(result.steps),
+            formulaUsedBn = result.formulaUsedBn ?: "",
+            verificationBn = result.verificationBn ?: "",
+            timestamp = System.currentTimeMillis()
+        )
+        val delegate = solverHistoryPersistDelegateForTesting
+        if (delegate != null) {
+            delegate.invoke(entity)
+        } else {
             repository.saveSolvedProblemHistory(entity)
             repository.recordDailyStudyDelta(
                 questionsAttemptedDelta = 1,
@@ -3097,6 +3108,69 @@ class MathViewModel @JvmOverloads constructor(
                 practiceSessionsCompletedDelta = 1
             )
             recordDailyActivity(1)
+        }
+        return true
+    }
+
+    fun submitSolverCalculationAndPersist(
+        topic: SolverTopic,
+        solveAction: () -> SolverResult?,
+        inputsBuilder: (SolverResult) -> Map<String, String> = { mapOf("problem" to it.originalProblemBn) }
+    ) {
+        if (!solverSaveInFlight.compareAndSet(false, true)) return
+        _isSolverPersistenceInFlight.value = true
+        val res = try {
+            solveAction()
+        } catch (t: Throwable) {
+            _isSolverPersistenceInFlight.value = false
+            solverSaveInFlight.set(false)
+            throw t
+        }
+        if (res == null || !res.isSuccess) {
+            _isSolverPersistenceInFlight.value = false
+            solverSaveInFlight.set(false)
+            return
+        }
+        val inputs = try {
+            inputsBuilder(res)
+        } catch (t: Throwable) {
+            _isSolverPersistenceInFlight.value = false
+            solverSaveInFlight.set(false)
+            throw t
+        }
+        viewModelScope.launch {
+            try {
+                persistSolverResultToHistory(topic, inputs, res)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Keep UI responsive; guard releases in finally so future solves are not permanently blocked.
+            } finally {
+                _isSolverPersistenceInFlight.value = false
+                solverSaveInFlight.set(false)
+            }
+        }
+    }
+
+    fun saveSolverResultToHistory(
+        topic: SolverTopic,
+        inputs: Map<String, String>,
+        result: SolverResult
+    ) {
+        if (!result.isSuccess) return
+        if (!solverSaveInFlight.compareAndSet(false, true)) return
+        _isSolverPersistenceInFlight.value = true
+        viewModelScope.launch {
+            try {
+                persistSolverResultToHistory(topic, inputs, result)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Guard releases in finally.
+            } finally {
+                _isSolverPersistenceInFlight.value = false
+                solverSaveInFlight.set(false)
+            }
         }
     }
 

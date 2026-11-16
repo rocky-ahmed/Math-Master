@@ -752,10 +752,19 @@ object NumberSystemProvider {
     fun lcm(a: Long, b: Long): Long {
         if (a == 0L || b == 0L) return 0L
         if (a == Long.MIN_VALUE || b == Long.MIN_VALUE) return -1L
-        val g = gcd(a, b)
+        val absA = abs(a)
+        val absB = abs(b)
+        val g = gcd(absA, absB)
+        if (g <= 0L) return -1L
+        val bigLcm = java.math.BigInteger.valueOf(absA)
+            .divide(java.math.BigInteger.valueOf(g))
+            .multiply(java.math.BigInteger.valueOf(absB))
+        if (bigLcm > java.math.BigInteger.valueOf(Long.MAX_VALUE)) {
+            return -1L
+        }
         return try {
-            val div = abs(a) / g
-            Math.multiplyExact(div, abs(b))
+            val div = absA / g
+            Math.multiplyExact(div, absB)
         } catch (e: ArithmeticException) {
             -1L
         }
