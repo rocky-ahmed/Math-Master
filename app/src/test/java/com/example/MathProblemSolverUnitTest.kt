@@ -1198,4 +1198,386 @@ class MathProblemSolverUnitTest {
         assertEquals("3m", com.example.math.SharedMathEngine.normalizeAnswerToken("3m"))
         assertEquals("2x+3m", com.example.math.SharedMathEngine.normalizeAnswerToken("2x + 3m"))
     }
+
+    // -------------------------------------------------------------
+    // 15. ATOMIC BODMAS, LEVEL 2A/2B/2C/2D, AND 'এর' (OF) GOLDEN TESTS
+    // -------------------------------------------------------------
+    @Test
+    fun testAtomicBodmasScreenshotRegressionAndTypography() {
+        // Screenshot regression: (২৫ + ১৫) × ২ - ৩০ ÷ ৩ = ৭০ with 4 atomic steps and no raw * or /
+        val res = MathProblemSolverEngine.solveArithmetic("(২৫ + ১৫) × ২ - ৩০ ÷ ৩", SolverMode.LEARNING)
+        assertTrue(res.isSuccess)
+        assertEquals("৭০", res.finalAnswerBn)
+        assertEquals(4, res.steps.size)
+        res.steps.forEach { step ->
+            assertFalse("Step math must not contain raw '*': ${step.expressionOrMathBn}", step.expressionOrMathBn.contains("*"))
+            assertFalse("Step math must not contain raw '/': ${step.expressionOrMathBn}", step.expressionOrMathBn.contains("/"))
+            assertTrue(step.expressionBeforeBn?.isNotBlank() == true)
+            assertTrue(step.expressionAfterBn?.isNotBlank() == true)
+        }
+    }
+
+    @Test
+    fun testBodmasOfOperatorAndFractionLiterals() {
+        // ১৬ ÷ ২ এর ৪ -> ২ এর ৪ = ৮ first, then ১৬ ÷ ৮ = ২
+        val r1 = MathProblemSolverEngine.solveArithmetic("১৬ ÷ ২ এর ৪", SolverMode.LEARNING)
+        assertTrue(r1.isSuccess)
+        assertEquals("২", r1.finalAnswerBn)
+
+        // ১/২ এর ৮ -> ৪
+        val r2 = MathProblemSolverEngine.solveArithmetic("১/২ এর ৮", SolverMode.LEARNING)
+        assertTrue(r2.isSuccess)
+        assertEquals("৪", r2.finalAnswerBn)
+
+        // (১ ÷ ২) এর ৮ -> ৪
+        val r3 = MathProblemSolverEngine.solveArithmetic("(১ ÷ ২) এর ৮", SolverMode.LEARNING)
+        assertTrue(r3.isSuccess)
+        assertEquals("৪", r3.finalAnswerBn)
+
+        // Spaced slash with এর is rejected with Bengali disambiguation prompt
+        val rAmbig1 = MathProblemSolverEngine.solveArithmetic("১ / ২ এর ৮", SolverMode.LEARNING)
+        assertFalse(rAmbig1.isSuccess)
+        assertNotNull(rAmbig1.errorMessageBn)
+
+        // Chained slash with এর is rejected
+        val rAmbig2 = MathProblemSolverEngine.solveArithmetic("১/২/৩ এর ৬", SolverMode.LEARNING)
+        assertFalse(rAmbig2.isSuccess)
+        assertNotNull(rAmbig2.errorMessageBn)
+
+        // Equal-precedence left-to-right division & multiplication: ১২ ÷ ৩ × ২ = ৮
+        val r4 = MathProblemSolverEngine.solveArithmetic("১২ ÷ ৩ × ২", SolverMode.LEARNING)
+        assertTrue(r4.isSuccess)
+        assertEquals("৮", r4.finalAnswerBn)
+
+        // Equal-precedence left-to-right subtraction & addition: ২০ - ৫ + ২ = ১৭
+        val r5 = MathProblemSolverEngine.solveArithmetic("২০ - ৫ + ২", SolverMode.LEARNING)
+        assertTrue(r5.isSuccess)
+        assertEquals("১৭", r5.finalAnswerBn)
+    }
+
+    @Test
+    fun testLevel2ExponentRootAndUnaryPrecedenceContract() {
+        // Level 2A: Contiguous Unicode superscript integer exponent 2³² = 2^32 = 4,294,967,296
+        val sup32 = MathProblemSolverEngine.solveArithmetic("2³²", SolverMode.LEARNING)
+        assertTrue(sup32.isSuccess)
+        assertEquals("৪২৯৪৯৬৭২৯৬", sup32.finalAnswerBn)
+
+        // Level 2B: Right-associative caret exponentiation 2^3^2 = 2^(3^2) = 512, (2^3)^2 = 64
+        val caretRight = MathProblemSolverEngine.solveArithmetic("2^3^2", SolverMode.LEARNING)
+        assertTrue(caretRight.isSuccess)
+        assertEquals("৫১২", caretRight.finalAnswerBn)
+
+        val caretParen = MathProblemSolverEngine.solveArithmetic("(2^3)^2", SolverMode.LEARNING)
+        assertTrue(caretParen.isSuccess)
+        assertEquals("৬৪", caretParen.finalAnswerBn)
+
+        // Level 2C & 2D: Unary minus binds looser than exponentiation and square root
+        val unaryExp1 = MathProblemSolverEngine.solveArithmetic("-3²", SolverMode.LEARNING)
+        assertTrue(unaryExp1.isSuccess)
+        assertEquals("-৯", unaryExp1.finalAnswerBn)
+
+        val unaryExp2 = MathProblemSolverEngine.solveArithmetic("-3^2", SolverMode.LEARNING)
+        assertTrue(unaryExp2.isSuccess)
+        assertEquals("-৯", unaryExp2.finalAnswerBn)
+
+        val parenNegExp = MathProblemSolverEngine.solveArithmetic("(-3)²", SolverMode.LEARNING)
+        assertTrue(parenNegExp.isSuccess)
+        assertEquals("৯", parenNegExp.finalAnswerBn)
+
+        val unarySqrt = MathProblemSolverEngine.solveArithmetic("-√9", SolverMode.LEARNING)
+        assertTrue(unarySqrt.isSuccess)
+        assertEquals("-৩", unarySqrt.finalAnswerBn)
+
+        // Real-domain square root policy: √(-9) rejected in BASIC_ARITHMETIC and SQUARES_CUBES_ROOTS
+        val negSqrtArith = MathProblemSolverEngine.solveArithmetic("√(-9)", SolverMode.LEARNING)
+        assertFalse(negSqrtArith.isSuccess)
+        assertTrue(negSqrtArith.errorMessageBn?.contains("বাস্তব") == true)
+
+        val negSqrtTopic = MathProblemSolverEngine.solveSquareCube(
+            -9.0,
+            MathProblemSolverEngine.SquareCubeOp.SQUARE_ROOT,
+            SolverMode.LEARNING
+        )
+        assertFalse(negSqrtTopic.isSuccess)
+        assertTrue(negSqrtTopic.errorMessageBn?.contains("বাস্তব") == true)
+
+        // Ambiguity guard: unparenthesized √9² or √9^2 rejected
+        val ambigRootPow1 = MathProblemSolverEngine.solveArithmetic("√9²", SolverMode.LEARNING)
+        assertFalse(ambigRootPow1.isSuccess)
+        assertNotNull(ambigRootPow1.errorMessageBn)
+
+        val ambigRootPow2 = MathProblemSolverEngine.solveArithmetic("√9^2", SolverMode.LEARNING)
+        assertFalse(ambigRootPow2.isSuccess)
+        assertNotNull(ambigRootPow2.errorMessageBn)
+    }
+
+    // -------------------------------------------------------------
+    // 16. DEGENERATE & RANK-BASED 2x2 AND 3x3 LINEAR SYSTEMS
+    // -------------------------------------------------------------
+    @Test
+    fun testSimultaneousLinear2x2RankClassificationAllCases() {
+        // Case A: 0x + 0y = 0, 0x + 0y = 0 -> rank(A)=0, rank([A|b])=0 < 2 -> infinitely many solutions
+        val caseA = com.example.math.SharedMathEngine.solveSimultaneousLinear(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        assertFalse(caseA.isUniqueSolution)
+        assertTrue(caseA.isInfiniteSolutions)
+        assertFalse(caseA.isNoSolution)
+        assertEquals(0, caseA.rankA)
+        assertEquals(0, caseA.rankAugmented)
+
+        // Case B: 0x + 0y = 1, 0x + 0y = 2 -> rank(A)=0 < rank([A|b])=1 -> no solution
+        val caseB = com.example.math.SharedMathEngine.solveSimultaneousLinear(0.0, 0.0, 1.0, 0.0, 0.0, 2.0)
+        assertFalse(caseB.isUniqueSolution)
+        assertFalse(caseB.isInfiniteSolutions)
+        assertTrue(caseB.isNoSolution)
+        assertEquals(0, caseB.rankA)
+        assertEquals(1, caseB.rankAugmented)
+
+        // Case C: x + y = 5, 2x + 2y = 10 -> rank(A)=1, rank([A|b])=1 < 2 -> infinitely many solutions
+        val caseC = com.example.math.SharedMathEngine.solveSimultaneousLinear(1.0, 1.0, 5.0, 2.0, 2.0, 10.0)
+        assertFalse(caseC.isUniqueSolution)
+        assertTrue(caseC.isInfiniteSolutions)
+        assertFalse(caseC.isNoSolution)
+        assertEquals(1, caseC.rankA)
+        assertEquals(1, caseC.rankAugmented)
+
+        // Case D: x + y = 5, 2x + 2y = 11 -> rank(A)=1 < rank([A|b])=2 -> no solution
+        val caseD = com.example.math.SharedMathEngine.solveSimultaneousLinear(1.0, 1.0, 5.0, 2.0, 2.0, 11.0)
+        assertFalse(caseD.isUniqueSolution)
+        assertFalse(caseD.isInfiniteSolutions)
+        assertTrue(caseD.isNoSolution)
+        assertEquals(1, caseD.rankA)
+        assertEquals(2, caseD.rankAugmented)
+
+        // Unique solution with Elimination & Substitution steps
+        val unique = com.example.math.SharedMathEngine.solveSimultaneousLinear(2.0, 3.0, 13.0, 5.0, -2.0, 4.0)
+        assertTrue(unique.isUniqueSolution)
+        assertEquals("২", unique.xExactBn)
+        assertEquals("৩", unique.yExactBn)
+        assertTrue(unique.eliminationStepsBn.isNotEmpty())
+        assertTrue(unique.substitutionStepsBn.isNotEmpty())
+    }
+
+    @Test
+    fun testSimultaneousLinear3x3RankClassification() {
+        // 1. Unique (rank(A) = rank([A|b]) = 3): x + y + z = 6, x + 2y + 3z = 14, x - y + 2z = 5 -> x=1, y=2, z=3
+        val unique3 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            1.0, 1.0, 1.0, 6.0,
+            1.0, 2.0, 3.0, 14.0,
+            1.0, -1.0, 2.0, 5.0
+        )
+        assertTrue(unique3.isUniqueSolution)
+        assertEquals("১", unique3.xExactBn)
+        assertEquals("২", unique3.yExactBn)
+        assertEquals("৩", unique3.zExactBn)
+
+        // 2. Infinite (rank(A) = rank([A|b]) = 1 < 3): 2nd row is 2 * 1st row, 3rd row is 3 * 1st row
+        val inf3 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            1.0, 1.0, 1.0, 6.0,
+            2.0, 2.0, 2.0, 12.0,
+            3.0, 3.0, 3.0, 18.0
+        )
+        assertTrue(inf3.isInfiniteSolutions)
+        assertFalse(inf3.isNoSolution)
+
+        // 3. Infinite Rank-0 (rank(A) = rank([A|b]) = 0 < 3): 0x + 0y + 0z = 0 (all 3 equations)
+        val infRank0 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0
+        )
+        assertTrue(infRank0.isInfiniteSolutions)
+        assertFalse(infRank0.isNoSolution)
+
+        // 4. No Solution Rank-0 vs Augmented Rank-1 (rank(A) = 0 < rank([A|b]) = 1): 0x + 0y + 0z = 5
+        val noSolRank0 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            0.0, 0.0, 0.0, 5.0,
+            0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0
+        )
+        assertTrue(noSolRank0.isNoSolution)
+        assertFalse(noSolRank0.isInfiniteSolutions)
+
+        // 5. Infinite Rank-2 (rank(A) = rank([A|b]) = 2 < 3): row3 = row1 + row2
+        val infRank2 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            1.0, 1.0, 1.0, 6.0,
+            1.0, 2.0, 3.0, 14.0,
+            2.0, 3.0, 4.0, 20.0
+        )
+        assertTrue(infRank2.isInfiniteSolutions)
+        assertFalse(infRank2.isUniqueSolution)
+
+        // 6. Inconsistent (rank(A) = 2 < rank([A|b]) = 3): x + y + z = 6, 2x + 2y + 2z = 15, x - y + z = 2
+        val noSol3 = com.example.math.SharedMathEngine.solveSimultaneousLinear3x3(
+            1.0, 1.0, 1.0, 6.0,
+            2.0, 2.0, 2.0, 15.0,
+            1.0, -1.0, 1.0, 2.0
+        )
+        assertTrue(noSol3.isNoSolution)
+        assertFalse(noSol3.isUniqueSolution)
+    }
+
+    // -------------------------------------------------------------
+    // 17. LINEAR & ABSOLUTE-VALUE INEQUALITIES (ALL 24 + 8 CASES)
+    // -------------------------------------------------------------
+    @Test
+    fun testLinearInequalityAndAbsoluteValueAllSignCombinations() {
+        // Negative coefficient division reverses inequality: -2x + 3 < 7 -> -2x < 4 -> x > -2
+        val negDiv = MathProblemSolverEngine.solveLinearEquation("-2x + 3 < 7", SolverMode.LEARNING)
+        assertTrue(negDiv.isSuccess)
+        assertTrue(negDiv.finalAnswerBn.contains("(-২, ∞)") || negDiv.finalAnswerBn.contains("x > -২"))
+
+        // All 24 non-degenerate |ax + b| ⋈ c combinations: 4 ops (<, ≤, >, ≥) x 3 signs of c (4, 0, -4) x 2 signs of a (2, -2)
+        val ops = listOf("<", "≤", ">", "≥")
+        val cValues = listOf("4", "0", "-4")
+        val aValues = listOf("2", "-2")
+
+        for (op in ops) {
+            for (cStr in cValues) {
+                for (aStr in aValues) {
+                    val expr = "|${aStr}x - 2| $op $cStr"
+                    val res = MathProblemSolverEngine.solveLinearEquation(expr, SolverMode.LEARNING)
+                    assertTrue("Failed on $expr", res.isSuccess)
+                    when {
+                        cStr == "-4" && (op == "<" || op == "≤") -> assertTrue("$expr should be empty set", res.finalAnswerBn.contains("∅"))
+                        cStr == "-4" && (op == ">" || op == "≥") -> assertTrue("$expr should be all reals", res.finalAnswerBn.contains("ℝ"))
+                        cStr == "0" && op == "<" -> assertTrue("$expr should be empty set", res.finalAnswerBn.contains("∅"))
+                        cStr == "0" && op == "≤" -> {
+                            val expectedPt = if (aStr == "2") "১" else "-১"
+                            assertTrue("$expr should be single point $expectedPt", res.finalAnswerBn.contains(expectedPt))
+                        }
+                        cStr == "0" && op == ">" -> assertTrue("$expr should exclude single point", res.finalAnswerBn.contains("≠"))
+                        cStr == "0" && op == "≥" -> assertTrue("$expr should be all reals", res.finalAnswerBn.contains("ℝ"))
+                        cStr == "4" && (op == "<" || op == "≤") -> {
+                            if (aStr == "2") {
+                                assertTrue("$expr should be bounded interval (-1, 3)", res.finalAnswerBn.contains("-১") && res.finalAnswerBn.contains("৩"))
+                            } else {
+                                assertTrue("$expr should be bounded interval (-3, 1)", res.finalAnswerBn.contains("-৩") && res.finalAnswerBn.contains("১"))
+                            }
+                        }
+                        cStr == "4" && (op == ">" || op == "≥") -> assertTrue("$expr should be union of rays", res.finalAnswerBn.contains("∪") || res.finalAnswerBn.contains("অথবা"))
+                    }
+                }
+            }
+        }
+
+        // Constant a = 0 degenerate cases (|0x + 3| < 5 -> ℝ, |0x + 5| < 2 -> ∅)
+        val constTrue = MathProblemSolverEngine.solveLinearEquation("|0x + 3| < 5", SolverMode.LEARNING)
+        assertTrue(constTrue.isSuccess)
+        assertTrue(constTrue.finalAnswerBn.contains("ℝ"))
+
+        val constFalse = MathProblemSolverEngine.solveLinearEquation("|0x + 5| < 2", SolverMode.LEARNING)
+        assertTrue(constFalse.isSuccess)
+        assertTrue(constFalse.finalAnswerBn.contains("∅"))
+    }
+
+    // -------------------------------------------------------------
+    // 18. QUADRATIC INEQUALITIES (24 CASES) & NEGATIVE-A COMPLEX ROOTS
+    // -------------------------------------------------------------
+    @Test
+    fun testQuadraticNegativeAComplexRootNormalizationAndAll24Inequalities() {
+        // -x^2 + 2x - 5 = 0 -> Δ = 4 - 20 = -16 < 0 -> roots must be 1 + 2i and 1 − 2i (positive imaginary part)
+        val negAComplex = com.example.math.SharedMathEngine.solveQuadratic(-1.0, 2.0, -5.0)
+        assertTrue(negAComplex.isValidQuadratic)
+        assertEquals("১ + ২i", negAComplex.root1TextBn)
+        assertEquals("১ − ২i", negAComplex.root2TextBn)
+
+        // Pure imaginary with b = 0 and a < 0: -x^2 - 4 = 0 -> 0 + 2i, 0 − 2i (no "-0")
+        val pureImag = com.example.math.SharedMathEngine.solveQuadratic(-1.0, 0.0, -4.0)
+        assertFalse(pureImag.root1TextBn.contains("-০"))
+        assertEquals("০ + ২i", pureImag.root1TextBn)
+        assertEquals("০ − ২i", pureImag.root2TextBn)
+
+        // All 24 quadratic inequality cases with exact mathematical interval/set assertions:
+        // 1..4: a > 0, Δ > 0: x^2 - 5x + 6 ⋈ 0 (roots 2, 3)
+        val q1Lt = MathProblemSolverEngine.solveQuadraticInequality(1.0, -5.0, 6.0, "<", SolverMode.LEARNING)
+        assertTrue(q1Lt.isSuccess && q1Lt.finalAnswerBn.contains("(২, ৩)"))
+        val q1Le = MathProblemSolverEngine.solveQuadraticInequality(1.0, -5.0, 6.0, "≤", SolverMode.LEARNING)
+        assertTrue(q1Le.isSuccess && q1Le.finalAnswerBn.contains("[২, ৩]"))
+        val q1Gt = MathProblemSolverEngine.solveQuadraticInequality(1.0, -5.0, 6.0, ">", SolverMode.LEARNING)
+        assertTrue(q1Gt.isSuccess && q1Gt.finalAnswerBn.contains("(-∞, ২) ∪ (৩, ∞)"))
+        val q1Ge = MathProblemSolverEngine.solveQuadraticInequality(1.0, -5.0, 6.0, "≥", SolverMode.LEARNING)
+        assertTrue(q1Ge.isSuccess && q1Ge.finalAnswerBn.contains("(-∞, ২] ∪ [৩, ∞)"))
+
+        // 5..8: a < 0, Δ > 0: -x^2 + 5x - 6 ⋈ 0 (roots 2, 3)
+        val q2Lt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 5.0, -6.0, "<", SolverMode.LEARNING)
+        assertTrue(q2Lt.isSuccess && q2Lt.finalAnswerBn.contains("(-∞, ২) ∪ (৩, ∞)"))
+        val q2Le = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 5.0, -6.0, "≤", SolverMode.LEARNING)
+        assertTrue(q2Le.isSuccess && q2Le.finalAnswerBn.contains("(-∞, ২] ∪ [৩, ∞)"))
+        val q2Gt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 5.0, -6.0, ">", SolverMode.LEARNING)
+        assertTrue(q2Gt.isSuccess && q2Gt.finalAnswerBn.contains("(২, ৩)"))
+        val q2Ge = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 5.0, -6.0, "≥", SolverMode.LEARNING)
+        assertTrue(q2Ge.isSuccess && q2Ge.finalAnswerBn.contains("[২, ৩]"))
+
+        // 9..12: a > 0, Δ = 0: x^2 - 4x + 4 ⋈ 0 (double root 2)
+        val q3Lt = MathProblemSolverEngine.solveQuadraticInequality(1.0, -4.0, 4.0, "<", SolverMode.LEARNING)
+        assertTrue(q3Lt.isSuccess && q3Lt.finalAnswerBn.contains("∅"))
+        val q3Le = MathProblemSolverEngine.solveQuadraticInequality(1.0, -4.0, 4.0, "≤", SolverMode.LEARNING)
+        assertTrue(q3Le.isSuccess && q3Le.finalAnswerBn.contains("x = ২"))
+        val q3Gt = MathProblemSolverEngine.solveQuadraticInequality(1.0, -4.0, 4.0, ">", SolverMode.LEARNING)
+        assertTrue(q3Gt.isSuccess && q3Gt.finalAnswerBn.contains("x ≠ ২"))
+        val q3Ge = MathProblemSolverEngine.solveQuadraticInequality(1.0, -4.0, 4.0, "≥", SolverMode.LEARNING)
+        assertTrue(q3Ge.isSuccess && q3Ge.finalAnswerBn.contains("ℝ"))
+
+        // 13..16: a < 0, Δ = 0: -x^2 + 4x - 4 ⋈ 0 (double root 2)
+        val q4Lt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 4.0, -4.0, "<", SolverMode.LEARNING)
+        assertTrue(q4Lt.isSuccess && q4Lt.finalAnswerBn.contains("x ≠ ২"))
+        val q4Le = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 4.0, -4.0, "≤", SolverMode.LEARNING)
+        assertTrue(q4Le.isSuccess && q4Le.finalAnswerBn.contains("ℝ"))
+        val q4Gt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 4.0, -4.0, ">", SolverMode.LEARNING)
+        assertTrue(q4Gt.isSuccess && q4Gt.finalAnswerBn.contains("∅"))
+        val q4Ge = MathProblemSolverEngine.solveQuadraticInequality(-1.0, 4.0, -4.0, "≥", SolverMode.LEARNING)
+        assertTrue(q4Ge.isSuccess && q4Ge.finalAnswerBn.contains("x = ২"))
+
+        // 17..20: a > 0, Δ < 0: x^2 + x + 1 ⋈ 0
+        val q5Lt = MathProblemSolverEngine.solveQuadraticInequality(1.0, 1.0, 1.0, "<", SolverMode.LEARNING)
+        assertTrue(q5Lt.isSuccess && q5Lt.finalAnswerBn.contains("∅"))
+        val q5Le = MathProblemSolverEngine.solveQuadraticInequality(1.0, 1.0, 1.0, "≤", SolverMode.LEARNING)
+        assertTrue(q5Le.isSuccess && q5Le.finalAnswerBn.contains("∅"))
+        val q5Gt = MathProblemSolverEngine.solveQuadraticInequality(1.0, 1.0, 1.0, ">", SolverMode.LEARNING)
+        assertTrue(q5Gt.isSuccess && q5Gt.finalAnswerBn.contains("ℝ"))
+        val q5Ge = MathProblemSolverEngine.solveQuadraticInequality(1.0, 1.0, 1.0, "≥", SolverMode.LEARNING)
+        assertTrue(q5Ge.isSuccess && q5Ge.finalAnswerBn.contains("ℝ"))
+
+        // 21..24: a < 0, Δ < 0: -x^2 - x - 1 ⋈ 0
+        val q6Lt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, -1.0, -1.0, "<", SolverMode.LEARNING)
+        assertTrue(q6Lt.isSuccess && q6Lt.finalAnswerBn.contains("ℝ"))
+        val q6Le = MathProblemSolverEngine.solveQuadraticInequality(-1.0, -1.0, -1.0, "≤", SolverMode.LEARNING)
+        assertTrue(q6Le.isSuccess && q6Le.finalAnswerBn.contains("ℝ"))
+        val q6Gt = MathProblemSolverEngine.solveQuadraticInequality(-1.0, -1.0, -1.0, ">", SolverMode.LEARNING)
+        assertTrue(q6Gt.isSuccess && q6Gt.finalAnswerBn.contains("∅"))
+        val q6Ge = MathProblemSolverEngine.solveQuadraticInequality(-1.0, -1.0, -1.0, "≥", SolverMode.LEARNING)
+        assertTrue(q6Ge.isSuccess && q6Ge.finalAnswerBn.contains("∅"))
+    }
+
+    // -------------------------------------------------------------
+    // 19. COMPOUND INTEREST EXACTNESS & PEDAGOGY ENRICHMENT
+    // -------------------------------------------------------------
+    @Test
+    fun testCompoundInterestExactnessAndPedagogyAcross16Topics() {
+        // Annual compounding: P = 1000, r = 10%, t = 2, m = 1 -> CI = 210, A = 1210 (Exact)
+        val ci1 = MathProblemSolverEngine.solveCompoundInterest(1000.0, 10.0, 2.0, 1, SolverMode.LEARNING)
+        assertTrue(ci1.isSuccess)
+        assertTrue(ci1.isExactResult)
+        assertEquals(com.example.math.CalculationExactness.EXACT, ci1.exactness)
+        assertTrue(ci1.finalAnswerBn.contains("২১০") && ci1.finalAnswerBn.contains("১২১০"))
+
+        // Semi-annual compounding: P = 10000, r = 10%, t = 1, m = 2 -> CI = 1025, A = 11025 (Exact)
+        val ci2 = MathProblemSolverEngine.solveCompoundInterest(10000.0, 10.0, 1.0, 2, SolverMode.BCS)
+        assertTrue(ci2.isSuccess)
+        assertTrue(ci2.isExactResult)
+        assertEquals(com.example.math.CalculationExactness.EXACT, ci2.exactness)
+        assertTrue(ci2.finalAnswerBn.contains("১০২৫") && ci2.finalAnswerBn.contains("১১০২৫"))
+
+        // Verify extended step serialization & legacy 4-field backward compatibility
+        val serialized = com.example.math.SimilarProblemGenerator.serializeSteps(ci1.steps)
+        val deserialized = com.example.math.SimilarProblemGenerator.deserializeSteps(serialized)
+        assertEquals(ci1.steps.size, deserialized.size)
+        assertEquals(ci1.steps[0].simpleExplanationBn, deserialized[0].simpleExplanationBn)
+
+        val legacy4Field = "1\u001Fধাপ ১\u001F২ + ৩ = ৫\u001Fযোগ করা হলো"
+        val legacyRestored = com.example.math.SimilarProblemGenerator.deserializeSteps(legacy4Field)
+        assertEquals(1, legacyRestored.size)
+        assertEquals("ধাপ ১", legacyRestored[0].titleBn)
+    }
 }
+

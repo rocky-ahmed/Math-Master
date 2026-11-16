@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -309,9 +310,13 @@ fun PracticeLabPlayScreen(
                                 ?: currentQ.stepByStepExplanationBn.firstOrNull()
                                 ?: currentQ.tipBn
                                 ?: "প্রশ্নের গাণিতিক প্রক্রিয়াটি ধাপে ধাপে বিশ্লেষণ করুন।"
+                            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                            val hintBg = if (isDark) Color(0xFF451A03).copy(alpha = 0.7f) else Color(0xFFFEF3C7).copy(alpha = 0.7f)
+                            val hintTextColor = if (isDark) Color(0xFFFDE68A) else Color(0xFF78350F)
+                            val hintIconColor = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFFEF3C7).copy(alpha = 0.7f),
+                                color = hintBg,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B)),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -325,14 +330,14 @@ fun PracticeLabPlayScreen(
                                     Icon(
                                         imageVector = Icons.Default.Lightbulb,
                                         contentDescription = null,
-                                        tint = Color(0xFFD97706),
+                                        tint = hintIconColor,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Text(
                                         text = "ইঙ্গিত: $hintText",
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF78350F)
+                                            color = hintTextColor
                                         )
                                     )
                                 }

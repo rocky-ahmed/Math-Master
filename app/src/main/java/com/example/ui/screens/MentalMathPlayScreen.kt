@@ -57,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -200,8 +201,19 @@ fun MentalMathPlayScreen(
                     if (session.isAnswerSubmitted && session.feedbackMessageBn != null) {
                         item {
                             val isCorrect = session.lastAnswerCorrect == true
-                            val bannerBg = if (isCorrect) Color(0xFFD1FAE5) else Color(0xFFFFE4E6)
-                            val bannerText = if (isCorrect) Color(0xFF065F46) else Color(0xFF9F1239)
+                            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                            val bannerBg = when {
+                                isCorrect && isDark -> Color(0xFF064E3B).copy(alpha = 0.7f)
+                                isCorrect -> Color(0xFFD1FAE5)
+                                isDark -> Color(0xFF4C0519).copy(alpha = 0.7f)
+                                else -> Color(0xFFFFE4E6)
+                            }
+                            val bannerText = when {
+                                isCorrect && isDark -> Color(0xFF6EE7B7)
+                                isCorrect -> Color(0xFF065F46)
+                                isDark -> Color(0xFFFCA5A5)
+                                else -> Color(0xFF9F1239)
+                            }
 
                             Surface(
                                 shape = RoundedCornerShape(16.dp),

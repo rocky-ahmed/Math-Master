@@ -262,7 +262,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
                     onClick = { expanded = !expanded },
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier
-                        .defaultMinSize(minHeight = 40.dp)
+                        .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
                         .testTag("btn_toggle_visual_kc")
                 ) {
                     Text(
@@ -303,7 +303,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
                                     },
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .defaultMinSize(minHeight = 36.dp)
+                                        .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
                                         .testTag("btn_next_visual_kc")
                                 ) {
                                     Text(
@@ -374,7 +374,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
                                     )
                                 },
                                 modifier = Modifier
-                                    .defaultMinSize(minHeight = 40.dp)
+                                    .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
                                     .testTag("btn_visual_link_quiz"),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -389,7 +389,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.FormulaLibrary) },
                                 modifier = Modifier
-                                    .defaultMinSize(minHeight = 40.dp)
+                                    .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
                                     .testTag("btn_visual_link_formula"),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -404,7 +404,7 @@ private fun VisualKnowledgeCheckAndLinksBar(
                             OutlinedButton(
                                 onClick = { viewModel.navigateTo(Screen.ProblemSolver) },
                                 modifier = Modifier
-                                    .defaultMinSize(minHeight = 40.dp)
+                                    .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
                                     .testTag("btn_visual_link_solver"),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                             ) {
@@ -558,7 +558,7 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                         ) {
                             IconButton(
                                 onClick = { zoomScale = (zoomScale - 0.15f).coerceAtLeast(0.6f) },
-                                modifier = Modifier.size(38.dp).testTag("geo_zoom_out")
+                                modifier = Modifier.size(48.dp).testTag("geo_zoom_out")
                             ) {
                                 Icon(Icons.Default.Remove, contentDescription = "Zoom Out", modifier = Modifier.size(18.dp))
                             }
@@ -569,7 +569,7 @@ fun GeometryExplorerTab(viewModel: MathViewModel) {
                             )
                             IconButton(
                                 onClick = { zoomScale = (zoomScale + 0.15f).coerceAtMost(1.6f) },
-                                modifier = Modifier.size(38.dp).testTag("geo_zoom_in")
+                                modifier = Modifier.size(48.dp).testTag("geo_zoom_in")
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "Zoom In", modifier = Modifier.size(18.dp))
                             }

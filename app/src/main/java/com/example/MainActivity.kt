@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.BarChart
@@ -167,19 +168,19 @@ fun MainAppContent(viewModel: MathViewModel) {
         viewModel.navigateBack()
     }
 
+    val showBottomNav = currentScreen in listOf(
+        Screen.Home,
+        Screen.Tables,
+        Screen.Dashboard,
+        Screen.Bookmarks,
+        Screen.Quizzes
+    )
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             // Show bottom navigation bar when on primary sections
-            val showBottomNav = currentScreen in listOf(
-                Screen.Home,
-                Screen.Tables,
-                Screen.Dashboard,
-                Screen.Bookmarks,
-                Screen.Quizzes
-            )
-
             if (showBottomNav) {
                 NavigationBar(modifier = Modifier.testTag("app_bottom_nav")) {
                     NavigationBarItem(
@@ -221,7 +222,13 @@ fun MainAppContent(viewModel: MathViewModel) {
             }
         }
     ) { innerPadding ->
-        val modifier = Modifier.padding(innerPadding)
+        val modifier = if (showBottomNav) {
+            Modifier.padding(innerPadding)
+        } else {
+            Modifier
+                .padding(innerPadding)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+        }
         saveableStateHolder.SaveableStateProvider(key = currentDestinationKey) {
             when (currentScreen) {
                 is Screen.Home -> HomeScreen(viewModel = viewModel, modifier = modifier)

@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BookmarkEntity
+import com.example.math.BengaliNumberFormatter
 import com.example.math.SquareCubeProvider
 import com.example.ui.MathViewModel
 import com.example.ui.components.BookmarkIconButton
@@ -66,7 +67,7 @@ fun SquaresCubesScreen(
     ) {
         MathTopAppBar(
             title = if (selectedTab == 0) "১ থেকে ২০ এর বর্গ তালিকা" else "ঘন ও ঘনমূলের সম্পূর্ণ তালিকা",
-            subtitle = if (selectedTab == 0) "ছবি: 241713.jpg" else "ছবি: 241715.jpg",
+            subtitle = if (selectedTab == 0) "বর্গ ও বর্গমূল রেফারেন্স" else "ঘন ও ঘনমূল রেফারেন্স",
             onBackClick = { viewModel.navigateBack() }
         )
 
@@ -179,7 +180,7 @@ fun SquaresCubesScreen(
                                 ) {
                                     // Column 1: সংখ্যা
                                     Text(
-                                        text = "${item.n}",
+                                        text = BengaliNumberFormatter.toBn(item.n),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 17.sp
@@ -189,7 +190,7 @@ fun SquaresCubesScreen(
 
                                     // Column 2: বর্গ (Square)
                                     Text(
-                                        text = item.squareText,
+                                        text = BengaliNumberFormatter.toBn(item.squareText),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 16.sp
@@ -199,7 +200,7 @@ fun SquaresCubesScreen(
 
                                     // Column 3: বর্গমূল (Square Root)
                                     Text(
-                                        text = item.squareRootText,
+                                        text = BengaliNumberFormatter.toBn(item.squareRootText),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 16.sp,
@@ -215,9 +216,9 @@ fun SquaresCubesScreen(
                                                 BookmarkEntity(
                                                     id = bookmarkId,
                                                     category = "SQUARE_CUBE",
-                                                    titleBn = "${item.n} এর বর্গ ও বর্গমূল",
-                                                    subtitleBn = "বর্গ তালিকা (241713.jpg)",
-                                                    detailBn = "${item.squareText} এবং ${item.squareRootText}"
+                                                    titleBn = "${BengaliNumberFormatter.toBn(item.n)} এর বর্গ ও বর্গমূল",
+                                                    subtitleBn = "বর্গ ও বর্গমূল তালিকা",
+                                                    detailBn = "${BengaliNumberFormatter.toBn(item.squareText)} এবং ${BengaliNumberFormatter.toBn(item.squareRootText)}"
                                                 )
                                             )
                                         }
@@ -246,7 +247,7 @@ fun SquaresCubesScreen(
                                 ) {
                                     // Column 1: সংখ্যা
                                     Text(
-                                        text = "${item.n}",
+                                        text = BengaliNumberFormatter.toBn(item.n),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 17.sp
@@ -256,7 +257,7 @@ fun SquaresCubesScreen(
 
                                     // Column 2: ঘন (Cube)
                                     Text(
-                                        text = item.cubeText,
+                                        text = BengaliNumberFormatter.toBn(item.cubeText),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.SemiBold,
                                             fontSize = 16.sp
@@ -266,7 +267,7 @@ fun SquaresCubesScreen(
 
                                     // Column 3: ঘনমূল (Cube Root)
                                     Text(
-                                        text = item.cubeRootText,
+                                        text = BengaliNumberFormatter.toBn(item.cubeRootText),
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 16.sp,
@@ -282,9 +283,9 @@ fun SquaresCubesScreen(
                                                 BookmarkEntity(
                                                     id = bookmarkId,
                                                     category = "SQUARE_CUBE",
-                                                    titleBn = "${item.n} এর ঘন ও ঘনমূল",
-                                                    subtitleBn = "ঘন তালিকা (241715.jpg)",
-                                                    detailBn = "${item.cubeText} এবং ${item.cubeRootText}"
+                                                    titleBn = "${BengaliNumberFormatter.toBn(item.n)} এর ঘন ও ঘনমূল",
+                                                    subtitleBn = "ঘন ও ঘনমূল তালিকা",
+                                                    detailBn = "${BengaliNumberFormatter.toBn(item.cubeText)} এবং ${BengaliNumberFormatter.toBn(item.cubeRootText)}"
                                                 )
                                             )
                                         }

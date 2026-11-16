@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -252,6 +253,13 @@ fun NumberSystemPracticePlayScreen(
                                     }
                                     if (state.isSubmitted) {
                                         val isCorrect = state.selectedOptionIndex == currentQ.correctIndex
+                                        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                                        val feedbackColor = when {
+                                            isCorrect && isDark -> Color(0xFF4ADE80)
+                                            isCorrect -> Color(0xFF15803D)
+                                            isDark -> Color(0xFFF87171)
+                                            else -> Color(0xFFB91C1C)
+                                        }
                                         Text(
                                             text = if (isCorrect) {
                                                 "সঠিক উত্তর! (${currentQ.correctAnswerBn.ifBlank { currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" } }})"
@@ -259,7 +267,7 @@ fun NumberSystemPracticePlayScreen(
                                                 "ভুল উত্তর। সঠিক উত্তর: ${currentQ.correctAnswerBn.ifBlank { currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" } }}"
                                             },
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = if (isCorrect) Color(0xFF15803D) else Color(0xFFB91C1C)
+                                            color = feedbackColor
                                         )
                                     }
                                 }
@@ -272,8 +280,11 @@ fun NumberSystemPracticePlayScreen(
                             val isSelected = state.selectedOptionIndex == optIdx
                             val isCorrect = optIdx == currentQ.correctIndex
 
+                            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                             val containerColor = when {
+                                state.isSubmitted && isCorrect && isDark -> Color(0xFF064E3B).copy(alpha = 0.65f)
                                 state.isSubmitted && isCorrect -> Color(0xFFDCFCE7) // Light green
+                                state.isSubmitted && isSelected && !isCorrect && isDark -> Color(0xFF4C0519).copy(alpha = 0.65f)
                                 state.isSubmitted && isSelected && !isCorrect -> Color(0xFFFFE4E6) // Light red
                                 isSelected -> MaterialTheme.colorScheme.primaryContainer
                                 else -> MaterialTheme.colorScheme.surface
@@ -323,15 +334,21 @@ fun NumberSystemPracticePlayScreen(
 
                                     Spacer(modifier = Modifier.width(12.dp))
 
+                                    val optTextColor = when {
+                                        state.isSubmitted && isCorrect && isDark -> Color(0xFF6EE7B7)
+                                        state.isSubmitted && isCorrect -> Color(0xFF15803D)
+                                        state.isSubmitted && isSelected && !isCorrect && isDark -> Color(0xFFFCA5A5)
+                                        state.isSubmitted && isSelected && !isCorrect -> Color(0xFFB91C1C)
+                                        else -> MaterialTheme.colorScheme.onSurface
+                                    }
+
                                     Text(
                                         text = optionText,
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                         ),
                                         modifier = Modifier.weight(1f),
-                                        color = if (state.isSubmitted && isCorrect) Color(0xFF15803D)
-                                        else if (state.isSubmitted && isSelected && !isCorrect) Color(0xFFB91C1C)
-                                        else MaterialTheme.colorScheme.onSurface
+                                        color = optTextColor
                                     )
 
                                     if (state.isSubmitted) {

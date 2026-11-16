@@ -223,7 +223,7 @@ fun StudySessionTimerSection(
                                 lineHeightStyle = BengaliCompactLineHeightStyle
                             ),
                             color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
+                            maxLines = 3,
                             softWrap = true,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
@@ -277,7 +277,7 @@ fun StudySessionTimerSection(
 
                     Text(
                         text = if (isPanelEnabled) {
-                            "আজকের অধ্যয়ন: ${formatStudyDurationSummaryBn(timerState.todayTotalSeconds)} • লক্ষ্য: ${BengaliNumberFormatter.toBn(timerState.dailyGoalMinutes)} মি."
+                            "আজ: ${formatStudyDurationSummaryBn(timerState.todayTotalSeconds)} • লক্ষ্য: ${BengaliNumberFormatter.toBn(timerState.dailyGoalMinutes)} মি."
                         } else {
                             "বন্ধ • চালু করতে টগল করুন"
                         },
@@ -287,7 +287,7 @@ fun StudySessionTimerSection(
                             lineHeightStyle = BengaliCompactLineHeightStyle
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 3,
                         softWrap = true,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
@@ -397,23 +397,33 @@ fun StudySessionTimerSection(
                                     }
                                 }
 
-                                // Reset Session IconButton (48dp touch target)
-                                IconButton(
-                                    onClick = onResetSession,
-                                    enabled = timerState.currentSessionSeconds > 0 || timerState.isRunning,
-                                    modifier = Modifier
-                                        .size(MathSpacing.minTouchTarget)
-                                        .testTag("study_timer_reset_btn")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "সেশন রিসেট করুন",
-                                        tint = if (timerState.currentSessionSeconds > 0 || timerState.isRunning) {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        } else {
-                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                                        }
+                                // Reset Session IconButton (48dp touch target with visible outlined container)
+                                val canReset = timerState.currentSessionSeconds > 0 || timerState.isRunning
+                                Surface(
+                                    shape = RoundedCornerShape(MathSpacing.cornerRadiusCompact),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = if (canReset) 0.95f else 0.7f),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (canReset) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.outlineVariant
                                     )
+                                ) {
+                                    IconButton(
+                                        onClick = onResetSession,
+                                        enabled = canReset,
+                                        modifier = Modifier
+                                            .size(MathSpacing.minTouchTarget)
+                                            .testTag("study_timer_reset_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "সেশন রিসেট করুন",
+                                            tint = if (canReset) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -430,9 +440,9 @@ fun StudySessionTimerSection(
                         ) {
                             Text(
                                 text = if (timerState.isDailyGoalReached) {
-                                    "দৈনিক লক্ষ্যমাত্রা অর্জিত! 🎉"
+                                    "দৈনিক লক্ষ্য অর্জিত! 🎉"
                                 } else {
-                                    "দৈনিক অধ্যয়ন অগ্রগতি (${BengaliNumberFormatter.toBn((timerState.dailyGoalProgressFraction * 100).toInt())}%)"
+                                    "দৈনিক লক্ষ্য (${BengaliNumberFormatter.toBn((timerState.dailyGoalProgressFraction * 100).toInt())}%)"
                                 },
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                 color = if (timerState.isDailyGoalReached) {
@@ -440,6 +450,8 @@ fun StudySessionTimerSection(
                                 } else {
                                     MaterialTheme.colorScheme.onSurface
                                 },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
 

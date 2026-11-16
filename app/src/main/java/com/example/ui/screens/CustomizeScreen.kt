@@ -680,7 +680,7 @@ fun IconCustomizationSection(
                         color = if (activeIcon == iconChoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         border = if (activeIcon == iconChoice) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clickable {
                                 onUpdateSection(selectedSection) { cfg -> cfg.copy(iconId = iconChoice.id) }
                             }
@@ -774,7 +774,7 @@ fun SectionAppearanceCustomizationSection(
 
                     Surface(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = hexStr) }
@@ -945,7 +945,7 @@ fun GlobalThemeCustomizationSection(
 
                     Surface(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customPrimaryActionHex = hexStr, customAccentHex = hexStr) }
@@ -985,7 +985,7 @@ fun GlobalThemeCustomizationSection(
                     val isSelected = global.customLightBackgroundHex.equals(hexStr, ignoreCase = true)
                     Surface(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customLightBackgroundHex = hexStr) }
@@ -1023,7 +1023,7 @@ fun GlobalThemeCustomizationSection(
                     val isSelected = global.customDarkBackgroundHex.equals(hexStr, ignoreCase = true)
                     Surface(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable {
                                 onUpdateGlobal { it.copy(customDarkBackgroundHex = hexStr) }

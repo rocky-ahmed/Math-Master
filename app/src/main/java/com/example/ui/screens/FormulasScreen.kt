@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -188,7 +189,7 @@ fun FormulasScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
                     ) {
                         Text(
-                            text = "এই নোটে ছবিতে থাকা ১৪টি সূত্র ধারাবাহিকভাবে সাজানো হয়েছে এবং প্রতিটির ধাপে ধাপে প্রমাণ দেওয়া হয়েছে।",
+                            text = "বীজগণিতের এই ১৪টি মৌলিক বর্গের সূত্র ধারাবাহিকভাবে সাজানো হয়েছে এবং প্রতিটির ধাপে ধাপে প্রমাণ দেওয়া হয়েছে।",
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(14.dp)
@@ -502,11 +503,15 @@ fun FormulaDetailScreen(
 
             // Proof Card (পর্ব ২: প্রতিটি সূত্রের প্রমাণ)
             item {
+                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                val proofBg = if (isDark) Color(0xFF450A0A).copy(alpha = 0.65f) else Color(0xFFFEF2F2)
+                val proofBorder = if (isDark) Color(0xFFF87171).copy(alpha = 0.5f) else Color(0xFFFCA5A5)
+                val proofTextColor = if (isDark) Color(0xFFFECACA) else Color(0xFF991B1B)
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("formula_proof_card"),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5))
+                    colors = CardDefaults.cardColors(containerColor = proofBg),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, proofBorder)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -531,7 +536,7 @@ fun FormulaDetailScreen(
                                     text = note,
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF991B1B)
+                                        color = proofTextColor
                                     ),
                                     modifier = Modifier.padding(vertical = 2.dp)
                                 )
@@ -541,7 +546,7 @@ fun FormulaDetailScreen(
                                 text = formula.derivationBn,
                                 style = MaterialTheme.typography.bodyMedium.copy(
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF991B1B)
+                                    color = proofTextColor
                                 )
                             )
                         }

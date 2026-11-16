@@ -1259,7 +1259,7 @@ fun QuizPlayScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                                 BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
                                             } else null,
                                             modifier = Modifier
-                                                .size(38.dp)
+                                                .size(48.dp)
                                                 .testTag("palette_q_$qIdx")
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Lightbulb
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -89,9 +91,11 @@ import androidx.compose.ui.unit.sp
 import com.example.data.model.BookmarkEntity
 import com.example.data.model.SolverHistoryEntity
 import com.example.math.BengaliNumberFormatter
+import com.example.math.InterestCalculationMode
 import com.example.math.MathProblemSolverEngine
 import com.example.math.SimilarProblemGenerator
 import com.example.math.SolutionStep
+import com.example.math.SolverLearningState
 import com.example.math.SolverMode
 import com.example.math.SolverResult
 import com.example.math.SolverTopic
@@ -151,7 +155,9 @@ fun ProblemSolverScreen(
     // Average
     var averageInput by rememberManagedUiState(viewModel, "problem_solver:averageInput", "১০, ২০, ৩০, ৪০, ৫০")
 
-    // Simple Interest
+    // Simple & Compound Interest
+    var interestMode by rememberManagedUiState(viewModel, "problem_solver:interestMode", InterestCalculationMode.SIMPLE)
+    var compoundingFreq by rememberManagedUiState(viewModel, "problem_solver:compoundingFreq", 1)
     var siP by rememberManagedUiState(viewModel, "problem_solver:siP", "৫০০০")
     var siR by rememberManagedUiState(viewModel, "problem_solver:siR", "১০")
     var siT by rememberManagedUiState(viewModel, "problem_solver:siT", "৩")
@@ -182,10 +188,11 @@ fun ProblemSolverScreen(
     // Linear Equation
     var linearEqInput by rememberManagedUiState(viewModel, "problem_solver:linearEqInput", "৩x + ১২ = ৪৫")
 
-    // Quadratic Equation (ax² + bx + c = 0)
+    // Quadratic Equation (ax² + bx + c = 0 or inequality)
     var quadA by rememberManagedUiState(viewModel, "problem_solver:quadA", "১")
     var quadB by rememberManagedUiState(viewModel, "problem_solver:quadB", "-৫")
     var quadC by rememberManagedUiState(viewModel, "problem_solver:quadC", "৬")
+    var quadRelation by rememberManagedUiState(viewModel, "problem_solver:quadRelation", "=")
 
     // Factorization
     var factorInput by rememberManagedUiState(viewModel, "problem_solver:factorInput", "x² - 5x + 6")
@@ -255,7 +262,17 @@ fun ProblemSolverScreen(
                     val r = parseBnToDouble(siR)
                     val t = parseBnToDouble(siT)
                     val i = parseBnToDouble(siI)
-                    MathProblemSolverEngine.solveSimpleInterest(p, r, t, i, null, selectedMode)
+                    if (interestMode == InterestCalculationMode.COMPOUND) {
+                        MathProblemSolverEngine.solveCompoundInterest(
+                            p = p ?: 1000.0,
+                            r = r ?: 10.0,
+                            t = t ?: 2.0,
+                            m = compoundingFreq,
+                            mode = selectedMode
+                        )
+                    } else {
+                        MathProblemSolverEngine.solveSimpleInterest(p, r, t, i, null, selectedMode)
+                    }
                 }
                 SolverTopic.TIME_AND_WORK -> {
                     val a = parseBnToDouble(workTimeA) ?: 10.0
@@ -300,7 +317,7 @@ fun ProblemSolverScreen(
                     val a = parseBnToDouble(quadA) ?: 1.0
                     val b = parseBnToDouble(quadB) ?: -5.0
                     val c = parseBnToDouble(quadC) ?: 6.0
-                    MathProblemSolverEngine.solveQuadraticEquation(a, b, c, selectedMode)
+                    MathProblemSolverEngine.solveQuadraticEquation(a, b, c, selectedMode, quadRelation)
                 }
                 SolverTopic.FACTORIZATION -> {
                     MathProblemSolverEngine.solveFactorization(factorInput, selectedMode)
@@ -425,7 +442,13 @@ fun ProblemSolverScreen(
                     // Average
                     averageInput = averageInput,
                     onAverageChange = { averageInput = it },
-                    // Simple Interest
+                    // Simple & Compound Interest
+                    interestMode = interestMode,
+                    compoundingFreq = compoundingFreq,
+                    onInterestModeChange = { m, freq ->
+                        interestMode = m
+                        compoundingFreq = freq
+                    },
                     siP = siP,
                     siR = siR,
                     siT = siT,
@@ -480,11 +503,13 @@ fun ProblemSolverScreen(
                     quadA = quadA,
                     quadB = quadB,
                     quadC = quadC,
+                    quadRelation = quadRelation,
                     onQuadChange = { a, b, c ->
                         quadA = a
                         quadB = b
                         quadC = c
                     },
+                    onQuadRelationChange = { quadRelation = it },
                     // Factorization
                     factorInput = factorInput,
                     onFactorChange = { factorInput = it },
@@ -613,144 +638,21 @@ fun ProblemSolverScreen(
                             }
                             solveCurrentTopic()
                             Toast.makeText(context, "অনুরূপ নতুন সমস্যা লোড হয়েছে!", Toast.LENGTH_SHORT).show()
-                        }
+                        },
+                        onSwitchToLearningMode = {
+                            selectedMode = SolverMode.LEARNING
+                            solveCurrentTopic()
+                        },
+                        viewModel = viewModel
                     )
                 }
 
-                // Simultaneous Linear System (a1x + b1y = c1, a2x + b2y = c2) & Cross-Module Bridge Card
+                // Simultaneous Linear System (2x2 & 3x3) & Cross-Module Bridge Card
                 item {
-                    var simA1 by remember { mutableStateOf("২") }
-                    var simB1 by remember { mutableStateOf("৩") }
-                    var simC1 by remember { mutableStateOf("১৩") }
-                    var simA2 by remember { mutableStateOf("৫") }
-                    var simB2 by remember { mutableStateOf("-২") }
-                    var simC2 by remember { mutableStateOf("৪") }
-
-                    val simResult = remember(simA1, simB1, simC1, simA2, simB2, simC2) {
-                        val a1 = BengaliNumberFormatter.toEnglishDigits(simA1).toDoubleOrNull() ?: 2.0
-                        val b1 = BengaliNumberFormatter.toEnglishDigits(simB1).toDoubleOrNull() ?: 3.0
-                        val c1 = BengaliNumberFormatter.toEnglishDigits(simC1).toDoubleOrNull() ?: 13.0
-                        val a2 = BengaliNumberFormatter.toEnglishDigits(simA2).toDoubleOrNull() ?: 5.0
-                        val b2 = BengaliNumberFormatter.toEnglishDigits(simB2).toDoubleOrNull() ?: -2.0
-                        val c2 = BengaliNumberFormatter.toEnglishDigits(simC2).toDoubleOrNull() ?: 4.0
-                        com.example.math.SharedMathEngine.solveSimultaneousLinear(a1, b1, c1, a2, b2, c2)
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("solver_simultaneous_and_bridge_card"),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "দুই চলকবিশিষ্ট সহসমীকরণ সমাধান (Cramer's Rule: a₁x+b₁y=c₁, a₂x+b₂y=c₂)",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = simA1,
-                                    onValueChange = { simA1 = it },
-                                    label = { Text("a₁") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = simB1,
-                                    onValueChange = { simB1 = it },
-                                    label = { Text("b₁") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = simC1,
-                                    onValueChange = { simC1 = it },
-                                    label = { Text("c₁") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = simA2,
-                                    onValueChange = { simA2 = it },
-                                    label = { Text("a₂") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = simB2,
-                                    onValueChange = { simB2 = it },
-                                    label = { Text("b₂") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = simC2,
-                                    onValueChange = { simC2 = it },
-                                    label = { Text("c₂") },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    simResult.stepsBn.forEach { (stepTitle, stepBody) ->
-                                        Text(
-                                            text = "• $stepTitle: $stepBody",
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
-                                    }
-                                    if (simResult.isUniqueSolution) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "নির্ণেয় সমাধান: x = ${simResult.xExactBn}, y = ${simResult.yExactBn}",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF059669)
-                                        )
-                                    }
-                                }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = { viewModel.navigateTo(com.example.ui.Screen.FormulaLibrary) },
-                                    modifier = Modifier.weight(1f).testTag("btn_solver_to_formula_lib"),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                                ) {
-                                    Text("সংশ্লিষ্ট সূত্র দেখুন", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(
-                                    onClick = { viewModel.navigateTo(com.example.ui.Screen.VisualExplorer) },
-                                    modifier = Modifier.weight(1f).testTag("btn_solver_to_visual_explorer"),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                                ) {
-                                    Text("ভিজ্যুয়াল এক্সপ্লোরার", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
+                    SimultaneousLinearSystemAndBridgeCard(
+                        selectedTopic = selectedTopic,
+                        viewModel = viewModel
+                    )
                 }
 
                 // P1 UPGRADE: Multi-Difficulty (Easy / Medium / Hard) Similar Problem Generator
@@ -932,7 +834,7 @@ fun ProblemSolverScreen(
                                             modifier = Modifier.testTag("delete_solver_history_${hist.id}")
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.Refresh,
+                                                imageVector = Icons.Default.Delete,
                                                 contentDescription = "মুছুন",
                                                 tint = MaterialTheme.colorScheme.error
                                             )
@@ -1117,7 +1019,10 @@ fun TopicInputCard(
     // Average
     averageInput: String,
     onAverageChange: (String) -> Unit,
-    // Simple Interest
+    // Simple & Compound Interest
+    interestMode: InterestCalculationMode = InterestCalculationMode.SIMPLE,
+    compoundingFreq: Int = 1,
+    onInterestModeChange: (InterestCalculationMode, Int) -> Unit = { _, _ -> },
     siP: String,
     siR: String,
     siT: String,
@@ -1152,7 +1057,9 @@ fun TopicInputCard(
     quadA: String = "১",
     quadB: String = "-৫",
     quadC: String = "৬",
+    quadRelation: String = "=",
     onQuadChange: (String, String, String) -> Unit = { _, _, _ -> },
+    onQuadRelationChange: (String) -> Unit = {},
     // Factorization
     factorInput: String = "x² - 5x + 6",
     onFactorChange: (String) -> Unit = {},
@@ -1229,7 +1136,7 @@ fun TopicInputCard(
                             OutlinedButton(
                                 onClick = { onArithmeticChange(sample) },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.heightIn(min = 38.dp)
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1258,27 +1165,33 @@ fun TopicInputCard(
                             )
                         }
 
-                        // Operator selector
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Operator selector (2x2 grid of 48.dp touch targets)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text("অপারেটর", fontSize = 11.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                listOf("+", "-", "*", "/").forEach { op ->
-                                    val isSelected = fractionOp == op
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isSelected) topic.primaryColor else MaterialTheme.colorScheme.surfaceVariant,
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clickable {
-                                                onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
+                            listOf(listOf("+", "-"), listOf("*", "/")).forEach { opRow ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    opRow.forEach { op ->
+                                        val isSelected = fractionOp == op
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) topic.primaryColor else MaterialTheme.colorScheme.surfaceVariant,
+                                            modifier = Modifier
+                                                .size(48.dp)
+                                                .testTag("fraction_op_$op")
+                                                .clickable {
+                                                    onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
+                                                }
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = if (op == "*") "×" else if (op == "/") "÷" else op,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = if (op == "*") "×" else if (op == "/") "÷" else op,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
                                         }
                                     }
                                 }
@@ -1352,7 +1265,10 @@ fun TopicInputCard(
                     }
                 }
                 SolverTopic.RATIO_PROPORTION -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
                         listOf("পরিমাণ বণ্টন", "৪র্থ সমানুপাতী", "অনুপাত সরলীকরণ").forEachIndexed { index, label ->
                             FilterChip(
                                 selected = ratioSubType == index,
@@ -1539,8 +1455,37 @@ fun TopicInputCard(
                     )
                 }
                 SolverTopic.SIMPLE_INTEREST -> {
-                    Text("P, r, t, I এর মধ্যে যেকোনো ৩টি রাশির মান দিন (বাকিটি স্বয়ংক্রিয় বের হবে):", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        InterestCalculationMode.entries.forEach { m ->
+                            FilterChip(
+                                selected = interestMode == m,
+                                onClick = { onInterestModeChange(m, compoundingFreq) },
+                                label = { Text(m.titleBn, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    if (interestMode == InterestCalculationMode.COMPOUND) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            listOf(1 to "বার্ষিক (m=১)", 2 to "অর্ধবার্ষিক (m=২)", 4 to "ত্রৈমাসিক (m=৪)").forEach { (freq, lbl) ->
+                                FilterChip(
+                                    selected = compoundingFreq == freq,
+                                    onClick = { onInterestModeChange(interestMode, freq) },
+                                    label = { Text(lbl, fontSize = 10.sp) }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    } else {
+                        Text("P, r, t, I এর মধ্যে যেকোনো ৩টি রাশির মান দিন (বাকিটি স্বয়ংক্রিয় বের হবে):", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         OutlinedTextField(
                             value = siP,
@@ -1566,17 +1511,22 @@ fun TopicInputCard(
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
-                        OutlinedTextField(
-                            value = siI,
-                            onValueChange = { onInterestChange(siP, siR, siT, it) },
-                            label = { Text("মুনাফা (I)") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
+                        if (interestMode == InterestCalculationMode.SIMPLE) {
+                            OutlinedTextField(
+                                value = siI,
+                                onValueChange = { onInterestChange(siP, siR, siT, it) },
+                                label = { Text("মুনাফা (I)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
                     }
                 }
                 SolverTopic.TIME_AND_WORK -> {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
                         listOf("A ও B এর কাজ", "A, B ও C এর কাজ", "চৌবাচ্চা ও পাইপ").forEachIndexed { index, label ->
                             FilterChip(
                                 selected = workSubType == index,
@@ -1698,22 +1648,22 @@ fun TopicInputCard(
                     OutlinedTextField(
                         value = linearEqInput,
                         onValueChange = onLinearEqChange,
-                        label = { Text("সরল সমীকরণ (ax + b = cx + d)") },
-                        placeholder = { Text("যেমন: 3x + 12 = 45 বা 5x - 4 = 2x + 11") },
+                        label = { Text("সরল সমীকরণ বা অসমতা (যেমন: 3x+12=45, 2x+3<11, |2x-4|≤6)") },
+                        placeholder = { Text("যেমন: 3x + 12 = 45 বা |2x - 4| ≤ 6") },
                         modifier = Modifier.fillMaxWidth().testTag("linear_eq_input_field"),
                         singleLine = true
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("নমুনা সমীকরণ:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("নমুনা সমীকরণ ও অসমতা:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
-                        listOf("3x + 12 = 45", "5x - 8 = 2x + 16", "4x + 10 = 34", "7x - 5 = 3x + 15").forEach { sample ->
+                        listOf("3x + 12 = 45", "5x - 8 = 2x + 16", "2x - 3 < 7", "|2x - 4| ≤ 6").forEach { sample ->
                             OutlinedButton(
                                 onClick = { onLinearEqChange(sample) },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.heightIn(min = 38.dp)
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1722,10 +1672,23 @@ fun TopicInputCard(
                 }
                 SolverTopic.QUADRATIC_EQUATIONS -> {
                     Text(
-                        text = "দ্বিঘাত সমীকরণ ax² + bx + c = 0 এর সহগ দিন:",
+                        text = "দ্বিঘাত সমীকরণ বা অসমতা ax² + bx + c $quadRelation 0 এর সহগ দিন:",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        listOf("=", "<", "≤", ">", "≥").forEach { rel ->
+                            FilterChip(
+                                selected = quadRelation == rel,
+                                onClick = { onQuadRelationChange(rel) },
+                                label = { Text("ax²+bx+c $rel 0", fontSize = 10.sp) }
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -1768,7 +1731,7 @@ fun TopicInputCard(
                             OutlinedButton(
                                 onClick = { onFactorChange(sample) },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.heightIn(min = 38.dp)
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1792,7 +1755,7 @@ fun TopicInputCard(
                             OutlinedButton(
                                 onClick = { onSimplifyChange(sample) },
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.heightIn(min = 38.dp)
+                                modifier = Modifier.heightIn(min = 48.dp)
                             ) {
                                 Text(sample, fontSize = 11.sp)
                             }
@@ -1838,7 +1801,9 @@ fun SolutionDisplayCard(
     isBookmarked: Boolean,
     onToggleBookmark: () -> Unit,
     onCopySolution: () -> Unit,
-    onTrySimilar: () -> Unit
+    onTrySimilar: () -> Unit,
+    onSwitchToLearningMode: () -> Unit = {},
+    viewModel: MathViewModel? = null
 ) {
     if (!result.isSuccess) {
         Card(
@@ -1872,6 +1837,13 @@ fun SolutionDisplayCard(
         return
     }
 
+    var forceExpandAllSteps by remember(result.originalProblemBn, result.mode) {
+        mutableStateOf<Boolean?>(null)
+    }
+    var learningState by remember(result.originalProblemBn) {
+        mutableStateOf(SolverLearningState.WORKED_EXAMPLE_STUDIED)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // 1. Final Answer Hero Banner
         Card(
@@ -1888,7 +1860,10 @@ fun SolutionDisplayCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Verified,
                             contentDescription = "চূড়ান্ত ফলাফল",
@@ -1908,7 +1883,7 @@ fun SolutionDisplayCard(
                     Row {
                         IconButton(
                             onClick = onCopySolution,
-                            modifier = Modifier.size(40.dp).testTag("solver_copy_btn")
+                            modifier = Modifier.size(48.dp).testTag("solver_copy_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCopy,
@@ -1918,7 +1893,7 @@ fun SolutionDisplayCard(
                         }
                         IconButton(
                             onClick = onToggleBookmark,
-                            modifier = Modifier.size(40.dp).testTag("solver_bookmark_btn")
+                            modifier = Modifier.size(48.dp).testTag("solver_bookmark_btn")
                         ) {
                             Icon(
                                 imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
@@ -1938,6 +1913,7 @@ fun SolutionDisplayCard(
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
+                val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surface,
@@ -1955,14 +1931,26 @@ fun SolutionDisplayCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            val badgeBg = when {
+                                result.isExactResult && isDark -> Color(0xFF064E3B).copy(alpha = 0.75f)
+                                result.isExactResult -> Color(0xFFDCFCE7)
+                                isDark -> Color(0xFF78350F).copy(alpha = 0.75f)
+                                else -> Color(0xFFFEF3C7)
+                            }
+                            val badgeText = when {
+                                result.isExactResult && isDark -> Color(0xFF6EE7B7)
+                                result.isExactResult -> Color(0xFF166534)
+                                isDark -> Color(0xFFFDE68A)
+                                else -> Color(0xFF92400E)
+                            }
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = if (result.isExactResult) Color(0xFFDCFCE7) else Color(0xFFFEF3C7)
+                                color = badgeBg
                             ) {
                                 Text(
                                     text = if (result.isExactResult) "নির্ভুল মান (Exact)" else "আসন্ন মান (Approximate)",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = if (result.isExactResult) Color(0xFF166534) else Color(0xFF92400E),
+                                    color = badgeText,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -1976,6 +1964,32 @@ fun SolutionDisplayCard(
                         }
                     }
                 }
+
+                if (result.mode == SolverMode.QUICK) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = onSwitchToLearningMode,
+                        modifier = Modifier.fillMaxWidth().testTag("btn_quick_to_learning_mode"),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = "পূর্ণাঙ্গ লার্নিং ব্যাখ্যা",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("পূর্ণাঙ্গ লার্নিং ব্যাখ্যা দেখুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // 1B. Problem Understanding & Prerequisite Concept Card (Learning Mode)
+        if (result.mode == SolverMode.LEARNING) {
+            result.problemUnderstanding?.let { understanding ->
+                ProblemUnderstandingAndPrerequisiteCard(
+                    understanding = understanding
+                )
             }
         }
 
@@ -2016,27 +2030,76 @@ fun SolutionDisplayCard(
             }
         }
 
+        // 2B. Formula Breakdown Detail Card (Learning Mode)
+        if (result.mode == SolverMode.LEARNING) {
+            result.formulaBreakdown?.let { breakdown ->
+                FormulaBreakdownDetailCard(breakdown = breakdown)
+            }
+        }
+
         // 3. Step-by-Step Explanation Cards
         if (result.steps.isNotEmpty()) {
-            Text(
-                text = "ধাপভিত্তিক সমাধান (${BengaliNumberFormatter.toBn(result.steps.size)}টি ধাপ)",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ধাপভিত্তিক সমাধান (${BengaliNumberFormatter.toBn(result.steps.size)}টি ধাপ)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (result.mode == SolverMode.LEARNING) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(
+                            onClick = { forceExpandAllSteps = true },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.testTag("btn_expand_all_steps")
+                        ) {
+                            Text("সব খুলুন", fontSize = 10.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { forceExpandAllSteps = false },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.testTag("btn_collapse_all_steps")
+                        ) {
+                            Text("সব সংক্ষিপ্ত", fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
 
             result.steps.forEach { step ->
-                StepCardItem(step = step, mode = result.mode)
+                InteractiveLearningStepCard(
+                    step = step,
+                    mode = result.mode,
+                    forceExpandAll = forceExpandAllSteps,
+                    onStepSelfCheckVerified = {
+                        learningState = SolverLearningState.INDEPENDENT_PRACTICE_VERIFIED
+                    }
+                )
+            }
+        }
+
+        // 3B. Inline Visual Representation (Learning Mode)
+        if (result.mode == SolverMode.LEARNING) {
+            result.visualModelSpec?.let { spec ->
+                InlineSolverVisualCard(visualSpec = spec)
             }
         }
 
         // 4. Verification Card (শুদ্ধি পরীক্ষা)
+        val isDarkCards = MaterialTheme.colorScheme.surface.luminance() < 0.5f
         result.verificationBn?.let { verification ->
+            val verifBg = if (isDarkCards) Color(0xFF064E3B).copy(alpha = 0.6f) else Color(0xFFECFDF5)
+            val verifTitleColor = if (isDarkCards) Color(0xFF6EE7B7) else Color(0xFF065F46)
+            val verifBodyColor = if (isDarkCards) Color(0xFFD1FAE5) else Color(0xFF064E3B)
+            val verifIconColor = if (isDarkCards) Color(0xFF34D399) else Color(0xFF059669)
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFECFDF5)
+                    containerColor = verifBg
                 ),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth().testTag("solver_verification_card")
@@ -2048,7 +2111,7 @@ fun SolutionDisplayCard(
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = "শুদ্ধি পরীক্ষা",
-                        tint = Color(0xFF059669),
+                        tint = verifIconColor,
                         modifier = Modifier.size(20.dp).padding(top = 2.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -2057,13 +2120,13 @@ fun SolutionDisplayCard(
                             text = "উত্তরের সত্যতা ও শুদ্ধি পরীক্ষা (Verification)",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF065F46)
+                            color = verifTitleColor
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = verification,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF064E3B)
+                            color = verifBodyColor
                         )
                     }
                 }
@@ -2072,10 +2135,15 @@ fun SolutionDisplayCard(
 
         // 5. BCS Shortcut & Exam Tip Card (If available or in BCS mode)
         result.bcsShortcutBn?.let { shortcut ->
+            val bcsBg = if (isDarkCards) Color(0xFF451A03).copy(alpha = 0.65f) else Color(0xFFFFFBEB)
+            val bcsTitleColor = if (isDarkCards) Color(0xFFFDE68A) else Color(0xFF92400E)
+            val bcsBodyColor = if (isDarkCards) Color(0xFFFEF3C7) else Color(0xFF78350F)
+            val bcsTipColor = if (isDarkCards) Color(0xFFFBBF24) else Color(0xFFB45309)
+            val bcsIconColor = if (isDarkCards) Color(0xFFFBBF24) else Color(0xFFD97706)
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFFFFFBEB)
+                    containerColor = bcsBg
                 ),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
                 modifier = Modifier.fillMaxWidth().testTag("solver_bcs_card")
@@ -2087,7 +2155,7 @@ fun SolutionDisplayCard(
                     Icon(
                         imageVector = Icons.Default.Lightbulb,
                         contentDescription = "বিসিএস শর্টকাট",
-                        tint = Color(0xFFD97706),
+                        tint = bcsIconColor,
                         modifier = Modifier.size(20.dp).padding(top = 2.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -2096,13 +2164,13 @@ fun SolutionDisplayCard(
                             text = "বিসিএস ও চাকরির পরীক্ষার বিশেষ শর্টকাট টেকনিক",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF92400E)
+                            color = bcsTitleColor
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = shortcut,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF78350F)
+                            color = bcsBodyColor
                         )
                         result.bcsExamTipBn?.let { tip ->
                             Spacer(modifier = Modifier.height(6.dp))
@@ -2110,12 +2178,34 @@ fun SolutionDisplayCard(
                                 text = "টিপস: $tip",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = Color(0xFFB45309)
+                                color = bcsTipColor
                             )
                         }
                     }
                 }
             }
+        }
+
+        // 5B. Detailed Shortcut Derivation & BCS Syllabus Mapping Cards
+        if (result.mode == SolverMode.LEARNING || result.mode == SolverMode.BCS) {
+            result.shortcutDetails?.let { sd ->
+                ShortcutAndTrapCard(shortcutDetails = sd)
+            }
+        }
+        if (result.mode == SolverMode.BCS) {
+            result.bcsSyllabusMapping?.let { bcsMap ->
+                BcsSyllabusAndNavigatorCard(mapping = bcsMap, viewModel = viewModel)
+            }
+        }
+
+        // 5C. Learner Feedback Status Row (Learning Mode)
+        if (result.mode == SolverMode.LEARNING) {
+            LearnerFeedbackStatusRow(
+                learningState = learningState,
+                onStateChanged = { learningState = it },
+                onShowSimpleExplanation = { forceExpandAllSteps = true },
+                onTrySimilar = onTrySimilar
+            )
         }
 
         // 6. "Try Similar Question" Action Button

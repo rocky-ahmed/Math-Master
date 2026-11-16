@@ -78,6 +78,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -368,11 +369,13 @@ fun NumberClassificationTab(
 
                     if (selectedExerciseOption != null) {
                         val isRight = selectedExerciseOption == ex.correctIndex
+                        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                        val rightColor = if (isDark) Color(0xFF4ADE80) else Color(0xFF15803D)
                         Text(
                             text = if (isRight) "সঠিক উত্তর! ${ex.stepByStepReasonBn}" else "ভুল উত্তর। সঠিক: ${ex.optionsBn[ex.correctIndex]}। ${ex.stepByStepReasonBn}",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (isRight) Color(0xFF15803D) else MaterialTheme.colorScheme.error
+                            color = if (isRight) rightColor else MaterialTheme.colorScheme.error
                         )
                     }
                 }

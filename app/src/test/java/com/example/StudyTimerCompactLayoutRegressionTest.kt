@@ -14,18 +14,29 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.math.MathProblemSolverEngine
+import com.example.math.SolverMode
+import com.example.math.SolverTopic
 import com.example.ui.StudySessionTimerState
 import com.example.ui.components.StudySessionTimerSection
+import com.example.ui.screens.LearningModeSelector
+import com.example.ui.screens.SimultaneousLinearSystemAndBridgeCard
+import com.example.ui.screens.SolutionDisplayCard
 import com.example.ui.theme.AppThemeMode
 import com.example.ui.theme.MathMasterTheme
 import org.junit.Assert.assertEquals
@@ -226,16 +237,32 @@ class StudyTimerCompactLayoutRegressionTest {
             val subtitleLayout = getTextLayoutResult(subtitleNode)
             if (titleLayout != null) {
                 println("TITLE_LAYOUT[${spec.containerWidthDp.value}dp/${spec.fontScale}x]: lines=${titleLayout.lineCount}, size=${titleLayout.size}, multiW=${titleLayout.multiParagraph.width}, multiH=${titleLayout.multiParagraph.height}, overflowW=${titleLayout.didOverflowWidth}, overflowH=${titleLayout.didOverflowHeight}, ellipsized0=${titleLayout.isLineEllipsized(0)}")
-                assertEquals("Title must avoid unnecessary line wrapping", 1, titleLayout.lineCount)
-                if (expectNoOverflow) {
-                    assertFalse("Title must not truncate at ${spec.containerWidthDp.value}dp / ${spec.fontScale}x", titleLayout.isLineEllipsized(0))
+                if (spec.fontScale == 1.0f && spec.containerWidthDp >= 360.dp) {
+                    assertEquals("Title must stay on 1 line at standard 1.0x scale on >=360dp width", 1, titleLayout.lineCount)
+                } else {
+                    assertTrue("Title must wrap within 1..3 lines at narrow width or large font scale", titleLayout.lineCount in 1..3)
+                }
+                assertFalse("Title must not overflow vertically", titleLayout.didOverflowHeight)
+                for (lineIdx in 0 until titleLayout.lineCount) {
+                    assertFalse(
+                        "Title line $lineIdx must not truncate at ${spec.containerWidthDp.value}dp / ${spec.fontScale}x",
+                        titleLayout.isLineEllipsized(lineIdx)
+                    )
                 }
             }
             if (subtitleLayout != null) {
                 println("SUB_LAYOUT[${spec.containerWidthDp.value}dp/${spec.fontScale}x]: lines=${subtitleLayout.lineCount}, size=${subtitleLayout.size}, multiW=${subtitleLayout.multiParagraph.width}, multiH=${subtitleLayout.multiParagraph.height}, overflowW=${subtitleLayout.didOverflowWidth}, overflowH=${subtitleLayout.didOverflowHeight}, ellipsized0=${subtitleLayout.isLineEllipsized(0)}")
-                assertEquals("Subtitle must avoid unnecessary line wrapping", 1, subtitleLayout.lineCount)
-                if (expectNoOverflow && !spec.isPanelEnabled) {
-                    assertFalse("Subtitle must not truncate at ${spec.containerWidthDp.value}dp / ${spec.fontScale}x", subtitleLayout.isLineEllipsized(0))
+                if (spec.fontScale == 1.0f && spec.containerWidthDp >= 360.dp) {
+                    assertEquals("Subtitle must stay on 1 line at standard 1.0x scale on >=360dp width", 1, subtitleLayout.lineCount)
+                } else {
+                    assertTrue("Subtitle must wrap within 1..3 lines at narrow width or large font scale", subtitleLayout.lineCount in 1..3)
+                }
+                assertFalse("Subtitle must not overflow vertically", subtitleLayout.didOverflowHeight)
+                for (lineIdx in 0 until subtitleLayout.lineCount) {
+                    assertFalse(
+                        "Subtitle line $lineIdx must not truncate at ${spec.containerWidthDp.value}dp / ${spec.fontScale}x",
+                        subtitleLayout.isLineEllipsized(lineIdx)
+                    )
                 }
             }
 
@@ -335,5 +362,132 @@ class StudyTimerCompactLayoutRegressionTest {
             "Expanded dark mode at 1.3x fontScale must keep non-overlapping title & subtitle",
             subtitleBounds.top >= titleBounds.bottom + (1.0f * measuredDensity)
         )
+    }
+
+    @Test
+    fun verifySolverPedagogicalModesStepsAndBcsCompanionUiInteractions() {
+        val activeModeState = mutableStateOf(SolverMode.LEARNING)
+        val compactStepsViewState = mutableStateOf(false)
+        val showSimCardState = mutableStateOf(false)
+
+        composeRule.setContent {
+            val activeMode = activeModeState.value
+            val compactStepsView = compactStepsViewState.value
+            val showSimCard = showSimCardState.value
+            val currentResult = androidx.compose.runtime.remember(activeMode, compactStepsView) {
+                val full = MathProblemSolverEngine.solveArithmetic("15 + 5", activeMode)
+                if (compactStepsView && activeMode == SolverMode.BCS) {
+                    full.copy(
+                        problemUnderstanding = null,
+                        formulaUsedBn = null,
+                        formulaBreakdown = null,
+                        visualModelSpec = null,
+                        verificationBn = null,
+                        steps = emptyList(),
+                        bcsShortcutBn = null,
+                        shortcutDetails = null
+                    )
+                } else if (compactStepsView) {
+                    full.copy(
+                        problemUnderstanding = null,
+                        formulaUsedBn = null,
+                        formulaBreakdown = null,
+                        visualModelSpec = null,
+                        verificationBn = null
+                    )
+                } else {
+                    full
+                }
+            }
+            MathMasterTheme {
+                Column(modifier = Modifier.width(480.dp)) {
+                    if (!showSimCard) {
+                        LearningModeSelector(
+                            currentMode = activeMode,
+                            onModeSelected = { activeModeState.value = it }
+                        )
+                        SolutionDisplayCard(
+                            result = currentResult,
+                            isBookmarked = false,
+                            onToggleBookmark = {},
+                            onCopySolution = {},
+                            onTrySimilar = {},
+                            onSwitchToLearningMode = { activeModeState.value = SolverMode.LEARNING },
+                            viewModel = null
+                        )
+                    } else {
+                        SimultaneousLinearSystemAndBridgeCard(
+                            selectedTopic = SolverTopic.LINEAR_EQUATIONS,
+                            viewModel = null
+                        )
+                    }
+                }
+            }
+        }
+        composeRule.waitForIdle()
+
+        // 1. Verify initial LEARNING mode state, Mode Switching to QUICK mode, and Quick-to-Learning transition via performClick()
+        assertEquals(SolverMode.LEARNING, activeModeState.value)
+        composeRule.onNodeWithTag("solver_problem_understanding_card", useUnmergedTree = true).assertIsDisplayed()
+
+        composeRule.onNodeWithTag("solver_mode_quick").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SolverMode.QUICK, activeModeState.value)
+        composeRule.onNodeWithTag("btn_quick_to_learning_mode").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("btn_quick_to_learning_mode").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SolverMode.LEARNING, activeModeState.value)
+        composeRule.onNodeWithTag("solver_problem_understanding_card", useUnmergedTree = true).assertIsDisplayed()
+
+        // 2. Focus viewport on steps inside SolutionDisplayCard & verify individual step expansion/collapse via performClick()
+        compactStepsViewState.value = true
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("step_1_chip_simple").assertIsNotSelected()
+        composeRule.onNodeWithTag("step_1_chip_why").assertIsSelected()
+        composeRule.onNodeWithTag("step_1_chip_analogy").assertIsNotSelected()
+
+        composeRule.onNodeWithTag("step_1_chip_simple").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("step_1_chip_simple").assertIsSelected()
+
+        composeRule.onNodeWithTag("step_1_chip_analogy").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("step_1_chip_analogy").assertIsSelected()
+
+        composeRule.onNodeWithTag("step_1_chip_simple").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("step_1_chip_simple").assertIsNotSelected()
+
+        // 3. Verify global Expand All / Collapse All buttons via performClick()
+        composeRule.onNodeWithTag("btn_expand_all_steps").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("step_1_chip_simple").assertIsSelected()
+        composeRule.onNodeWithTag("step_1_chip_why").assertIsSelected()
+        composeRule.onNodeWithTag("step_1_chip_analogy").assertIsSelected()
+
+        composeRule.onNodeWithTag("btn_collapse_all_steps").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("step_1_chip_simple").assertIsNotSelected()
+        composeRule.onNodeWithTag("step_1_chip_why").assertIsNotSelected()
+        composeRule.onNodeWithTag("step_1_chip_analogy").assertIsNotSelected()
+
+        // 4. Verify Mode Switching to BCS mode and BCS Companion Navigator toggle via performClick()
+        composeRule.onNodeWithTag("solver_mode_bcs").performClick()
+        composeRule.waitForIdle()
+        assertEquals(SolverMode.BCS, activeModeState.value)
+        composeRule.onNodeWithTag("solver_bcs_syllabus_card", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("btn_toggle_bcs_companion_navigator").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("অন্যান্য বিসিএস অধ্যায় লুকান").assertIsDisplayed()
+
+        // 5. Switch to SimultaneousLinearSystemAndBridgeCard and verify 2x2 / 3x3 toggle via performClick()
+        showSimCardState.value = true
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("sim_dim_2x2").assertIsSelected()
+        composeRule.onNodeWithTag("sim_dim_3x3").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("sim_dim_3x3").assertIsSelected()
     }
 }

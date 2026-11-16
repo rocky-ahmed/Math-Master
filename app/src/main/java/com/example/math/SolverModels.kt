@@ -82,9 +82,9 @@ enum class SolverTopic(
     ),
     SIMPLE_INTEREST(
         id = "simple_interest",
-        titleBn = "সরল সুদ ও মুনাফা (Simple Interest)",
-        titleEn = "Simple Interest",
-        descriptionBn = "মূলধন, বার্ষিক হার, সময় ও মুনাফা-আসল সংক্রান্ত যেকোনো অজ্ঞাত রাশি নির্ণয়",
+        titleBn = "সরল ও চক্রবৃদ্ধি মুনাফা (Interest)",
+        titleEn = "Simple & Compound Interest",
+        descriptionBn = "সরল ও চক্রবৃদ্ধি মুনাফা, আসল, বার্ষিক হার, সময় ও সবৃদ্ধিমূল নির্ণয়",
         primaryColor = Color(0xFFD97706),
         secondaryColor = Color(0xFFFEF3C7)
     ),
@@ -130,17 +130,17 @@ enum class SolverTopic(
     ),
     LINEAR_EQUATIONS(
         id = "linear_equations",
-        titleBn = "সরল সমীকরণ ও বীজগণিত",
-        titleEn = "Linear Equations & Algebra",
-        descriptionBn = "এক চলকবিশিষ্ট সরল সমীকরণ সমাধান, পক্ষান্তর, মান নির্ণয় ও শুদ্ধি পরীক্ষা",
+        titleBn = "সরল সমীকরণ ও অসমতা",
+        titleEn = "Linear Equations, Inequalities & Systems",
+        descriptionBn = "এক চলক সমীকরণ, পরমমান অসমতা, ২×২ ও ৩×৩ সহসমীকরণ এবং শুদ্ধি পরীক্ষা",
         primaryColor = Color(0xFFBE185D),
         secondaryColor = Color(0xFFFCE7F3)
     ),
     QUADRATIC_EQUATIONS(
         id = "quadratic_equations",
-        titleBn = "দ্বিঘাত সমীকরণ (ax² + bx + c = 0)",
-        titleEn = "Quadratic Equations",
-        descriptionBn = "নিশ্চায়ক (D = b² - 4ac) বিশ্লেষণ, মূলের প্রকৃতি, দ্বিঘাত সূত্র ও শীর্ষবিন্দু নির্ণয়",
+        titleBn = "দ্বিঘাত সমীকরণ ও অসমতা (ax² + bx + c)",
+        titleEn = "Quadratic Equations & Inequalities",
+        descriptionBn = "নিশ্চায়ক (D = b² - 4ac) বিশ্লেষণ, মূলের প্রকৃতি, দ্বিঘাত সূত্র, শীর্ষবিন্দু ও অসমতা",
         primaryColor = Color(0xFF6D28D9),
         secondaryColor = Color(0xFFEDE9FE)
     ),
@@ -211,18 +211,202 @@ enum class SolverMode(
 }
 
 /**
+ * Explicit exactness classification for mathematical outputs.
+ */
+enum class CalculationExactness(val badgeBn: String, val descriptionBn: String) {
+    EXACT("নির্ভুল মান (Exact)", "পূর্ণসংখ্যা বা মূলদ ভগ্নাংশে শতভাগ নিখুঁত গাণিতিক মান"),
+    APPROXIMATE("আসন্ন মান (Approximate)", "দশমিক বা অমূলদ সংখ্যার আসন্ন মান (প্রকৃত প্রতীকী মানসহ)")
+}
+
+/**
+ * Verified 5-Category Provenance Taxonomy for BCS & curriculum content.
+ * Prevents unverified exam-year claims.
+ */
+enum class BcsProvenanceCategory(
+    val badgeBn: String,
+    val detailBn: String
+) {
+    OFFICIAL_BPSC_SYLLABUS(
+        badgeBn = "সরকারি BPSC সিলেবাস টপিক",
+        detailBn = "বাংলাদেশ সরকারি কর্ম কমিশন (BPSC) প্রিলিমিনারি ও লিখিত পরীক্ষার নির্ধারিত পাঠ্যসূচিভুক্ত"
+    ),
+    CURATED_BCS_PATTERN(
+        badgeBn = "বিসিএস প্রশ্ন-ধাঁচ ভিত্তিক (Curated Pattern)",
+        detailBn = "বিগত বিসিএস প্রিলিমিনারি ও লিখিত পরীক্ষার গাণিতিক যুক্তির প্রশ্ন-প্যাটার্ন অনুসারে প্রস্তুত"
+    ),
+    ADAPTED_PRACTICE(
+        badgeBn = "অনুশীলনের জন্য রূপান্তরিত (Adapted Practice)",
+        detailBn = "প্রতিযোগিতামূলক পরীক্ষার সমমানের সংখ্যাগত অনুশীলনের জন্য রূপান্তরিত সমস্যা"
+    ),
+    NCTB_CURRICULUM_CONCEPT(
+        badgeBn = "NCTB বোর্ড পাঠ্যক্রম ভিত্তি",
+        detailBn = "জাতীয় শিক্ষাক্রম ও পাঠ্যপুস্তক বোর্ড (৬ষ্ঠ–১০ম শ্রেণি) গণিত বইয়ের মৌলিক ধারণা"
+    ),
+    SPEED_CALCULATION_TECHNIQUE(
+        badgeBn = "দ্রুত গণনা কৌশল (Speed Technique)",
+        detailBn = "এমসিকিউ পরীক্ষায় ৩০–৪৫ সেকেন্ডে উত্তর যাচাইয়ের বীজগণিতীয় সংক্ষিপ্ত পদ্ধতি"
+    )
+}
+
+/**
+ * Four-tier educational progress taxonomy separating self-reported confidence from verified mastery.
+ */
+enum class SolverLearningState(
+    val id: String,
+    val badgeBn: String,
+    val descriptionBn: String
+) {
+    SELF_REPORTED_CONFIDENCE(
+        id = "self_reported_confidence",
+        badgeBn = "স্ব-মূল্যায়িত আস্থা (Self-Reported Confidence)",
+        descriptionBn = "শিক্ষার্থী ধাপগুলো পড়ে 'বুঝেছি' হিসেবে চিহ্নিত করেছেন"
+    ),
+    WORKED_EXAMPLE_STUDIED(
+        id = "worked_example_studied",
+        badgeBn = "সমাধানকৃত উদাহরণ অধ্যয়ন (Worked Example Studied)",
+        descriptionBn = "ধাপভিত্তিক সমাধান, সূত্র ও শুদ্ধি পরীক্ষা সম্পূর্ণ পর্যবেক্ষণ করা হয়েছে"
+    ),
+    INDEPENDENT_PRACTICE_VERIFIED(
+        id = "independent_practice_verified",
+        badgeBn = "স্বতন্ত্র অনুশীলন যাচাইকৃত (Independent Practice Verified)",
+        descriptionBn = "অনুরূপ অনুশীলন প্রশ্নের সঠিক উত্তর নিজে সমাধান করে যাচাই করেছেন"
+    ),
+    DEMONSTRATED_TOPIC_MASTERY(
+        id = "demonstrated_topic_mastery",
+        badgeBn = "প্রমাণিত বিষয়-দক্ষতা (Demonstrated Topic Mastery)",
+        descriptionBn = "একাধিক স্তরের (সহজ, মধ্যম, চ্যালেঞ্জ) অনুশীলন সফলভাবে সম্পন্ন করেছেন"
+    )
+}
+
+/**
+ * Interest sub-mode for Module 04 Topic 07 (Simple vs. Compound Interest).
+ */
+enum class InterestCalculationMode(
+    val id: String,
+    val titleBn: String,
+    val subtitleBn: String
+) {
+    SIMPLE("simple", "সরল মুনাফা (I = Prn)", "প্রতি বছর শুধুমাত্র প্রারম্ভিক আসলের ওপর মুনাফা"),
+    COMPOUND("compound", "চক্রবৃদ্ধি মুনাফা (A = P(1+r/m)^mt)", "প্রতি পর্ব শেষে মুনাফা আসলের সাথে যুক্ত হয়ে নতুন আসল গঠন")
+}
+
+/**
+ * Inline interactive visual model types for Learning Mode.
+ */
+enum class VisualDiagramType {
+    NUMBER_LINE,
+    INEQUALITY_NUMBER_LINE,
+    FRACTION_BAR,
+    PERCENTAGE_BAR,
+    RATIO_SEGMENTS,
+    PROFIT_LOSS_BAR,
+    INTEREST_GROWTH_BAR,
+    WORK_RATE_BAR,
+    MOTION_TRACK,
+    EUCLIDEAN_STRIP,
+    FACTOR_VENN,
+    SQUARE_GRID,
+    ALGEBRA_BALANCE,
+    PARABOLA_PLOT,
+    FACTOR_AREA_GRID
+}
+
+/**
+ * Specification for an inline expandable visual representation in Learning Mode.
+ */
+data class VisualModelSpec(
+    val diagramType: VisualDiagramType,
+    val titleBn: String,
+    val subtitleBn: String = "",
+    val primaryValues: List<Double> = emptyList(),
+    val secondaryValues: List<Double> = emptyList(),
+    val labelsBn: List<String> = emptyList(),
+    val equationLeftBn: String? = null,
+    val equationRightBn: String? = null,
+    val accessibilitySummaryBn: String
+)
+
+/**
+ * Section 1 & 2 of Learning Mode: Plain-Bengali problem understanding & prerequisite concept.
+ */
+data class ProblemUnderstanding(
+    val summaryBn: String,
+    val givenItemsBn: List<Pair<String, String>>,
+    val requiredTargetBn: String,
+    val prerequisiteConceptBn: String,
+    val realLifeContextBn: String? = null
+)
+
+/**
+ * Individual variable definition inside a formula breakdown card.
+ */
+data class VariableExplanation(
+    val symbolBn: String,
+    val meaningBn: String,
+    val givenValueBn: String? = null
+)
+
+/**
+ * Section 3 of Learning Mode: Formula breakdown with variable dictionary.
+ */
+data class FormulaBreakdown(
+    val formulaTitleBn: String,
+    val formulaExpressionBn: String,
+    val plainMeaningBn: String,
+    val variables: List<VariableExplanation> = emptyList(),
+    val whyApplicableBn: String
+)
+
+/**
+ * Section 6 of Learning Mode & BCS Mode: Shortcut, derivation, and common traps.
+ */
+data class ShortcutDetails(
+    val shortcutTitleBn: String,
+    val shortcutFormulaOrRuleBn: String,
+    val whyShortcutWorksBn: String,
+    val whenToUseBn: String,
+    val whenToAvoidBn: String,
+    val commonTrapBn: String,
+    val averageTimeSecondsBn: String = "২০–৩০ সেকেন্ড"
+)
+
+/**
+ * Official BPSC Preliminary (15+15) & Written (50+50) syllabus mapping.
+ */
+data class BcsSyllabusMapping(
+    val preliminarySectionBn: String,
+    val preliminaryMarksBn: String = "১৫ নম্বর (গাণিতিক যুক্তি) + ১৫ নম্বর (মানসিক দক্ষতা)",
+    val writtenSectionBn: String,
+    val writtenMarksBn: String = "৫০ নম্বর (গাণিতিক যুক্তি, কোড 008) + ৫০ নম্বর (মানসিক দক্ষতা, কোড 009)",
+    val provenanceCategory: BcsProvenanceCategory = BcsProvenanceCategory.OFFICIAL_BPSC_SYLLABUS,
+    val provenanceLabelBn: String = provenanceCategory.badgeBn,
+    val examPatternNoteBn: String
+)
+
+/**
  * Represents an individual sequential step within a solution.
+ * Preserves 100% backward compatibility with the original 5-parameter constructor.
  */
 data class SolutionStep(
     val stepIndex: Int,
     val titleBn: String,
     val expressionOrMathBn: String,
     val explanationBn: String,
-    val whyThisStepBn: String? = null
+    val whyThisStepBn: String? = null,
+    val expressionBeforeBn: String? = null,
+    val expressionAfterBn: String? = null,
+    val simpleExplanationBn: String = explanationBn,
+    val detailedRuleBn: String? = whyThisStepBn,
+    val conceptualAnalogyBn: String? = null,
+    val commonMistakeBn: String? = null,
+    val hint1Bn: String? = null,
+    val hint2Bn: String? = null,
+    val expectedStepValueBn: String? = null
 )
 
 /**
  * Complete result output of the Math Problem Solver.
+ * Preserves 100% backward compatibility with existing callers and unit tests.
  */
 data class SolverResult(
     val topic: SolverTopic,
@@ -238,7 +422,13 @@ data class SolverResult(
     val isSuccess: Boolean = true,
     val errorMessageBn: String? = null,
     val isExactResult: Boolean = true,
-    val approximateResultBn: String? = null
+    val approximateResultBn: String? = null,
+    val problemUnderstanding: ProblemUnderstanding? = null,
+    val formulaBreakdown: FormulaBreakdown? = null,
+    val shortcutDetails: ShortcutDetails? = null,
+    val bcsSyllabusMapping: BcsSyllabusMapping? = null,
+    val visualModelSpec: VisualModelSpec? = null,
+    val exactness: CalculationExactness = if (isExactResult) CalculationExactness.EXACT else CalculationExactness.APPROXIMATE
 )
 
 /**
@@ -249,4 +439,16 @@ data class CuratedProblemExample(
     val topic: SolverTopic,
     val problemDescriptionBn: String,
     val defaultInputs: Map<String, String>
+)
+
+/**
+ * Cross-module syllabus navigation item for BCS Preparation Mode covering
+ * Geometry, Mensuration, Trigonometry, Coordinate Geometry, Sets, Combinatorics & Probability.
+ */
+data class BcsCompanionModuleItem(
+    val syllabusAreaBn: String,
+    val prelimAndWrittenWeightBn: String,
+    val topicsCoveredBn: String,
+    val targetModuleNameBn: String,
+    val targetRouteType: String
 )

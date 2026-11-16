@@ -760,7 +760,7 @@ private fun FormulaCard(
                 IconButton(
                     onClick = onToggleBookmark,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(48.dp)
                         .testTag("btn_bookmark_${formula.id}")
                 ) {
                     Icon(
@@ -821,7 +821,7 @@ private fun FormulaCard(
                     IconButton(
                         onClick = onCopyFormula,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(48.dp)
                             .testTag("btn_copy_${formula.id}")
                     ) {
                         Icon(

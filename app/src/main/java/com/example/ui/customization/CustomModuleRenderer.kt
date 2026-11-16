@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,11 +86,17 @@ fun CustomModuleRenderer(
             ) {
                 modules.chunked(columns).forEach { rowModules ->
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Max),
                         horizontalArrangement = Arrangement.spacedBy(global.horizontalGapDp.dp)
                     ) {
                         rowModules.forEach { item ->
-                            Box(modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
                                 val sectionConfig = customState.getSectionConfig(item.sectionKey)
                                 MathModuleGridCard(
                                     item = item,
@@ -476,7 +484,8 @@ fun MathModuleGridCard(
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
-            .height(cardHeight)
+            .heightIn(min = cardHeight)
+            .fillMaxHeight()
             .shadow(
                 elevation = 3.dp,
                 shape = RoundedCornerShape(cornerRadius),
@@ -532,10 +541,11 @@ fun MathModuleGridCard(
                     fontWeight = fontWeight,
                     color = customTitleColor,
                     minLines = 2,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
-                    lineHeight = (titleSize.value * 1.25f).sp
+                    lineHeight = (titleSize.value * 1.25f).sp,
+                    modifier = Modifier.testTag("${item.testTag}_title")
                 )
 
                 Spacer(modifier = Modifier.height(3.dp))
@@ -545,10 +555,11 @@ fun MathModuleGridCard(
                     fontSize = subtitleSize,
                     color = customSubtitleColor,
                     minLines = 2,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
-                    lineHeight = (subtitleSize.value * 1.25f).sp
+                    lineHeight = (subtitleSize.value * 1.25f).sp,
+                    modifier = Modifier.testTag("${item.testTag}_subtitle")
                 )
             }
 

@@ -75,6 +75,27 @@ data class SimultaneousLinearResult(
     val yExactBn: String,
     val statusBn: String,
     val stepsBn: List<Pair<String, String>>,
+    val verificationBn: String,
+    val rankA: Int = if (isUniqueSolution) 2 else 0,
+    val rankAugmented: Int = if (isUniqueSolution) 2 else if (isNoSolution) 1 else 0,
+    val eliminationStepsBn: List<Pair<String, String>> = emptyList(),
+    val substitutionStepsBn: List<Pair<String, String>> = emptyList()
+) {
+    val hasUniqueSolution: Boolean get() = isUniqueSolution
+}
+
+data class SimultaneousLinear3x3Result(
+    val isUniqueSolution: Boolean,
+    val isInfiniteSolutions: Boolean,
+    val isNoSolution: Boolean,
+    val determinant: Double,
+    val rankA: Int,
+    val rankAugmented: Int,
+    val xExactBn: String,
+    val yExactBn: String,
+    val zExactBn: String,
+    val statusBn: String,
+    val stepsBn: List<Pair<String, String>>,
     val verificationBn: String
 ) {
     val hasUniqueSolution: Boolean get() = isUniqueSolution
@@ -160,6 +181,50 @@ data class Rational(
         return BigDecimal(simplifiedNumerator)
             .divide(BigDecimal(simplifiedDenominator), scale, RoundingMode.HALF_UP)
             .stripTrailingZeros()
+    }
+
+    /**
+     * True if and only if the reduced denominator has no prime factors other than 2 and 5,
+     * meaning the rational number has an exact finite decimal representation.
+     */
+    val isTerminatingDecimal: Boolean
+        get() {
+            var d = simplifiedDenominator.abs()
+            val two = BigInteger.valueOf(2L)
+            val five = BigInteger.valueOf(5L)
+            while (d > BigInteger.ONE && d.remainder(two) == BigInteger.ZERO) {
+                d = d.divide(two)
+            }
+            while (d > BigInteger.ONE && d.remainder(five) == BigInteger.ZERO) {
+                d = d.divide(five)
+            }
+            return d == BigInteger.ONE
+        }
+
+    /**
+     * Returns the exact unrounded finite decimal string if [isTerminatingDecimal] is true,
+     * or null if the fraction is a repeating decimal.
+     */
+    fun toExactDecimalString(): String? {
+        if (!isTerminatingDecimal) return null
+        var d = simplifiedDenominator.abs()
+        var c2 = 0
+        var c5 = 0
+        val two = BigInteger.valueOf(2L)
+        val five = BigInteger.valueOf(5L)
+        while (d > BigInteger.ONE && d.remainder(two) == BigInteger.ZERO) {
+            d = d.divide(two)
+            c2++
+        }
+        while (d > BigInteger.ONE && d.remainder(five) == BigInteger.ZERO) {
+            d = d.divide(five)
+            c5++
+        }
+        val scale = maxOf(c2, c5)
+        if (scale == 0) return simplifiedNumerator.toString()
+        val factor = two.pow(scale - c2).multiply(five.pow(scale - c5))
+        val scaledNum = simplifiedNumerator.multiply(factor)
+        return BigDecimal(scaledNum, scale).stripTrailingZeros().toPlainString()
     }
 
     fun toDouble(): Double = toBigDecimal(10).toDouble()
@@ -664,8 +729,9 @@ object SharedMathEngine {
             }
             else -> {
                 val absD = abs(discriminant)
-                val realPart = -b / (2.0 * a)
-                val imagPart = sqrt(absD) / abs(2.0 * a)
+                val rawReal = -b / (2.0 * a)
+                val realPart = if (abs(rawReal) < 1e-12) 0.0 else rawReal
+                val imagPart = sqrt(absD) / (2.0 * abs(a))
                 val rBn = formatDoubleBn(realPart)
                 val iBn = formatDoubleBn(imagPart)
                 val root1 = "$rBn + ${iBn}i"
@@ -676,9 +742,9 @@ object SharedMathEngine {
                         "যেহেতু নিশ্চায়ক Δ = $discBn < ০ (ঋণাত্মক), তাই সমীকরণটির কোনো বাস্তব মূল নেই; মূলদ্বয় জটিল বা কাল্পনিক অনুবন্ধী (Complex Conjugate Roots)।"
                 )
                 steps.add(
-                    "ধাপ ৪: জটিল মূল প্রকাশ (√(-1) = i)" to
+                    "ধাপ ৪: জটিল মূল প্রকাশ (√(-1) = i এবং β = √|Δ| / (2|a|))" to
                         "x = (${formatDoubleBn(-b)} ± i√${formatDoubleBn(absD)}) / ${formatDoubleBn(2.0 * a)}\n" +
-                        "x₁ = $root1,  x₂ = $root2"
+                        "প্রমিত অনুবন্ধী রূপ: x₁ = $root1,  x₂ = $root2"
                 )
 
                 QuadraticAnalysisResult(
@@ -1439,6 +1505,64 @@ object SharedMathEngine {
         )
     }
 
+    /**
+     * Exact Rational Gaussian Elimination / RREF helper returning:
+     * (rankA, rankAugmented, rrefMatrix) for an m x (n + 1) augmented matrix [A | b].
+     */
+    private fun computeAugmentedRrefAndRanks(
+        rows: List<List<Rational>>,
+        numVars: Int
+    ): Triple<Int, Int, List<List<Rational>>> {
+        val m = rows.size
+        val cols = numVars + 1
+        val mat = Array(m) { r -> Array(cols) { c -> rows[r][c] } }
+
+        // 1. Compute rank(A) and RREF on the first numVars columns (while transforming augmented column)
+        var pivotRow = 0
+        for (col in 0 until numVars) {
+            if (pivotRow >= m) break
+            var sel = -1
+            for (r in pivotRow until m) {
+                if (mat[r][col] != Rational.ZERO) {
+                    sel = r
+                    break
+                }
+            }
+            if (sel == -1) continue
+            if (sel != pivotRow) {
+                val tmp = mat[pivotRow]
+                mat[pivotRow] = mat[sel]
+                mat[sel] = tmp
+            }
+            val pivotVal = mat[pivotRow][col]
+            for (c in col until cols) {
+                mat[pivotRow][c] = mat[pivotRow][c] / pivotVal
+            }
+            for (r in 0 until m) {
+                if (r != pivotRow && mat[r][col] != Rational.ZERO) {
+                    val factor = mat[r][col]
+                    for (c in col until cols) {
+                        mat[r][c] = mat[r][c] - (factor * mat[pivotRow][c])
+                    }
+                }
+            }
+            pivotRow++
+        }
+        val rankA = pivotRow
+
+        // 2. Check if any remaining row (from pivotRow .. m-1) has a non-zero augmented entry
+        var hasInconsistentRow = false
+        for (r in rankA until m) {
+            if (mat[r][numVars] != Rational.ZERO) {
+                hasInconsistentRow = true
+                break
+            }
+        }
+        val rankAugmented = if (hasInconsistentRow) rankA + 1 else rankA
+        val finalRows = mat.map { it.toList() }
+        return Triple(rankA, rankAugmented, finalRows)
+    }
+
     fun solveSimultaneousLinear(
         a1: Double,
         b1: Double,
@@ -1459,72 +1583,100 @@ object SharedMathEngine {
                 stepsBn = listOf(
                     "ধাপ ১: ইনপুট যাচাই" to "সহগগুলোর মধ্যে অসংজ্ঞায়িত (NaN) বা অসীম (Infinity) মান পাওয়া গেছে।"
                 ),
-                verificationBn = "সসীম বাস্তব সংখ্যা দিয়ে পুনরায় চেষ্টা করুন।"
+                verificationBn = "সসীম বাস্তব সংখ্যা দিয়ে পুনরায় চেষ্টা করুন।",
+                rankA = 0,
+                rankAugmented = 1
             )
         }
 
-        val det = a1 * b2 - a2 * b1
-        val detX = c1 * b2 - c2 * b1
-        val detY = a1 * c2 - a2 * c1
+        val rA1 = Rational.fromDouble(a1)
+        val rB1 = Rational.fromDouble(b1)
+        val rC1 = Rational.fromDouble(c1)
+        val rA2 = Rational.fromDouble(a2)
+        val rB2 = Rational.fromDouble(b2)
+        val rC2 = Rational.fromDouble(c2)
+
+        val rDet = (rA1 * rB2) - (rA2 * rB1)
+        val rDetX = (rC1 * rB2) - (rC2 * rB1)
+        val rDetY = (rA1 * rC2) - (rA2 * rC1)
+
+        val det = rDet.toDouble()
+        val detX = rDetX.toDouble()
+        val detY = rDetY.toDouble()
 
         val eq1Bn = "${formatDoubleBn(a1)}x + ${formatDoubleBn(b1)}y = ${formatDoubleBn(c1)}"
         val eq2Bn = "${formatDoubleBn(a2)}x + ${formatDoubleBn(b2)}y = ${formatDoubleBn(c2)}"
 
-        if (abs(det) < 1e-10) {
-            val eq1ZeroCoeffs = abs(a1) < 1e-10 && abs(b1) < 1e-10
-            val eq2ZeroCoeffs = abs(a2) < 1e-10 && abs(b2) < 1e-10
-            val eq1Contradiction = eq1ZeroCoeffs && abs(c1) >= 1e-10
-            val eq2Contradiction = eq2ZeroCoeffs && abs(c2) >= 1e-10
+        val (rankA, rankAug, rref) = computeAugmentedRrefAndRanks(
+            rows = listOf(
+                listOf(rA1, rB1, rC1),
+                listOf(rA2, rB2, rC2)
+            ),
+            numVars = 2
+        )
 
-            // Also check proportional ratio consistency when neither equation is trivial 0x+0y=0
-            val isConsistentWhenDetZero = if (eq1Contradiction || eq2Contradiction) {
-                false
-            } else {
-                abs(detX) < 1e-10 && abs(detY) < 1e-10
-            }
+        val rankABn = BengaliNumberFormatter.toBn(rankA)
+        val rankAugBn = BengaliNumberFormatter.toBn(rankAug)
 
-            val isInfinite = isConsistentWhenDetZero
+        // Exact Rank-Based Classification:
+        // Case 1: rank(A) < rank([A|b]) -> No solution
+        // Case 2: rank(A) == rank([A|b]) < 2 -> Infinitely many solutions
+        // Case 3: rank(A) == rank([A|b]) == 2 -> Unique solution
+        if (rankA < 2) {
+            val isInfinite = (rankA == rankAug)
             val status = if (isInfinite) {
-                "অসংখ্য সমাধান বিদ্যমান (সমীকরণদ্বয় সমাপতিত / নির্ভরশীল)"
+                if (rankA == 0) {
+                    "অসংখ্য সমাধান বিদ্যমান (শূন্য সহগ অভেদ: rank(A) = rank([A|b]) = ০ < ২)"
+                } else {
+                    "অসংখ্য সমাধান বিদ্যমান (সমীকরণদ্বয় সমাপতিত / নির্ভরশীল: rank(A) = rank([A|b]) = $rankABn < ২)"
+                }
             } else {
-                "কোনো সমাধান নেই (সমীকরণদ্বয় অসামঞ্জস্যপূর্ণ / সমান্তরাল রেখা)"
+                "কোনো সমাধান নেই (সমীকরণদ্বয় অসামঞ্জস্যপূর্ণ / পরস্পরবিরোধী: rank(A) = $rankABn < rank([A|b]) = $rankAugBn)"
+            }
+            val rankExplanation = if (isInfinite) {
+                "সহগ ম্যাট্রিক্সের র‍্যাংক rank(A) = $rankABn এবং বর্ধিত ম্যাট্রিক্সের র‍্যাংক rank([A|b]) = $rankAugBn। যেহেতু rank(A) = rank([A|b]) < ২, তাই অসংখ্য সমাধান বিদ্যমান।"
+            } else {
+                "সহগ ম্যাট্রিক্সের র‍্যাংক rank(A) = $rankABn কিন্তু বর্ধিত ম্যাট্রিক্সের র‍্যাংক rank([A|b]) = $rankAugBn। যেহেতু rank(A) < rank([A|b]), তাই কোনো সমাধান নেই।"
             }
             return SimultaneousLinearResult(
                 isUniqueSolution = false,
                 isInfiniteSolutions = isInfinite,
                 isNoSolution = !isInfinite,
                 determinant = 0.0,
-                xExactBn = "অসংজ্ঞায়িত",
-                yExactBn = "অসংজ্ঞায়িত",
+                xExactBn = if (isInfinite) "অসংখ্য মান (প্যারামেট্রিক)" else "অসংজ্ঞায়িত",
+                yExactBn = if (isInfinite) "অসংখ্য মান (প্যারামেট্রিক)" else "অসংজ্ঞায়িত",
                 statusBn = status,
                 stepsBn = listOf(
                     "ধাপ ১: সহগ নির্ণায়ক (Determinant D = a₁b₂ − a₂b₁) পরীক্ষা" to
                         "D = (${formatDoubleBn(a1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(a2)} × ${formatDoubleBn(b1)}) = ০",
-                    "ধাপ ২: সমাধানের প্রকৃতি" to status
+                    "ধাপ ২: ম্যাট্রিক্স র‍্যাংক বিশ্লেষণ (Rank of A vs [A|b])" to rankExplanation,
+                    "ধাপ ৩: সমাধানের প্রকৃতি" to status
                 ),
-                verificationBn = "সমীকরণ জোট: (১) $eq1Bn এবং (২) $eq2Bn"
+                verificationBn = "সমীকরণ জোট: (১) $eq1Bn এবং (২) $eq2Bn",
+                rankA = rankA,
+                rankAugmented = rankAug
             )
         }
 
-        val xVal = detX / det
-        val yVal = detY / det
-        val xRat = runCatching { Rational.fromDouble(detX) / Rational.fromDouble(det) }.getOrNull()
-        val yRat = runCatching { Rational.fromDouble(detY) / Rational.fromDouble(det) }.getOrNull()
+        val xRat = rref[0][2]
+        val yRat = rref[1][2]
+        val xVal = xRat.toDouble()
+        val yVal = yRat.toDouble()
 
-        val xText = if (xRat != null && !xRat.isInteger) {
+        val xText = if (!xRat.isInteger) {
             "${xRat.toBnString()} (বা ${formatDoubleBn(xVal)})"
         } else {
-            formatDoubleBn(xVal)
+            xRat.toBnString()
         }
-        val yText = if (yRat != null && !yRat.isInteger) {
+        val yText = if (!yRat.isInteger) {
             "${yRat.toBnString()} (বা ${formatDoubleBn(yVal)})"
         } else {
-            formatDoubleBn(yVal)
+            yRat.toBnString()
         }
 
-        val steps = listOf(
-            "ধাপ ১: প্রদত্ত সরল সহসমীকরণ জোট" to
-                "(১) $eq1Bn\n(২) $eq2Bn",
+        val cramerSteps = listOf(
+            "ধাপ ১: প্রদত্ত সরল সহসমীকরণ জোট ও র‍্যাংক যাচাই" to
+                "(১) $eq1Bn\n(২) $eq2Bn\nম্যাট্রিক্স র‍্যাংক: rank(A) = rank([A|b]) = ২ (একক সমাধান নিশ্চিত)",
             "ধাপ ২: ক্রেমারের নিয়ম (Cramer's Rule / আরগুণন পদ্ধতি) অনুসারে নির্ণায়ক গণনা" to
                 "D = a₁b₂ − a₂b₁ = (${formatDoubleBn(a1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(a2)} × ${formatDoubleBn(b1)}) = ${formatDoubleBn(det)}\n" +
                 "Dx = c₁b₂ − c₂b₁ = (${formatDoubleBn(c1)} × ${formatDoubleBn(b2)}) − (${formatDoubleBn(c2)} × ${formatDoubleBn(b1)}) = ${formatDoubleBn(detX)}\n" +
@@ -1534,8 +1686,28 @@ object SharedMathEngine {
                 "y = ${formatDoubleBn(detY)} ÷ ${formatDoubleBn(det)} = $yText"
         )
 
-        val lhs1 = a1 * xVal + b1 * yVal
-        val lhs2 = a2 * xVal + b2 * yVal
+        val eliminationSteps = listOf(
+            "অপনয়ন ধাপ ১: সহগ সমান করা" to
+                "১ম সমীকরণকে ${formatDoubleBn(b2)} দ্বারা এবং ২য় সমীকরণকে ${formatDoubleBn(b1)} দ্বারা গুণ করে y-এর সহগ সমান করি।",
+            "অপনয়ন ধাপ ২: বিয়োগ করে x নির্ণয়" to
+                "(${formatDoubleBn(det)})x = ${formatDoubleBn(detX)}  ⇒  x = $xText",
+            "অপনয়ন ধাপ ৩: x-এর মান বসিয়ে y নির্ণয়" to
+                "সমীকরণে x = ${xRat.toBnString()} বসিয়ে পাই, y = $yText"
+        )
+
+        val substitutionSteps = listOf(
+            "প্রতিস্থাপন ধাপ ১: একটি চলককে অপর চলকের মাধ্যমে প্রকাশ" to
+                if (rA1 != Rational.ZERO) {
+                    "১ম সমীকরণ থেকে: x = (${formatDoubleBn(c1)} − ${formatDoubleBn(b1)}y) ÷ ${formatDoubleBn(a1)}"
+                } else {
+                    "১ম সমীকরণ থেকে সরাসরি: y = ${formatDoubleBn(c1)} ÷ ${formatDoubleBn(b1)} = $yText"
+                },
+            "প্রতিস্থাপন ধাপ ২: অপর সমীকরণে মান প্রতিস্থাপন" to
+                "২য় সমীকরণে মান বসিয়ে সরল করলে পাওয়া যায়: y = $yText এবং x = $xText"
+        )
+
+        val lhs1 = (rA1 * xRat + rB1 * yRat).toDouble()
+        val lhs2 = (rA2 * xRat + rB2 * yRat).toDouble()
         val verify = "শুদ্ধি পরীক্ষা: ১ম সমীকরণের বামপক্ষ = ${formatDoubleBn(lhs1)} = ডানপক্ষ (${formatDoubleBn(c1)}); ২য় সমীকরণের বামপক্ষ = ${formatDoubleBn(lhs2)} = ডানপক্ষ (${formatDoubleBn(c2)})।"
 
         return SimultaneousLinearResult(
@@ -1545,7 +1717,139 @@ object SharedMathEngine {
             determinant = det,
             xExactBn = xText,
             yExactBn = yText,
-            statusBn = "একক ও অনন্য সমাধান বিদ্যমান (Unique Solution)",
+            statusBn = "একক ও অনন্য সমাধান বিদ্যমান (Unique Solution — rank(A) = rank([A|b]) = ২)",
+            stepsBn = cramerSteps,
+            verificationBn = verify,
+            rankA = rankA,
+            rankAugmented = rankAug,
+            eliminationStepsBn = eliminationSteps,
+            substitutionStepsBn = substitutionSteps
+        )
+    }
+
+    /**
+     * Exact 3x3 Simultaneous Linear System Solver:
+     * a1*x + b1*y + c1*z = d1
+     * a2*x + b2*y + c2*z = d2
+     * a3*x + b3*y + c3*z = d3
+     * Uses exact Rational Gaussian Elimination / RREF rank analysis (rank(A) vs rank([A|b])).
+     */
+    fun solveSimultaneousLinear3x3(
+        a1: Double, b1: Double, c1: Double, d1: Double,
+        a2: Double, b2: Double, c2: Double, d2: Double,
+        a3: Double, b3: Double, c3: Double, d3: Double
+    ): SimultaneousLinear3x3Result {
+        val allInputs = listOf(a1, b1, c1, d1, a2, b2, c2, d2, a3, b3, c3, d3)
+        if (allInputs.any { it.isNaN() || it.isInfinite() }) {
+            return SimultaneousLinear3x3Result(
+                isUniqueSolution = false,
+                isInfiniteSolutions = false,
+                isNoSolution = true,
+                determinant = Double.NaN,
+                rankA = 0,
+                rankAugmented = 1,
+                xExactBn = "অসংজ্ঞায়িত",
+                yExactBn = "অসংজ্ঞায়িত",
+                zExactBn = "অসংজ্ঞায়িত",
+                statusBn = "অবৈধ ইনপুট: সকল সহগ সসীম বাস্তব সংখ্যা হতে হবে।",
+                stepsBn = listOf("ধাপ ১: ইনপুট যাচাই" to "সহগগুলোর মধ্যে অসংজ্ঞায়িত বা অসীম মান পাওয়া গেছে।"),
+                verificationBn = "সসীম বাস্তব সংখ্যা দিয়ে পুনরায় চেষ্টা করুন।"
+            )
+        }
+
+        val rA1 = Rational.fromDouble(a1); val rB1 = Rational.fromDouble(b1); val rC1 = Rational.fromDouble(c1); val rD1 = Rational.fromDouble(d1)
+        val rA2 = Rational.fromDouble(a2); val rB2 = Rational.fromDouble(b2); val rC2 = Rational.fromDouble(c2); val rD2 = Rational.fromDouble(d2)
+        val rA3 = Rational.fromDouble(a3); val rB3 = Rational.fromDouble(b3); val rC3 = Rational.fromDouble(c3); val rD3 = Rational.fromDouble(d3)
+
+        // Exact 3x3 determinant D
+        val term1 = rA1 * ((rB2 * rC3) - (rB3 * rC2))
+        val term2 = rB1 * ((rA2 * rC3) - (rA3 * rC2))
+        val term3 = rC1 * ((rA2 * rB3) - (rA3 * rB2))
+        val rDet = term1 - term2 + term3
+        val det = rDet.toDouble()
+
+        val eq1Bn = "${formatDoubleBn(a1)}x + ${formatDoubleBn(b1)}y + ${formatDoubleBn(c1)}z = ${formatDoubleBn(d1)}"
+        val eq2Bn = "${formatDoubleBn(a2)}x + ${formatDoubleBn(b2)}y + ${formatDoubleBn(c2)}z = ${formatDoubleBn(d2)}"
+        val eq3Bn = "${formatDoubleBn(a3)}x + ${formatDoubleBn(b3)}y + ${formatDoubleBn(c3)}z = ${formatDoubleBn(d3)}"
+
+        val (rankA, rankAug, rref) = computeAugmentedRrefAndRanks(
+            rows = listOf(
+                listOf(rA1, rB1, rC1, rD1),
+                listOf(rA2, rB2, rC2, rD2),
+                listOf(rA3, rB3, rC3, rD3)
+            ),
+            numVars = 3
+        )
+
+        val rankABn = BengaliNumberFormatter.toBn(rankA)
+        val rankAugBn = BengaliNumberFormatter.toBn(rankAug)
+
+        if (rankA < 3) {
+            val isInfinite = (rankA == rankAug)
+            val status = if (isInfinite) {
+                "অসংখ্য সমাধান বিদ্যমান (নির্ভরশীল সমীকরণ জোট: rank(A) = rank([A|b]) = $rankABn < ৩)"
+            } else {
+                "কোনো সমাধান নেই (অসামঞ্জস্যপূর্ণ সমীকরণ জোট: rank(A) = $rankABn < rank([A|b]) = $rankAugBn)"
+            }
+            val rankNote = if (isInfinite) {
+                "ম্যাট্রিক্স র‍্যাংক বিশ্লেষণ: rank(A) = $rankABn এবং rank([A|b]) = $rankAugBn। যেহেতু rank(A) = rank([A|b]) < ৩, তাই মুক্ত চলক (Free Variable) রয়েছে এবং অসংখ্য সমাধান বিদ্যমান।"
+            } else {
+                "ম্যাট্রিক্স র‍্যাংক বিশ্লেষণ: rank(A) = $rankABn কিন্তু rank([A|b]) = $rankAugBn। গাউসীয় অপনয়নে ০ = অশূন্য ধ্রুবক (অসঙ্গতি) আসায় কোনো সমাধান নেই।"
+            }
+            return SimultaneousLinear3x3Result(
+                isUniqueSolution = false,
+                isInfiniteSolutions = isInfinite,
+                isNoSolution = !isInfinite,
+                determinant = det,
+                rankA = rankA,
+                rankAugmented = rankAug,
+                xExactBn = if (isInfinite) "অসংখ্য মান" else "অসংজ্ঞায়িত",
+                yExactBn = if (isInfinite) "অসংখ্য মান" else "অসংজ্ঞায়িত",
+                zExactBn = if (isInfinite) "অসংখ্য মান" else "অসংজ্ঞায়িত",
+                statusBn = status,
+                stepsBn = listOf(
+                    "ধাপ ১: প্রদত্ত ৩×৩ সহসমীকরণ জোট" to "(১) $eq1Bn\n(২) $eq2Bn\n(৩) $eq3Bn",
+                    "ধাপ ২: নির্ণায়ক (Determinant D) ও র‍্যাংক পরীক্ষা" to "D = ${formatDoubleBn(det)}\n$rankNote",
+                    "ধাপ ৩: সমাধানের প্রকৃতি" to status
+                ),
+                verificationBn = "সমীকরণ জোটের র‍্যাংক: rank(A) = $rankABn, rank([A|b]) = $rankAugBn"
+            )
+        }
+
+        val xRat = rref[0][3]
+        val yRat = rref[1][3]
+        val zRat = rref[2][3]
+
+        val xText = if (!xRat.isInteger) "${xRat.toBnString()} (বা ${formatDoubleBn(xRat.toDouble())})" else xRat.toBnString()
+        val yText = if (!yRat.isInteger) "${yRat.toBnString()} (বা ${formatDoubleBn(yRat.toDouble())})" else yRat.toBnString()
+        val zText = if (!zRat.isInteger) "${zRat.toBnString()} (বা ${formatDoubleBn(zRat.toDouble())})" else zRat.toBnString()
+
+        val lhs1 = (rA1 * xRat + rB1 * yRat + rC1 * zRat).toDouble()
+        val lhs2 = (rA2 * xRat + rB2 * yRat + rC2 * zRat).toDouble()
+        val lhs3 = (rA3 * xRat + rB3 * yRat + rC3 * zRat).toDouble()
+
+        val steps = listOf(
+            "ধাপ ১: প্রদত্ত ৩×৩ সহসমীকরণ জোট" to
+                "(১) $eq1Bn\n(২) $eq2Bn\n(৩) $eq3Bn",
+            "ধাপ ২: সহগ নির্ণায়ক (Determinant D) ও র‍্যাংক যাচাই" to
+                "নির্ণায়ক D = ${formatDoubleBn(det)} ≠ ০ এবং rank(A) = rank([A|b]) = ৩ (একক সমাধান বিদ্যমান)।",
+            "ধাপ ৩: গাউসীয় অপনয়ন (Gaussian Elimination / RREF) দ্বারা চলকের মান নির্ণয়" to
+                "সারি রূপান্তরের মাধ্যমে সংক্ষিপ্ত সোপান আকার (RREF) থেকে পাই:\nx = $xText\ny = $yText\nz = $zText"
+        )
+
+        val verify = "শুদ্ধি পরীক্ষা: সমীকরণ (১) বামপক্ষ = ${formatDoubleBn(lhs1)}, (২) বামপক্ষ = ${formatDoubleBn(lhs2)}, (৩) বামপক্ষ = ${formatDoubleBn(lhs3)} — তিনটি সমীকরণই সিদ্ধ হয়েছে।"
+
+        return SimultaneousLinear3x3Result(
+            isUniqueSolution = true,
+            isInfiniteSolutions = false,
+            isNoSolution = false,
+            determinant = det,
+            rankA = rankA,
+            rankAugmented = rankAug,
+            xExactBn = xText,
+            yExactBn = yText,
+            zExactBn = zText,
+            statusBn = "একক ও অনন্য সমাধান বিদ্যমান (Unique Solution — rank(A) = rank([A|b]) = ৩)",
             stepsBn = steps,
             verificationBn = verify
         )

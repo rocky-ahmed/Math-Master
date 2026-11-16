@@ -732,7 +732,17 @@ object SimilarProblemGenerator {
                 s.stepIndex.toString(),
                 s.titleBn.replace(FIELD_SEP, " "),
                 s.expressionOrMathBn.replace(FIELD_SEP, " "),
-                s.explanationBn.replace(FIELD_SEP, " ")
+                s.explanationBn.replace(FIELD_SEP, " "),
+                (s.whyThisStepBn ?: "").replace(FIELD_SEP, " "),
+                (s.expressionBeforeBn ?: "").replace(FIELD_SEP, " "),
+                (s.expressionAfterBn ?: "").replace(FIELD_SEP, " "),
+                s.simpleExplanationBn.replace(FIELD_SEP, " "),
+                (s.detailedRuleBn ?: "").replace(FIELD_SEP, " "),
+                (s.conceptualAnalogyBn ?: "").replace(FIELD_SEP, " "),
+                (s.commonMistakeBn ?: "").replace(FIELD_SEP, " "),
+                (s.hint1Bn ?: "").replace(FIELD_SEP, " "),
+                (s.hint2Bn ?: "").replace(FIELD_SEP, " "),
+                (s.expectedStepValueBn ?: "").replace(FIELD_SEP, " ")
             ).joinToString(FIELD_SEP)
         }
     }
@@ -746,7 +756,17 @@ object SimilarProblemGenerator {
                 stepIndex = p[0].toIntOrNull() ?: 1,
                 titleBn = p[1],
                 expressionOrMathBn = p[2],
-                explanationBn = p[3]
+                explanationBn = p[3],
+                whyThisStepBn = p.getOrNull(4)?.takeIf { it.isNotBlank() },
+                expressionBeforeBn = p.getOrNull(5) ?: "",
+                expressionAfterBn = p.getOrNull(6) ?: "",
+                simpleExplanationBn = p.getOrNull(7) ?: "",
+                detailedRuleBn = p.getOrNull(8) ?: "",
+                conceptualAnalogyBn = p.getOrNull(9) ?: "",
+                commonMistakeBn = p.getOrNull(10) ?: "",
+                hint1Bn = p.getOrNull(11) ?: "",
+                hint2Bn = p.getOrNull(12) ?: "",
+                expectedStepValueBn = p.getOrNull(13) ?: ""
             )
         }
     }

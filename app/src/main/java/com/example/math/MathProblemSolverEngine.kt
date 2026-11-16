@@ -32,7 +32,7 @@ object MathProblemSolverEngine {
     }
 
     // -------------------------------------------------------------
-    // 1. BASIC ARITHMETIC & BODMAS
+    // 1. BASIC ARITHMETIC & BODMAS (Level 1..5 + Level 2A/2B/2C/2D + 'এর')
     // -------------------------------------------------------------
     fun solveArithmetic(expression: String, mode: SolverMode): SolverResult {
         val trimmed = expression.trim()
@@ -45,67 +45,37 @@ object MathProblemSolverEngine {
             )
         }
 
-        // Check for invalid characters and normalize operators / superscripts
-        val cleanExpr = trimmed
-            .replace("×", "*")
-            .replace("÷", "/")
-            .replace("–", "-")
-            .replace("−", "-")
-            .replace("²", "^2")
-            .replace("³", "^3")
-            .replace(" ", "")
-
-        // Normalize Bengali digits to English and insert explicit '*' for implicit multiplication
-        val asciiExpr = normalizeImplicitMultiplication(toAsciiDigits(cleanExpr))
-
-        // Validate parentheses balance
-        var balance = 0
-        for (ch in asciiExpr) {
-            if (ch == '(' || ch == '{' || ch == '[') balance++
-            if (ch == ')' || ch == '}' || ch == ']') balance--
-            if (balance < 0) {
-                return errorResult(
-                    SolverTopic.BASIC_ARITHMETIC,
-                    mode,
-                    trimmed,
-                    "বন্ধনীর ক্রম সঠিক নয়। অতিরিক্ত সমাপ্তি বন্ধনী রয়েছে।"
-                )
-            }
-        }
-        if (balance != 0) {
-            return errorResult(
-                SolverTopic.BASIC_ARITHMETIC,
-                mode,
-                trimmed,
-                "বন্ধনীর সংখ্যা অসমান। শুরুর বন্ধনী বন্ধ করা হয়নি।"
-            )
-        }
-
-        // Evaluate expression step-by-step
         return try {
-            val steps = mutableListOf<SolutionStep>()
-            val resultVal = evaluateArithmeticExpression(asciiExpr, steps, mode)
+            val trace = SolverAtomicArithmeticEngine.evaluate(trimmed)
+            val displayResult = trace.finalNum.formatBn()
+            val verification = "শুদ্ধি পরীক্ষা: চূড়ান্ত মান $displayResult। বিপরীত প্রক্রিয়ায় ও BODMAS অগ্রাধিকার ক্রমে (বন্ধনী ➜ ঘাত/বর্গমূল/শতকরা ➜ এর ➜ ভাগ/গুণ ➜ যোগ/বিয়োগ) পরীক্ষা করে দেখা যায় প্রতিটি ধাপের মান শতভাগ সঠিক।"
 
-            val displayResult = formatNum(resultVal)
-            val verification = if (mode == SolverMode.LEARNING) {
-                "শুদ্ধি পরীক্ষা: চূড়ান্ত মান $displayResult। বিপরীত প্রক্রিয়ায় পরীক্ষা করলে দেখা যায় সমস্ত বন্ধনী ও অপারেশনের নিয়ম অক্ষুণ্ণ রয়েছে।"
-            } else null
+            val bcsShortcut = "বিসিএস টিপস: সরল অংকে BODMAS নিয়ম কঠোরভাবে মেনে চলুন— B(বন্ধনী) ➜ O(ঘাত/বর্গমূল/এর) ➜ D/M(ভাগ ও গুণ বাম থেকে ডানে) ➜ A/S(যোগ ও বিয়োগ বাম থেকে ডানে)।"
 
-            val bcsShortcut = if (mode == SolverMode.BCS) {
-                "বিসিএস টিপস: সরল অংকে BODMAS নিয়ম strictly মেনে চলুন— B(বন্ধনী) -> O(এর/ঘাত) -> D(ভাগ) -> M(গুণ) -> A(যোগ) -> S(বিয়োগ)। মুখে মুখে ছোট অংশগুলো আগে সমাধান করে সময় বাঁচান।"
-            } else null
-
-            SolverResult(
+            val formattedProblemDisplay = BengaliNumberFormatter.toBn(trimmed)
+                .replace("*", "×")
+                .replace("/", "÷")
+                .replace("-", "−")
+            val rawRes = SolverResult(
                 topic = SolverTopic.BASIC_ARITHMETIC,
                 mode = mode,
-                originalProblemBn = "সরল করুন: ${BengaliNumberFormatter.toBn(trimmed)}",
-                formulaUsedBn = "BODMAS নিয়ম: বন্ধনী (Brackets) ➜ এর (Of) ➜ ভাগ (Division) ➜ গুণ (Multiplication) ➜ যোগ (Addition) ➜ বিয়োগ (Subtraction)",
-                steps = steps,
+                originalProblemBn = "সরল করুন: $formattedProblemDisplay",
+                formulaUsedBn = "BODMAS নিয়ম: বন্ধনী (Brackets) ➜ ঘাত/মূল/শতকরা (Orders) ➜ এর (Of) ➜ ভাগ ও গুণ (বাম থেকে ডানে) ➜ যোগ ও বিয়োগ (বাম থেকে ডানে)",
+                steps = trace.steps,
                 finalAnswerBn = displayResult,
                 verificationBn = verification,
                 bcsShortcutBn = bcsShortcut,
-                bcsExamTipBn = "পরীক্ষায় বন্ধনীর ভেতর চিহ্ন পরিবর্তন (- দিয়ে গুণ) হওয়ার সময় বেশি ভুল হয়, তাই সতর্ক থাকুন।",
-                similarProblemPromptBn = "(২৫ + ১৫) × ২ - ৩০ ÷ ৩"
+                bcsExamTipBn = "পরীক্ষায় '১৬ ÷ ২ এর ৪' থাকলে আগে '২ এর ৪ = ৮' করে ১৬ ÷ ৮ = ২ করতে হবে, এবং '১২ ÷ ৩ × ২' থাকলে বাম থেকে ডানে ১২ ÷ ৩ = ৪, ৪ × ২ = ৮ করতে হবে।",
+                similarProblemPromptBn = "(২৫ + ১৫) × ২ - ৩০ ÷ ৩",
+                isExactResult = trace.isExact
+            )
+            SolverPedagogyEnricher.enrich(rawRes)
+        } catch (e: SolverAtomicArithmeticEngine.DomainValidationException) {
+            errorResult(
+                SolverTopic.BASIC_ARITHMETIC,
+                mode,
+                trimmed,
+                e.message ?: "রাশিটি বিশ্লেষণ করা যায়নি।"
             )
         } catch (e: ArithmeticException) {
             errorResult(
@@ -119,7 +89,7 @@ object MathProblemSolverEngine {
                 SolverTopic.BASIC_ARITHMETIC,
                 mode,
                 trimmed,
-                "রাশিটি সঠিকভাবে বিশ্লেষণ করা যায়নি। সঠিক চিহ্ন (+, -, *, /) ব্যবহার করুন।"
+                "রাশিটি সঠিকভাবে বিশ্লেষণ করা যায়নি। সঠিক চিহ্ন (+, -, ×, ÷) ব্যবহার করুন।"
             )
         }
     }
@@ -361,17 +331,19 @@ object MathProblemSolverEngine {
             "বিসিএস শর্টকাট: যোগ/বিয়োগের সময় কোণাকুণি গুণ টেকনিক ব্যবহার করুন: a/b + c/d = (ad + bc)/(bd)। যেমন: ৩/৪ + ২/৫ = (১৫ + ৮)/২০ = ২৩/২০। এতে ল.সা.গু ছাড়াই দ্রুত সমাধান সম্ভব।"
         } else null
 
-        return SolverResult(
-            topic = SolverTopic.FRACTIONS_DECIMALS,
-            mode = mode,
-            originalProblemBn = "নির্ণয় করুন: $probBn",
-            formulaUsedBn = "ভগ্নাংশের গুণফল/যোগফলের নিয়ম ও লঘিষ্ঠকরণ",
-            steps = steps,
-            finalAnswerBn = finalAns,
-            verificationBn = verification,
-            bcsShortcutBn = bcsShortcut,
-            bcsExamTipBn = "মিশ্র ভগ্নাংশ থাকলে প্রথমে সেটিকে অপ্রকৃত ভগ্নাংশে রূপান্তর করে নিন।",
-            similarProblemPromptBn = "৪/৭ + ৩/৫"
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.FRACTIONS_DECIMALS,
+                mode = mode,
+                originalProblemBn = "নির্ণয় করুন: $probBn",
+                formulaUsedBn = "ভগ্নাংশের গুণফল/যোগফলের নিয়ম ও লঘিষ্ঠকরণ",
+                steps = steps,
+                finalAnswerBn = finalAns,
+                verificationBn = verification ?: "শুদ্ধি যাচাই: দশমিক মান ${formatNum(decimalVal)}।",
+                bcsShortcutBn = bcsShortcut,
+                bcsExamTipBn = "মিশ্র ভগ্নাংশ থাকলে প্রথমে সেটিকে অপ্রকৃত ভগ্নাংশে রূপান্তর করে নিন।",
+                similarProblemPromptBn = "৪/৭ + ৩/৫"
+            )
         )
     }
 
@@ -389,7 +361,7 @@ object MathProblemSolverEngine {
         val steps = mutableListOf<SolutionStep>()
         var stepCount = 1
 
-        return when (type) {
+        val rawRes = when (type) {
             PercentageType.OF_NUMBER -> {
                 // val1% of val2
                 val percent = val1
@@ -563,6 +535,7 @@ object MathProblemSolverEngine {
                 )
             }
         }
+        return SolverPedagogyEnricher.enrich(rawRes)
     }
 
     // -------------------------------------------------------------
@@ -657,16 +630,18 @@ object MathProblemSolverEngine {
 
                 val ratioDisplay = if (r3 != null) "${formatNum(r1)}:${formatNum(r2)}:${formatNum(r3)}" else "${formatNum(r1)}:${formatNum(r2)}"
 
-                return SolverResult(
-                    topic = SolverTopic.RATIO_PROPORTION,
-                    mode = mode,
-                    originalProblemBn = "${formatNum(total)} পরিমাণকে $ratioDisplay অনুপাতে বণ্টন করুন",
-                    formulaUsedBn = "অংশ = মোট পরিমাণ × (নির্দিষ্ট অনুপাত ÷ অনুপাতের সমষ্টি)",
-                    steps = steps,
-                    finalAnswerBn = finalAns,
-                    verificationBn = verification,
-                    bcsShortcutBn = bcsShortcut,
-                    similarProblemPromptBn = "১২০০ টাকা ৩:৫ অনুপাতে ভাগ করুন"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.RATIO_PROPORTION,
+                        mode = mode,
+                        originalProblemBn = "${formatNum(total)} পরিমাণকে $ratioDisplay অনুপাতে বণ্টন করুন",
+                        formulaUsedBn = "অংশ = মোট পরিমাণ × (নির্দিষ্ট অনুপাত ÷ অনুপাতের সমষ্টি)",
+                        steps = steps,
+                        finalAnswerBn = finalAns,
+                        verificationBn = verification,
+                        bcsShortcutBn = bcsShortcut,
+                        similarProblemPromptBn = "১২০০ টাকা ৩:৫ অনুপাতে ভাগ করুন"
+                    )
                 )
             }
             RatioType.FOURTH_PROPORTIONAL -> {
@@ -710,16 +685,18 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.RATIO_PROPORTION,
-                    mode = mode,
-                    originalProblemBn = "${formatNum(a)} : ${formatNum(b)} = ${formatNum(c)} : ? (চতুর্থ সমানুপাতী নির্ণয়)",
-                    formulaUsedBn = "A : B = C : D ⟹ D = (B × C) ÷ A",
-                    steps = steps,
-                    finalAnswerBn = formatNum(d),
-                    verificationBn = "যাচাই: ${formatNum(a)} × ${formatNum(d)} = ${formatNum(a * d)} এবং ${formatNum(b)} × ${formatNum(c)} = ${formatNum(b * c)} (উভয় গুণফল সমান)",
-                    bcsShortcutBn = "বিসিএস টিপস: মধ্য রাশিদ্বয়ের গুণফলকে প্রথম রাশি দিয়ে সরাসরি ভাগ করুন।",
-                    similarProblemPromptBn = "৪ : ৮ = ১২ : ?"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.RATIO_PROPORTION,
+                        mode = mode,
+                        originalProblemBn = "${formatNum(a)} : ${formatNum(b)} = ${formatNum(c)} : ? (চতুর্থ সমানুপাতী নির্ণয়)",
+                        formulaUsedBn = "A : B = C : D ⟹ D = (B × C) ÷ A",
+                        steps = steps,
+                        finalAnswerBn = formatNum(d),
+                        verificationBn = "যাচাই: ${formatNum(a)} × ${formatNum(d)} = ${formatNum(a * d)} এবং ${formatNum(b)} × ${formatNum(c)} = ${formatNum(b * c)} (উভয় গুণফল সমান)",
+                        bcsShortcutBn = "বিসিএস টিপস: মধ্য রাশিদ্বয়ের গুণফলকে প্রথম রাশি দিয়ে সরাসরি ভাগ করুন।",
+                        similarProblemPromptBn = "৪ : ৮ = ১২ : ?"
+                    )
                 )
             }
             RatioType.SIMPLIFY -> {
@@ -771,16 +748,18 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.RATIO_PROPORTION,
-                    mode = mode,
-                    originalProblemBn = "${formatNum(r1)} : ${formatNum(r2)} অনুপাতটিকে সরল করুন",
-                    formulaUsedBn = "অনুপাত সরলীকরণ = উভয় পদকে গ.সা.গু দ্বারা ভাগ",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(s1)} : ${formatNum(s2)}",
-                    verificationBn = "যাচাই: ${formatNum(s1)}/${formatNum(s2)} এর ভগ্নাংশ মান এবং মূল অনুপাতের ভগ্নাংশ মান অভিন্ন।",
-                    bcsShortcutBn = "বিসিএস শর্টকাট: সাধারণ গুণনীয়কগুলো সরাসরি কেটে ছোট করুন।",
-                    similarProblemPromptBn = "২৪ : ৩৬ সরল করুন"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.RATIO_PROPORTION,
+                        mode = mode,
+                        originalProblemBn = "${formatNum(r1)} : ${formatNum(r2)} অনুপাতটিকে সরল করুন",
+                        formulaUsedBn = "অনুপাত সরলীকরণ = উভয় পদকে গ.সা.গু দ্বারা ভাগ",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(s1)} : ${formatNum(s2)}",
+                        verificationBn = "যাচাই: ${formatNum(s1)}/${formatNum(s2)} এর ভগ্নাংশ মান এবং মূল অনুপাতের ভগ্নাংশ মান অভিন্ন।",
+                        bcsShortcutBn = "বিসিএস শর্টকাট: সাধারণ গুণনীয়কগুলো সরাসরি কেটে ছোট করুন।",
+                        similarProblemPromptBn = "২৪ : ৩৬ সরল করুন"
+                    )
                 )
             }
         }
@@ -856,16 +835,18 @@ object MathProblemSolverEngine {
                     "বিসিএস শর্টকাট: ক্রয়মূল্য ১০০ টাকা ধরলে লাভ/ক্ষতি সরাসরি বোঝা যায়। শতকরা লাভ = (লাভ / CP) × ১০০%। কখনই SP দিয়ে ভাগ করবেন না।"
                 } else null
 
-                return SolverResult(
-                    topic = SolverTopic.PROFIT_LOSS,
-                    mode = mode,
-                    originalProblemBn = "ক্রয়মূল্য ${formatNum(cp)} টাকা এবং বিক্রয়মূল্য ${formatNum(sp)} টাকা হলে লাভ/ক্ষতির শতকরা হার কত?",
-                    formulaUsedBn = "শতকরা লাভ/ক্ষতি = (মোট লাভ বা ক্ষতি ÷ ক্রয়মূল্য) × ১০০%",
-                    steps = steps,
-                    finalAnswerBn = finalAns,
-                    verificationBn = verification,
-                    bcsShortcutBn = bcsShortcut,
-                    similarProblemPromptBn = "ক্রয়মূল্য ৫০০ টাকা, বিক্রয়মূল্য ৫৫০ টাকা"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.PROFIT_LOSS,
+                        mode = mode,
+                        originalProblemBn = "ক্রয়মূল্য ${formatNum(cp)} টাকা এবং বিক্রয়মূল্য ${formatNum(sp)} টাকা হলে লাভ/ক্ষতির শতকরা হার কত?",
+                        formulaUsedBn = "শতকরা লাভ/ক্ষতি = (মোট লাভ বা ক্ষতি ÷ ক্রয়মূল্য) × ১০০%",
+                        steps = steps,
+                        finalAnswerBn = finalAns,
+                        verificationBn = verification,
+                        bcsShortcutBn = bcsShortcut,
+                        similarProblemPromptBn = "ক্রয়মূল্য ৫০০ টাকা, বিক্রয়মূল্য ৫৫০ টাকা"
+                    )
                 )
             }
             ProfitLossType.FIND_SP_FROM_CP_AND_PERCENT -> {
@@ -903,16 +884,18 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.PROFIT_LOSS,
-                    mode = mode,
-                    originalProblemBn = "ক্রয়মূল্য ${formatNum(cp)} টাকা এবং ${formatNum(abs(percent))}% ${if (isProfit) "লাভ" else "ক্ষতি"} হলে বিক্রয়মূল্য কত?",
-                    formulaUsedBn = "SP = CP × (১০০ ± r) ÷ ১০০",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(finalSp)} টাকা",
-                    verificationBn = "যাচাই: (${formatNum(finalSp)} - ${formatNum(cp)}) / ${formatNum(cp)} × ১০০ = ${formatNum(percent)}%",
-                    bcsShortcutBn = "বিসিএস শর্টকাট: ১০% লাভ মানে SP = CP এর ১১০%। সরাসরি CP × ১.১ গুণ করে উত্তর বের করুন।",
-                    similarProblemPromptBn = "ক্রয়মূল্য ৮০০ টাকা, লাভ ১৫%"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.PROFIT_LOSS,
+                        mode = mode,
+                        originalProblemBn = "ক্রয়মূল্য ${formatNum(cp)} টাকা এবং ${formatNum(abs(percent))}% ${if (isProfit) "লাভ" else "ক্ষতি"} হলে বিক্রয়মূল্য কত?",
+                        formulaUsedBn = "SP = CP × (১০০ ± r) ÷ ১০০",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(finalSp)} টাকা",
+                        verificationBn = "যাচাই: (${formatNum(finalSp)} - ${formatNum(cp)}) / ${formatNum(cp)} × ১০০ = ${formatNum(percent)}%",
+                        bcsShortcutBn = "বিসিএস শর্টকাট: ১০% লাভ মানে SP = CP এর ১১০%। সরাসরি CP × ১.১ গুণ করে উত্তর বের করুন।",
+                        similarProblemPromptBn = "ক্রয়মূল্য ৮০০ টাকা, লাভ ১৫%"
+                    )
                 )
             }
             ProfitLossType.FIND_CP_FROM_SP_AND_PERCENT -> {
@@ -953,16 +936,18 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.PROFIT_LOSS,
-                    mode = mode,
-                    originalProblemBn = "বিক্রয়মূল্য ${formatNum(sp)} টাকা এবং ${formatNum(abs(percent))}% ${if (percent >= 0) "লাভে" else "ক্ষতিতে"} বিক্রিত হলে ক্রয়মূল্য কত?",
-                    formulaUsedBn = "CP = (SP × ১০০) ÷ (১০০ ± r)",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(finalCp)} টাকা",
-                    verificationBn = "যাচাই: ${formatNum(finalCp)} এর ${formatNum(abs(percent))}% = ${formatNum(finalCp * abs(percent) / 100.0)} টাকা। ${formatNum(finalCp)} ${if (percent >= 0) "+" else "-"} ${formatNum(finalCp * abs(percent) / 100.0)} = ${formatNum(sp)} টাকা।",
-                    bcsShortcutBn = "বিসিএস শর্টকাট: ২০% লাভে বিক্রয়মূল্য ১২০ টাকা হলে CP = SP × (৫/৬) বা SP ÷ ১.২।",
-                    similarProblemPromptBn = "বিক্রয়মূল্য ৫৫০ টাকা, লাভ ১০%"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.PROFIT_LOSS,
+                        mode = mode,
+                        originalProblemBn = "বিক্রয়মূল্য ${formatNum(sp)} টাকা এবং ${formatNum(abs(percent))}% ${if (percent >= 0) "লাভে" else "ক্ষতিতে"} বিক্রিত হলে ক্রয়মূল্য কত?",
+                        formulaUsedBn = "CP = (SP × ১০০) ÷ (১০০ ± r)",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(finalCp)} টাকা",
+                        verificationBn = "যাচাই: ${formatNum(finalCp)} এর ${formatNum(abs(percent))}% = ${formatNum(finalCp * abs(percent) / 100.0)} টাকা। ${formatNum(finalCp)} ${if (percent >= 0) "+" else "-"} ${formatNum(finalCp * abs(percent) / 100.0)} = ${formatNum(sp)} টাকা।",
+                        bcsShortcutBn = "বিসিএস শর্টকাট: ২০% লাভে বিক্রয়মূল্য ১২০ টাকা হলে CP = SP × (৫/৬) বা SP ÷ ১.২।",
+                        similarProblemPromptBn = "বিক্রয়মূল্য ৫৫০ টাকা, লাভ ১০%"
+                    )
                 )
             }
             ProfitLossType.DISCOUNT_MARKED_PRICE -> {
@@ -989,16 +974,18 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.PROFIT_LOSS,
-                    mode = mode,
-                    originalProblemBn = "ধার্যমূল্য ${formatNum(markedPrice)} টাকা এবং ছাড় ${formatNum(discountPct)}% হলে বিক্রয়মূল্য কত?",
-                    formulaUsedBn = "SP = MP × (১০০ - Discount%) ÷ ১০০",
-                    steps = steps,
-                    finalAnswerBn = "বিক্রয়মূল্য: ${formatNum(sellingPrice)} টাকা (ছাড়: ${formatNum(discountAmount)} টাকা)",
-                    verificationBn = "যাচাই: (${formatNum(discountAmount)} / ${formatNum(markedPrice)}) × ১০০ = ${formatNum(discountPct)}%",
-                    bcsShortcutBn = "বিসিএস শর্টকাট: ২০% ছাড় মানে পণ্যটির দাম ৮০% হবে। সরাসরি ধার্যমূল্য × ০.৮ গুণ করুন।",
-                    similarProblemPromptBn = "ধার্যমূল্য ১০০০ টাকা, ছাড় ১৫%"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.PROFIT_LOSS,
+                        mode = mode,
+                        originalProblemBn = "ধার্যমূল্য ${formatNum(markedPrice)} টাকা এবং ছাড় ${formatNum(discountPct)}% হলে বিক্রয়মূল্য কত?",
+                        formulaUsedBn = "SP = MP × (১০০ - Discount%) ÷ ১০০",
+                        steps = steps,
+                        finalAnswerBn = "বিক্রয়মূল্য: ${formatNum(sellingPrice)} টাকা (ছাড়: ${formatNum(discountAmount)} টাকা)",
+                        verificationBn = "যাচাই: (${formatNum(discountAmount)} / ${formatNum(markedPrice)}) × ১০০ = ${formatNum(discountPct)}%",
+                        bcsShortcutBn = "বিসিএস শর্টকাট: ২০% ছাড় মানে পণ্যটির দাম ৮০% হবে। সরাসরি ধার্যমূল্য × ০.৮ গুণ করুন।",
+                        similarProblemPromptBn = "ধার্যমূল্য ১০০০ টাকা, ছাড় ১৫%"
+                    )
                 )
             }
         }
@@ -1062,16 +1049,18 @@ object MathProblemSolverEngine {
         } else null
 
         val displayList = numbers.joinToString(", ") { formatNum(it) }
-        return SolverResult(
-            topic = SolverTopic.AVERAGE,
-            mode = mode,
-            originalProblemBn = "সংখ্যাগুলোর গড় নির্ণয় করুন: $displayList",
-            formulaUsedBn = "গড় = রাশিগুলোর সমষ্টি ÷ রাশিগুলোর সংখ্যা",
-            steps = steps,
-            finalAnswerBn = formatNum(avg),
-            verificationBn = verification,
-            bcsShortcutBn = bcsShortcut,
-            similarProblemPromptBn = "১৫, ২৫, ৩৫, ৪৫, ৫৫ এর গড় কত?"
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.AVERAGE,
+                mode = mode,
+                originalProblemBn = "সংখ্যাগুলোর গড় নির্ণয় করুন: $displayList",
+                formulaUsedBn = "গড় = রাশিগুলোর সমষ্টি ÷ রাশিগুলোর সংখ্যা",
+                steps = steps,
+                finalAnswerBn = formatNum(avg),
+                verificationBn = verification,
+                bcsShortcutBn = bcsShortcut,
+                similarProblemPromptBn = "১৫, ২৫, ৩৫, ৪৫, ৫৫ এর গড় কত?"
+            )
         )
     }
 
@@ -1129,16 +1118,18 @@ object MathProblemSolverEngine {
                 "বিসিএস শর্টকাট: 'আসল মুনাফা-আসলে n গুণ হলে সময় t = ((n - ১) × ১০০) ÷ r'। যেমন দ্বিগুণ হলে (১ × ১০০) ÷ হার = সময়।"
             } else null
 
-            return SolverResult(
-                topic = SolverTopic.SIMPLE_INTEREST,
-                mode = mode,
-                originalProblemBn = "মূলধন ${formatNum(p)} টাকা, বার্ষিক মুনাফার হার ${formatNum(r)}% এবং সময় ${formatNum(t)} বছর হলে মুনাফা ও মুনাফা-আসল কত?",
-                formulaUsedBn = "I = (P × r × t) ÷ ১০০ এবং A = P + I",
-                steps = steps,
-                finalAnswerBn = "মুনাফা (I): ${formatNum(calcI)} টাকা, মুনাফা-আসল (A): ${formatNum(calcA)} টাকা",
-                verificationBn = verification,
-                bcsShortcutBn = bcsShortcut,
-                similarProblemPromptBn = "৫০০০ টাকা, ১০% হারে ৩ বছরের মুনাফা কত?"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SIMPLE_INTEREST,
+                    mode = mode,
+                    originalProblemBn = "মূলধন ${formatNum(p)} টাকা, বার্ষিক মুনাফার হার ${formatNum(r)}% এবং সময় ${formatNum(t)} বছর হলে মুনাফা ও মুনাফা-আসল কত?",
+                    formulaUsedBn = "I = (P × r × t) ÷ ১০০ এবং A = P + I",
+                    steps = steps,
+                    finalAnswerBn = "মুনাফা (I): ${formatNum(calcI)} টাকা, মুনাফা-আসল (A): ${formatNum(calcA)} টাকা",
+                    verificationBn = verification,
+                    bcsShortcutBn = bcsShortcut,
+                    similarProblemPromptBn = "৫০০০ টাকা, ১০% হারে ৩ বছরের মুনাফা কত?"
+                )
             )
         }
 
@@ -1164,14 +1155,16 @@ object MathProblemSolverEngine {
                 )
             )
 
-            return SolverResult(
-                topic = SolverTopic.SIMPLE_INTEREST,
-                mode = mode,
-                originalProblemBn = "মুনাফা ${formatNum(i)} টাকা, বার্ষিক হার ${formatNum(r)}% ও সময় ${formatNum(t)} বছর হলে মূলধন কত?",
-                formulaUsedBn = "P = (I × ১০০) ÷ (r × t)",
-                steps = steps,
-                finalAnswerBn = "${formatNum(calcP)} টাকা",
-                verificationBn = "যাচাই: (${formatNum(calcP)} × ${formatNum(r)} × ${formatNum(t)}) ÷ ১০০ = ${formatNum(i)} টাকা।"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SIMPLE_INTEREST,
+                    mode = mode,
+                    originalProblemBn = "মুনাফা ${formatNum(i)} টাকা, বার্ষিক হার ${formatNum(r)}% ও সময় ${formatNum(t)} বছর হলে মূলধন কত?",
+                    formulaUsedBn = "P = (I × ১০০) ÷ (r × t)",
+                    steps = steps,
+                    finalAnswerBn = "${formatNum(calcP)} টাকা",
+                    verificationBn = "যাচাই: (${formatNum(calcP)} × ${formatNum(r)} × ${formatNum(t)}) ÷ ১০০ = ${formatNum(i)} টাকা।"
+                )
             )
         }
 
@@ -1197,14 +1190,16 @@ object MathProblemSolverEngine {
                 )
             )
 
-            return SolverResult(
-                topic = SolverTopic.SIMPLE_INTEREST,
-                mode = mode,
-                originalProblemBn = "মূলধন ${formatNum(p)} টাকা, মুনাফা ${formatNum(i)} টাকা ও সময় ${formatNum(t)} বছর হলে মুনাফার হার কত?",
-                formulaUsedBn = "r = (I × ১০০) ÷ (P × t)%",
-                steps = steps,
-                finalAnswerBn = "${formatNum(calcR)}%",
-                verificationBn = "যাচাই: (${formatNum(p)} × ${formatNum(calcR)} × ${formatNum(t)}) ÷ ১০০ = ${formatNum(i)}"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SIMPLE_INTEREST,
+                    mode = mode,
+                    originalProblemBn = "মূলধন ${formatNum(p)} টাকা, মুনাফা ${formatNum(i)} টাকা ও সময় ${formatNum(t)} বছর হলে মুনাফার হার কত?",
+                    formulaUsedBn = "r = (I × ১০০) ÷ (P × t)%",
+                    steps = steps,
+                    finalAnswerBn = "${formatNum(calcR)}%",
+                    verificationBn = "যাচাই: (${formatNum(p)} × ${formatNum(calcR)} × ${formatNum(t)}) ÷ ১০০ = ${formatNum(i)}"
+                )
             )
         }
 
@@ -1230,14 +1225,16 @@ object MathProblemSolverEngine {
                 )
             )
 
-            return SolverResult(
-                topic = SolverTopic.SIMPLE_INTEREST,
-                mode = mode,
-                originalProblemBn = "মূলধন ${formatNum(p)} টাকা, মুনাফা ${formatNum(i)} টাকা ও হার ${formatNum(r)}% হলে সময় কত?",
-                formulaUsedBn = "t = (I × ১০০) ÷ (P × r) বছর",
-                steps = steps,
-                finalAnswerBn = "${formatNum(calcT)} বছর",
-                verificationBn = "যাচাই: (${formatNum(p)} × ${formatNum(r)} × ${formatNum(calcT)}) ÷ ১০০ = ${formatNum(i)}"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SIMPLE_INTEREST,
+                    mode = mode,
+                    originalProblemBn = "মূলধন ${formatNum(p)} টাকা, মুনাফা ${formatNum(i)} টাকা ও হার ${formatNum(r)}% হলে সময় কত?",
+                    formulaUsedBn = "t = (I × ১০০) ÷ (P × r) বছর",
+                    steps = steps,
+                    finalAnswerBn = "${formatNum(calcT)} বছর",
+                    verificationBn = "যাচাই: (${formatNum(p)} × ${formatNum(r)} × ${formatNum(calcT)}) ÷ ১০০ = ${formatNum(i)}"
+                )
             )
         }
 
@@ -1248,6 +1245,18 @@ object MathProblemSolverEngine {
             "P, r, t, I এর মধ্যে যেকোনো ৩টি রাশির মান প্রদান করুন।"
         )
     }
+
+    /**
+     * Exact Integer-Period Compound Interest Solver:
+     * A = P * (1 + r / (100 * m))^(m * t), CI = A - P.
+     */
+    fun solveCompoundInterest(
+        p: Double,
+        r: Double,
+        t: Double,
+        m: Int = 1,
+        mode: SolverMode
+    ): SolverResult = SolverAdvancedAlgebraAndInterestEngine.solveCompoundInterest(p, r, t, m, mode)
 
     // -------------------------------------------------------------
     // 8. TIME AND WORK
@@ -1312,16 +1321,18 @@ object MathProblemSolverEngine {
                     "বিসিএস সুপার শর্টকাট: A এবং B একত্রে করলে মোট দিন = (xy) ÷ (x + y)। গুণফলকে যোগফল দিয়ে সরাসরি ভাগ করুন!"
                 } else null
 
-                return SolverResult(
-                    topic = SolverTopic.TIME_AND_WORK,
-                    mode = mode,
-                    originalProblemBn = "A একটি কাজ করে ${formatNum(timeA)} দিনে এবং B করে ${formatNum(timeB)} দিনে। তারা একত্রে কত দিনে কাজটি শেষ করবে?",
-                    formulaUsedBn = "মোট দিন = (A × B) ÷ (A + B)",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(totalDays)} দিন",
-                    verificationBn = verification,
-                    bcsShortcutBn = bcsShortcut,
-                    similarProblemPromptBn = "A করে ১০ দিনে, B করে ১৫ দিনে"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.TIME_AND_WORK,
+                        mode = mode,
+                        originalProblemBn = "A একটি কাজ করে ${formatNum(timeA)} দিনে এবং B করে ${formatNum(timeB)} দিনে। তারা একত্রে কত দিনে কাজটি শেষ করবে?",
+                        formulaUsedBn = "মোট দিন = (A × B) ÷ (A + B)",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(totalDays)} দিন",
+                        verificationBn = verification,
+                        bcsShortcutBn = bcsShortcut,
+                        similarProblemPromptBn = "A করে ১০ দিনে, B করে ১৫ দিনে"
+                    )
                 )
             }
             WorkType.THREE_PERSONS -> {
@@ -1356,14 +1367,16 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.TIME_AND_WORK,
-                    mode = mode,
-                    originalProblemBn = "A, B এবং C একটি কাজ যথাক্রমে ${formatNum(timeA)}, ${formatNum(timeB)} ও ${formatNum(tC)} দিনে করতে পারে। একত্রে কত দিনে কাজটি শেষ হবে?",
-                    formulaUsedBn = "মোট দিন = ১ ÷ (১/A + ১/B + ১/C)",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(totalDays)} দিন",
-                    verificationBn = "যাচাই: তিনজনের ${formatNum(totalDays)} দিনের মোট কাজের সমষ্টি = ১ অংশ।"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.TIME_AND_WORK,
+                        mode = mode,
+                        originalProblemBn = "A, B এবং C একটি কাজ যথাক্রমে ${formatNum(timeA)}, ${formatNum(timeB)} ও ${formatNum(tC)} দিনে করতে পারে। একত্রে কত দিনে কাজটি শেষ হবে?",
+                        formulaUsedBn = "মোট দিন = ১ ÷ (১/A + ১/B + ১/C)",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(totalDays)} দিন",
+                        verificationBn = "যাচাই: তিনজনের ${formatNum(totalDays)} দিনের মোট কাজের সমষ্টি = ১ অংশ।"
+                    )
                 )
             }
             WorkType.PIPE_CISTERN -> {
@@ -1406,14 +1419,16 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.TIME_AND_WORK,
-                    mode = mode,
-                    originalProblemBn = "একটি নল দ্বারা চৌবাচ্চা ${formatNum(timeA)} ঘন্টায় পূর্ণ হয় এবং অপর নল দ্বারা ${formatNum(timeB)} ঘন্টায় খালি হয়। নল দুটি একসাথে খুলে দিলে কতক্ষণে পূর্ণ হবে?",
-                    formulaUsedBn = "সময় = (A × B) ÷ (B - A)",
-                    steps = steps,
-                    finalAnswerBn = "${formatNum(netHours)} ঘন্টা",
-                    verificationBn = "যাচাই: ${formatNum(netHours)} ঘন্টায় পানি প্রবেশ করে ${formatNum(netHours/timeA)} অংশ এবং বের হয় ${formatNum(netHours/timeB)} অংশ। নিট অংশ = ১।"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.TIME_AND_WORK,
+                        mode = mode,
+                        originalProblemBn = "একটি নল দ্বারা চৌবাচ্চা ${formatNum(timeA)} ঘন্টায় পূর্ণ হয় এবং অপর নল দ্বারা ${formatNum(timeB)} ঘন্টায় খালি হয়। নল দুটি একসাথে খুলে দিলে কতক্ষণে পূর্ণ হবে?",
+                        formulaUsedBn = "সময় = (A × B) ÷ (B - A)",
+                        steps = steps,
+                        finalAnswerBn = "${formatNum(netHours)} ঘন্টা",
+                        verificationBn = "যাচাই: ${formatNum(netHours)} ঘন্টায় পানি প্রবেশ করে ${formatNum(netHours/timeA)} অংশ এবং বের হয় ${formatNum(netHours/timeB)} অংশ। নিট অংশ = ১।"
+                    )
                 )
             }
         }
@@ -1480,16 +1495,18 @@ object MathProblemSolverEngine {
                 "বিসিএস শর্টকাট: km/h থেকে m/s করতে ৫/১৮ দিয়ে গুণ করুন। আবার m/s থেকে km/h এ নিতে উল্টো ১৮/৫ দিয়ে গুণ করুন।"
             } else null
 
-            return SolverResult(
-                topic = SolverTopic.SPEED_DISTANCE_TIME,
-                mode = mode,
-                originalProblemBn = "দূরত্ব ${formatNum(distance)} কিমি এবং সময় ${formatNum(time)} ঘন্টা হলে গতিবেগ কত?",
-                formulaUsedBn = "S = D ÷ T এবং ১ km/h = ৫/১৮ m/s",
-                steps = steps,
-                finalAnswerBn = "${formatNum(sKmh)} km/h (${formatNum(sMs)} m/s)",
-                verificationBn = verification,
-                bcsShortcutBn = bcsShortcut,
-                similarProblemPromptBn = "দূরত্ব ১২০ কিমি, সময় ২ ঘন্টা"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SPEED_DISTANCE_TIME,
+                    mode = mode,
+                    originalProblemBn = "দূরত্ব ${formatNum(distance)} কিমি এবং সময় ${formatNum(time)} ঘন্টা হলে গতিবেগ কত?",
+                    formulaUsedBn = "S = D ÷ T এবং ১ km/h = ৫/১৮ m/s",
+                    steps = steps,
+                    finalAnswerBn = "${formatNum(sKmh)} km/h (${formatNum(sMs)} m/s)",
+                    verificationBn = verification,
+                    bcsShortcutBn = bcsShortcut,
+                    similarProblemPromptBn = "দূরত্ব ১২০ কিমি, সময় ২ ঘন্টা"
+                )
             )
         }
 
@@ -1515,14 +1532,16 @@ object MathProblemSolverEngine {
                 )
             )
 
-            return SolverResult(
-                topic = SolverTopic.SPEED_DISTANCE_TIME,
-                mode = mode,
-                originalProblemBn = "গতিবেগ ${formatNum(speed)} km/h এবং সময় ${formatNum(time)} ঘন্টা হলে অতিক্রান্ত দূরত্ব কত?",
-                formulaUsedBn = "D = S × T",
-                steps = steps,
-                finalAnswerBn = "${formatNum(d)} km",
-                verificationBn = "যাচাই: ${formatNum(d)} ÷ ${formatNum(time)} = ${formatNum(speed)} km/h"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SPEED_DISTANCE_TIME,
+                    mode = mode,
+                    originalProblemBn = "গতিবেগ ${formatNum(speed)} km/h এবং সময় ${formatNum(time)} ঘন্টা হলে অতিক্রান্ত দূরত্ব কত?",
+                    formulaUsedBn = "D = S × T",
+                    steps = steps,
+                    finalAnswerBn = "${formatNum(d)} km",
+                    verificationBn = "যাচাই: ${formatNum(d)} ÷ ${formatNum(time)} = ${formatNum(speed)} km/h"
+                )
             )
         }
 
@@ -1603,14 +1622,16 @@ object MathProblemSolverEngine {
                 )
             }
 
-            return SolverResult(
-                topic = SolverTopic.SPEED_DISTANCE_TIME,
-                mode = mode,
-                originalProblemBn = "দূরত্ব ${formatNum(distance)} কিমি এবং গতিবেগ ${formatNum(speed)} km/h হলে প্রয়োজনীয় সময় কত?",
-                formulaUsedBn = "T = D ÷ S",
-                steps = steps,
-                finalAnswerBn = finalAnswerString,
-                verificationBn = "যাচাই: ${formatNum(speed)} × ${formatNum(t)} = ${formatNum(distance)} km"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.SPEED_DISTANCE_TIME,
+                    mode = mode,
+                    originalProblemBn = "দূরত্ব ${formatNum(distance)} কিমি এবং গতিবেগ ${formatNum(speed)} km/h হলে প্রয়োজনীয় সময় কত?",
+                    formulaUsedBn = "T = D ÷ S",
+                    steps = steps,
+                    finalAnswerBn = finalAnswerString,
+                    verificationBn = "যাচাই: ${formatNum(speed)} × ${formatNum(t)} = ${formatNum(distance)} km"
+                )
             )
         }
 
@@ -1689,16 +1710,18 @@ object MathProblemSolverEngine {
             "বিসিএস ট্রিক: ৩ ও ৯ এর জন্য অঙ্কগুলোর সমষ্টি দেখুন। ৪ এর জন্য শেষ ২ অঙ্ক এবং ৮ এর জন্য শেষ ৩ অঙ্ক দেখুন। ১১ এর জন্য বিজোড় ও জোড় অবস্থানের অঙ্কগুলোর সমষ্টির বিয়োগফল ০ বা ১১ এর গুণিতক কিনা পরীক্ষা করুন।"
         } else null
 
-        return SolverResult(
-            topic = SolverTopic.NUMBER_SYSTEM_DIVISIBILITY,
-            mode = mode,
-            originalProblemBn = "${formatNum(number)} সংখ্যাটি ${formatNum(divisor.toLong())} দ্বারা বিভাজ্য কিনা যাচাই করুন",
-            formulaUsedBn = "ভাজ্য = (ভাজক × ভাগফল) + ভাগশেষ",
-            steps = steps,
-            finalAnswerBn = finalAns,
-            verificationBn = verification,
-            bcsShortcutBn = bcsShortcut,
-            similarProblemPromptBn = "৪৫৭২ সংখ্যাটি ৪ দ্বারা বিভাজ্য কিনা?"
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.NUMBER_SYSTEM_DIVISIBILITY,
+                mode = mode,
+                originalProblemBn = "${formatNum(number)} সংখ্যাটি ${formatNum(divisor.toLong())} দ্বারা বিভাজ্য কিনা যাচাই করুন",
+                formulaUsedBn = "ভাজ্য = (ভাজক × ভাগফল) + ভাগশেষ",
+                steps = steps,
+                finalAnswerBn = finalAns,
+                verificationBn = verification,
+                bcsShortcutBn = bcsShortcut,
+                similarProblemPromptBn = "৪৫৭২ সংখ্যাটি ৪ দ্বারা বিভাজ্য কিনা?"
+            )
         )
     }
 
@@ -1896,16 +1919,18 @@ object MathProblemSolverEngine {
         } else null
 
         val listBn = validNums.joinToString(", ") { formatNum(it) }
-        return SolverResult(
-            topic = SolverTopic.HCF_LCM,
-            mode = mode,
-            originalProblemBn = "$listBn এর গ.সা.গু ও ল.সা.গু নির্ণয় করুন",
-            formulaUsedBn = "দুটি সংখ্যার গুণফল = গ.সা.গু × ল.সা.গু",
-            steps = steps,
-            finalAnswerBn = "গ.সা.গু (HCF): ${formatNum(gcdVal)}, ল.সা.গু (LCM): ${formatNum(lcmVal)}",
-            verificationBn = verification,
-            bcsShortcutBn = bcsShortcut,
-            similarProblemPromptBn = "২৪ এবং ৩৬ এর গ.সা.গু ও ল.সা.গু কত?"
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.HCF_LCM,
+                mode = mode,
+                originalProblemBn = "$listBn এর গ.সা.গু ও ল.সা.গু নির্ণয় করুন",
+                formulaUsedBn = "দুটি সংখ্যার গুণফল = গ.সা.গু × ল.সা.গু",
+                steps = steps,
+                finalAnswerBn = "গ.সা.গু (HCF): ${formatNum(gcdVal)}, ল.সা.গু (LCM): ${formatNum(lcmVal)}",
+                verificationBn = verification,
+                bcsShortcutBn = bcsShortcut,
+                similarProblemPromptBn = "২৪ এবং ৩৬ এর গ.সা.গু ও ল.সা.গু কত?"
+            )
         )
     }
 
@@ -1952,14 +1977,16 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.SQUARES_CUBES_ROOTS,
-                    mode = mode,
-                    originalProblemBn = "${formatNum(number)} এর বর্গ নির্ণয় করুন",
-                    formulaUsedBn = "N² = N × N",
-                    steps = steps,
-                    finalAnswerBn = formatNum(sq),
-                    verificationBn = "যাচাই: √${formatNum(sq)} = ${formatNum(number)}"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.SQUARES_CUBES_ROOTS,
+                        mode = mode,
+                        originalProblemBn = "${formatNum(number)} এর বর্গ নির্ণয় করুন",
+                        formulaUsedBn = "N² = N × N",
+                        steps = steps,
+                        finalAnswerBn = formatNum(sq),
+                        verificationBn = "যাচাই: √${formatNum(sq)} = ${formatNum(number)}"
+                    )
                 )
             }
             SquareCubeOp.SQUARE_ROOT -> {
@@ -2008,16 +2035,19 @@ object MathProblemSolverEngine {
                     )
                 }
 
-                return SolverResult(
-                    topic = SolverTopic.SQUARES_CUBES_ROOTS,
-                    mode = mode,
-                    originalProblemBn = "√${formatNum(number)} (বর্গমূল নির্ণয়)",
-                    formulaUsedBn = "√N = R যেখানে R × R = N",
-                    steps = steps,
-                    finalAnswerBn = formatNum(sqrtVal),
-                    verificationBn = "যাচাই: (${formatNum(sqrtVal)})² = ${formatNum(sqrtVal * sqrtVal)}",
-                    bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: ১ থেকে ৩০ পর্যন্ত সংখ্যার বর্গ মুখস্থ থাকলে পরীক্ষায় প্রচুর সময় বাঁচে।" else null,
-                    similarProblemPromptBn = "√১৪৪ এর মান কত?"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.SQUARES_CUBES_ROOTS,
+                        mode = mode,
+                        originalProblemBn = "√${formatNum(number)} (বর্গমূল নির্ণয়)",
+                        formulaUsedBn = "√N = R যেখানে R × R = N",
+                        steps = steps,
+                        finalAnswerBn = formatNum(sqrtVal),
+                        verificationBn = "যাচাই: (${formatNum(sqrtVal)})² = ${formatNum(sqrtVal * sqrtVal)}",
+                        bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: ১ থেকে ৩০ পর্যন্ত সংখ্যার বর্গ মুখস্থ থাকলে পরীক্ষায় প্রচুর সময় বাঁচে।" else null,
+                        similarProblemPromptBn = "√১৪৪ এর মান কত?",
+                        isExactResult = isPerfect
+                    )
                 )
             }
             SquareCubeOp.CUBE -> {
@@ -2040,14 +2070,16 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.SQUARES_CUBES_ROOTS,
-                    mode = mode,
-                    originalProblemBn = "${formatNum(number)} এর ঘন (Cube) নির্ণয় করুন",
-                    formulaUsedBn = "N³ = N × N × N",
-                    steps = steps,
-                    finalAnswerBn = formatNum(cb),
-                    verificationBn = "যাচাই: ³√${formatNum(cb)} = ${formatNum(number)}"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.SQUARES_CUBES_ROOTS,
+                        mode = mode,
+                        originalProblemBn = "${formatNum(number)} এর ঘন (Cube) নির্ণয় করুন",
+                        formulaUsedBn = "N³ = N × N × N",
+                        steps = steps,
+                        finalAnswerBn = formatNum(cb),
+                        verificationBn = "যাচাই: ³√${formatNum(cb)} = ${formatNum(number)}"
+                    )
                 )
             }
             SquareCubeOp.CUBE_ROOT -> {
@@ -2061,30 +2093,61 @@ object MathProblemSolverEngine {
                     )
                 )
 
-                return SolverResult(
-                    topic = SolverTopic.SQUARES_CUBES_ROOTS,
-                    mode = mode,
-                    originalProblemBn = "³√${formatNum(number)} (ঘনমূল নির্ণয়)",
-                    formulaUsedBn = "³√N = R যেখানে R³ = N",
-                    steps = steps,
-                    finalAnswerBn = formatNum(cbrtVal),
-                    verificationBn = "যাচাই: (${formatNum(cbrtVal)})³ = ${formatNum(number)}"
+                return SolverPedagogyEnricher.enrich(
+                    SolverResult(
+                        topic = SolverTopic.SQUARES_CUBES_ROOTS,
+                        mode = mode,
+                        originalProblemBn = "³√${formatNum(number)} (ঘনমূল নির্ণয়)",
+                        formulaUsedBn = "³√N = R যেখানে R³ = N",
+                        steps = steps,
+                        finalAnswerBn = formatNum(cbrtVal),
+                        verificationBn = "যাচাই: (${formatNum(cbrtVal)})³ = ${formatNum(number)}"
+                    )
                 )
             }
         }
     }
 
     // -------------------------------------------------------------
-    // 13. BASIC ALGEBRA AND LINEAR EQUATIONS
+    // 13. BASIC ALGEBRA, LINEAR EQUATIONS & INEQUALITIES
     // -------------------------------------------------------------
+    fun solveLinearInequality(inequalityStr: String, mode: SolverMode): SolverResult =
+        SolverAdvancedAlgebraAndInterestEngine.solveLinearOrAbsInequality(
+            rawInput = inequalityStr,
+            mode = mode,
+            parseLinearSideFn = ::parseLinearSide
+        )
+
+    fun solveAbsoluteValueInequality(
+        a: Double,
+        b: Double,
+        op: String,
+        c: Double,
+        mode: SolverMode
+    ): SolverResult = SolverAdvancedAlgebraAndInterestEngine.solveAbsoluteValueRelation(
+        originalText = "|${formatSideExprBn(a, b)}| $op ${formatNum(c)}",
+        a = a,
+        b = b,
+        op = op,
+        c = c,
+        mode = mode
+    )
+
     fun solveLinearEquation(equationStr: String, mode: SolverMode): SolverResult {
         val trimmed = equationStr.trim()
+        if (SolverAdvancedAlgebraAndInterestEngine.containsInequalityOrAbsValue(trimmed)) {
+            return SolverAdvancedAlgebraAndInterestEngine.solveLinearOrAbsInequality(
+                rawInput = trimmed,
+                mode = mode,
+                parseLinearSideFn = ::parseLinearSide
+            )
+        }
         if (!trimmed.contains("=")) {
             return errorResult(
                 SolverTopic.LINEAR_EQUATIONS,
                 mode,
                 trimmed,
-                "সমীকরণে অবশ্যই সমান (=) চিহ্ন থাকতে হবে। যেমন: 3x + 12 = 45"
+                "সমীকরণে অবশ্যই সমান (=) বা অসমতা (<, ≤, >, ≥) চিহ্ন থাকতে হবে। যেমন: 3x + 12 = 45 বা |2x - 3| ≤ 5"
             )
         }
 
@@ -2157,14 +2220,16 @@ object MathProblemSolverEngine {
                             whyThisStepBn = "এটি একটি অভেদ (Identity)। x এর যেকোনো বাস্তব মানের জন্য এই সমীকরণটি সিদ্ধ হয়।"
                         )
                     )
-                    return SolverResult(
-                        topic = SolverTopic.LINEAR_EQUATIONS,
-                        mode = mode,
-                        originalProblemBn = BengaliNumberFormatter.toBn(trimmed),
-                        formulaUsedBn = "সরল সমীকরণ সমাধান (অভেদ / Identity)",
-                        steps = steps,
-                        finalAnswerBn = "অসংখ্য সমাধান রয়েছে (অভেদ / Identity: x এর যেকোনো মানের জন্য সত্য)",
-                        verificationBn = "উভয় পক্ষ সর্বদা সমান। x এর যেকোনো বাস্তব মানের জন্য সমীকরণটি সিদ্ধ হয়।"
+                    return SolverPedagogyEnricher.enrich(
+                        SolverResult(
+                            topic = SolverTopic.LINEAR_EQUATIONS,
+                            mode = mode,
+                            originalProblemBn = BengaliNumberFormatter.toBn(trimmed),
+                            formulaUsedBn = "সরল সমীকরণ সমাধান (অভেদ / Identity)",
+                            steps = steps,
+                            finalAnswerBn = "অসংখ্য সমাধান রয়েছে (অভেদ / Identity: x এর যেকোনো মানের জন্য সত্য)",
+                            verificationBn = "উভয় পক্ষ সর্বদা সমান। x এর যেকোনো বাস্তব মানের জন্য সমীকরণটি সিদ্ধ হয়।"
+                        )
                     )
                 } else {
                     return errorResult(
@@ -2220,16 +2285,18 @@ object MathProblemSolverEngine {
                 "বিসিএস ট্রিক: সমীকরণ সমাধান না করে অপশন টেস্ট (Option Test) করতে পারেন। বিকল্পগুলোর মান সরাসরি সমীকরণে বসিয়ে উভয় পক্ষ মিলে গেলে সেটাই সঠিক উত্তর।"
             } else null
 
-            return SolverResult(
-                topic = SolverTopic.LINEAR_EQUATIONS,
-                mode = mode,
-                originalProblemBn = "সমাধান করুন: ${BengaliNumberFormatter.toBn(trimmed)}",
-                formulaUsedBn = "ax + b = cx + d ⟹ (a - c)x = (d - b) ⟹ x = (d - b) ÷ (a - c)",
-                steps = steps,
-                finalAnswerBn = "x = ${formatNum(xVal)}",
-                verificationBn = verification,
-                bcsShortcutBn = bcsShortcut,
-                similarProblemPromptBn = "৪x + ৮ = ২৮"
+            return SolverPedagogyEnricher.enrich(
+                SolverResult(
+                    topic = SolverTopic.LINEAR_EQUATIONS,
+                    mode = mode,
+                    originalProblemBn = "সমাধান করুন: ${BengaliNumberFormatter.toBn(trimmed)}",
+                    formulaUsedBn = "ax + b = cx + d ⟹ (a - c)x = (d - b) ⟹ x = (d - b) ÷ (a - c)",
+                    steps = steps,
+                    finalAnswerBn = "x = ${formatNum(xVal)}",
+                    verificationBn = verification,
+                    bcsShortcutBn = bcsShortcut,
+                    similarProblemPromptBn = "৪x + ৮ = ২৮"
+                )
             )
         } catch (e: IllegalArgumentException) {
             return errorResult(
@@ -2424,14 +2491,27 @@ object MathProblemSolverEngine {
     }
 
     // -------------------------------------------------------------
-    // 14. QUADRATIC EQUATIONS (ax² + bx + c = 0)
+    // 14. QUADRATIC EQUATIONS & INEQUALITIES (ax² + bx + c ⋈ 0)
     // -------------------------------------------------------------
+    fun solveQuadraticInequality(
+        a: Double,
+        b: Double,
+        c: Double,
+        relation: String,
+        mode: SolverMode
+    ): SolverResult = SolverAdvancedAlgebraAndInterestEngine.solveQuadraticInequality(a, b, c, relation, mode)
+
+    @JvmOverloads
     fun solveQuadraticEquation(
         a: Double,
         b: Double,
         c: Double,
-        mode: SolverMode
+        mode: SolverMode,
+        relation: String = "="
     ): SolverResult {
+        if (relation.trim() != "=") {
+            return SolverAdvancedAlgebraAndInterestEngine.solveQuadraticInequality(a, b, c, relation, mode)
+        }
         val eqBn = "${formatNum(a)}x² ${if (b >= 0) "+ ${formatNum(b)}x" else "- ${formatNum(abs(b))}x"} ${if (c >= 0) "+ ${formatNum(c)}" else "- ${formatNum(abs(c))}"} = ০"
         val qRes = SharedMathEngine.solveQuadratic(a, b, c)
         if (!qRes.isValidQuadratic) {
@@ -2468,27 +2548,25 @@ object MathProblemSolverEngine {
             "আসন্ন দশমিক মান: x₁ ≈ ${qRes.root1TextBn}, x₂ ≈ ${qRes.root2TextBn}"
         } else null
 
-        val verification = if (mode == SolverMode.LEARNING) {
-            "মূলদ্বয়ের যোগফল α + β = -b/a = ${formatNum(-b / a)}, মূলদ্বয়ের গুণফল αβ = c/a = ${formatNum(c / a)} এবং প্যারাবোলার শীর্ষবিন্দু = (${formatNum(qRes.vertexX)}, ${formatNum(qRes.vertexY)})।"
-        } else null
+        val verification = "মূলদ্বয়ের যোগফল α + β = -b/a = ${formatNum(-b / a)}, মূলদ্বয়ের গুণফল αβ = c/a = ${formatNum(c / a)} এবং প্যারাবোলার শীর্ষবিন্দু = (${formatNum(qRes.vertexX)}, ${formatNum(qRes.vertexY)})।"
 
-        val bcsShortcut = if (mode == SolverMode.BCS) {
-            "বিসিএস শর্টকাট: নিশ্চায়ক D = b² - 4ac > 0 এবং পূর্ণবর্গ হলে মূলদ্বয় মূলদ ও অসমান; D = 0 হলে মূলদ্বয় সমান; D < 0 হলে কোনো বাস্তব মূল নেই।"
-        } else null
+        val bcsShortcut = "বিসিএস শর্টকাট: নিশ্চায়ক D = b² - 4ac > 0 এবং পূর্ণবর্গ হলে মূলদ্বয় মূলদ ও অসমান; D = 0 হলে মূলদ্বয় সমান; D < 0 হলে কোনো বাস্তব মূল নেই।"
 
-        return SolverResult(
-            topic = SolverTopic.QUADRATIC_EQUATIONS,
-            mode = mode,
-            originalProblemBn = "দ্বিঘাত সমীকরণ সমাধান করুন: $eqBn",
-            formulaUsedBn = "x = [-b ± √(b² - 4ac)] / (2a), নিশ্চায়ক D = b² - 4ac",
-            steps = steps,
-            finalAnswerBn = finalAns,
-            verificationBn = verification,
-            bcsShortcutBn = bcsShortcut,
-            bcsExamTipBn = "পরীক্ষায় মূলের প্রকৃতি জানতে চাইলে পুরো সমীকরণ সমাধান না করে কেবল D = b² - 4ac বের করুন।",
-            similarProblemPromptBn = "x² - 5x + 6 = 0",
-            isExactResult = isExactDisc,
-            approximateResultBn = approxStr
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.QUADRATIC_EQUATIONS,
+                mode = mode,
+                originalProblemBn = "দ্বিঘাত সমীকরণ সমাধান করুন: $eqBn",
+                formulaUsedBn = "x = [-b ± √(b² - 4ac)] / (2a), নিশ্চায়ক D = b² - 4ac",
+                steps = steps,
+                finalAnswerBn = finalAns,
+                verificationBn = verification,
+                bcsShortcutBn = bcsShortcut,
+                bcsExamTipBn = "পরীক্ষায় মূলের প্রকৃতি জানতে চাইলে পুরো সমীকরণ সমাধান না করে কেবল D = b² - 4ac বের করুন।",
+                similarProblemPromptBn = "x² - 5x + 6 = 0",
+                isExactResult = isExactDisc,
+                approximateResultBn = approxStr
+            )
         )
     }
 
@@ -2518,16 +2596,18 @@ object MathProblemSolverEngine {
             )
         }
 
-        return SolverResult(
-            topic = SolverTopic.FACTORIZATION,
-            mode = mode,
-            originalProblemBn = "উৎপাদকে বিশ্লেষণ করুন: ${fRes.originalInputBn}",
-            formulaUsedBn = "মিডল-টার্ম ব্রেকআপ: x² + (p+q)x + pq = (x+p)(x+q) অথবা বর্গান্তর: x² - y² = (x+y)(x-y)",
-            steps = steps,
-            finalAnswerBn = fRes.factoredFormBn,
-            verificationBn = if (mode == SolverMode.LEARNING) "উৎপাদকগুলো পুনরায় গুণ করলে মূল রাশি ${fRes.originalInputBn} পাওয়া যায়।" else null,
-            bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: বীজগণিতীয় উৎপাদকের ক্ষেত্রে x = 1 বা x = 2 বসিয়ে অপশনগুলোর মান মিলিয়ে দ্রুত সঠিক উত্তর চিহ্নিত করা যায়।" else null,
-            similarProblemPromptBn = "x^2 + 5x + 6"
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.FACTORIZATION,
+                mode = mode,
+                originalProblemBn = "উৎপাদকে বিশ্লেষণ করুন: ${fRes.originalInputBn}",
+                formulaUsedBn = "মিডল-টার্ম ব্রেকআপ: x² + (p+q)x + pq = (x+p)(x+q) অথবা বর্গান্তর: x² - y² = (x+y)(x-y)",
+                steps = steps,
+                finalAnswerBn = fRes.factoredFormBn,
+                verificationBn = "উৎপাদকগুলো পুনরায় গুণ করলে মূল রাশি ${fRes.originalInputBn} পাওয়া যায়।",
+                bcsShortcutBn = "বিসিএস টিপস: বীজগণিতীয় উৎপাদকের ক্ষেত্রে x = 1 বা x = 2 বসিয়ে অপশনগুলোর মান মিলিয়ে দ্রুত সঠিক উত্তর চিহ্নিত করা যায়।",
+                similarProblemPromptBn = "x^2 + 5x + 6"
+            )
         )
     }
 
@@ -2557,18 +2637,20 @@ object MathProblemSolverEngine {
             )
         }
 
-        return SolverResult(
-            topic = SolverTopic.SIMPLIFICATION,
-            mode = mode,
-            originalProblemBn = "সরলীকরণ করুন: ${BengaliNumberFormatter.toBn(expression)}",
-            formulaUsedBn = "√(a²b) = a√b,  a/b = (a÷g)/(b÷g),  ax + bx = (a+b)x",
-            steps = steps,
-            finalAnswerBn = sRes.simplifiedFormBn,
-            verificationBn = sRes.approximateValueBn?.let { "আসন্ন দশমিক মান: ≈ $it" },
-            bcsShortcutBn = if (mode == SolverMode.BCS) "বিসিএস টিপস: করণী সরলীকরণে সংখ্যাটিকে বৃহত্তম পূর্ণবর্গ সংখ্যার গুণিতক আকারে ভাঙুন (যেমন ৭২ = ৩৬ × ২)।" else null,
-            similarProblemPromptBn = "√72",
-            isExactResult = sRes.isExact,
-            approximateResultBn = sRes.approximateValueBn
+        return SolverPedagogyEnricher.enrich(
+            SolverResult(
+                topic = SolverTopic.SIMPLIFICATION,
+                mode = mode,
+                originalProblemBn = "সরলীকরণ করুন: ${BengaliNumberFormatter.toBn(expression)}",
+                formulaUsedBn = "√(a²b) = a√b,  a/b = (a÷g)/(b÷g),  ax + bx = (a+b)x",
+                steps = steps,
+                finalAnswerBn = sRes.simplifiedFormBn,
+                verificationBn = sRes.approximateValueBn?.let { "আসন্ন দশমিক মান: ≈ $it" } ?: sRes.verificationBn,
+                bcsShortcutBn = "বিসিএস টিপস: করণী সরলীকরণে সংখ্যাটিকে বৃহত্তম পূর্ণবর্গ সংখ্যার গুণিতক আকারে ভাঙুন (যেমন ৭২ = ৩৬ × ২)।",
+                similarProblemPromptBn = "√72",
+                isExactResult = sRes.isExact,
+                approximateResultBn = sRes.approximateValueBn
+            )
         )
     }
 

@@ -607,7 +607,7 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                         verticalArrangement = Arrangement.spacedBy(MathSpacing.md)
                     ) {
                         Text(
-                            text = "ইকোসিস্টেম সমন্বিত অগ্রগতি ও স্পেসড রিভিশন (Room v7)",
+                            text = "ইকোসিস্টেম সমন্বিত অগ্রগতি ও স্পেসড রিভিশন",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface

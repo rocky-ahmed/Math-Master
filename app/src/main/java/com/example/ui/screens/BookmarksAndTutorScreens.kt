@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -350,7 +351,7 @@ fun PracticeTutorScreen(
                         value = userAnswer,
                         onValueChange = { viewModel.setTutorAnswerInput(it) },
                         enabled = !tutorCompleted,
-                        label = { Text("উত্তর লিখুন (যেমন: ${number * step})") },
+                        label = { Text("আপনার উত্তর লিখুন (বাংলা বা ইংরেজি সংখ্যায়)") },
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number,
                             imeAction = ImeAction.Done
@@ -441,15 +442,20 @@ fun PracticeTutorScreen(
                         shape = RoundedCornerShape(8.dp),
                         color = if (number == sampleNum) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier
+                            .heightIn(min = 48.dp)
                             .clickable { viewModel.setTutorNumber(sampleNum) }
-                            .padding(vertical = 4.dp)
+                            .testTag("tutor_sample_table_$sampleNum")
                     ) {
-                        Text(
-                            text = "${BengaliNumberFormatter.toBn(sampleNum)} এর ঘর",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = if (number == sampleNum) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                        ) {
+                            Text(
+                                text = "${BengaliNumberFormatter.toBn(sampleNum)} এর ঘর",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (number == sampleNum) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
