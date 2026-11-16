@@ -1,17 +1,26 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,23 +29,35 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,12 +69,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.math.BcsSyllabusMapping
@@ -66,51 +87,75 @@ import com.example.math.SolutionStep
 import com.example.math.SolverLearningState
 import com.example.math.SolverMode
 import com.example.math.SolverPedagogyEnricher
+import com.example.math.SolverResult
 import com.example.math.SolverTopic
 import com.example.math.VisualDiagramType
 import com.example.math.VisualModelSpec
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
+import com.example.ui.theme.MathSpacing
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProblemUnderstandingAndPrerequisiteCard(
     understanding: ProblemUnderstanding
 ) {
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.45f)
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_problem_understanding_card")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.School,
-                    contentDescription = "প্রশ্নটি বুঝি",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "প্রশ্নটি বুঝি ও প্রয়োজনীয় ধারণা (Beginner Guide)",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.School,
+                            contentDescription = "প্রশ্নটি বুঝি",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "প্রশ্নটি বুঝি ও প্রয়োজনীয় ধারণা",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "সমাধান শুরুর আগে মূল তথ্য ও পূর্বধারণা",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+
             if (understanding.prerequisiteConceptBn.isNotBlank()) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
+                    color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.primaryContainer, 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
                         Text(
                             text = "প্রয়োজনীয় পূর্বধারণা",
                             style = MaterialTheme.typography.labelSmall,
@@ -120,28 +165,48 @@ fun ProblemUnderstandingAndPrerequisiteCard(
                         Text(
                             text = understanding.prerequisiteConceptBn,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
             }
+
             if (understanding.summaryBn.isNotBlank()) {
                 Text(
                     text = "• সারসংক্ষেপ: ${understanding.summaryBn}",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             if (understanding.givenItemsBn.isNotEmpty()) {
-                Text(
-                    text = "• প্রদত্ত তথ্য: ${understanding.givenItemsBn.joinToString(" | ") { "${it.first}: ${it.second}" }}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    understanding.givenItemsBn.forEach { (key, value) ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Text(
+                                text = "$key: $value",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
             }
             if (understanding.requiredTargetBn.isNotBlank()) {
                 Text(
                     text = "• নির্ণেয় লক্ষ্য: ${understanding.requiredTargetBn}",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             understanding.realLifeContextBn?.takeIf { it.isNotBlank() }?.let { ctx ->
@@ -159,67 +224,117 @@ fun ProblemUnderstandingAndPrerequisiteCard(
 fun FormulaBreakdownDetailCard(breakdown: FormulaBreakdown) {
     var expanded by remember { mutableStateOf(false) }
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.secondaryContainer, 0.42f)
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.24f)),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_formula_breakdown_card")
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Functions,
                         contentDescription = "সূত্রের ব্যবচ্ছেদ",
                         tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "সূত্রের চলক পরিচিতি: ${breakdown.formulaTitleBn}",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 OutlinedButton(
                     onClick = { expanded = !expanded },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("btn_toggle_formula_breakdown")
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("btn_toggle_formula_breakdown")
                 ) {
-                    Text(if (expanded) "সংক্ষিপ্ত" else "চলক ও ব্যাখ্যা", fontSize = 11.sp)
+                    Text(
+                        text = if (expanded) "সংক্ষিপ্ত" else "চলক ও ব্যাখ্যা",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
                 Column(
-                    modifier = Modifier.padding(top = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.padding(top = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     breakdown.variables.forEach { v ->
                         val valSuffix = v.givenValueBn?.takeIf { it.isNotBlank() }?.let { " = $it" } ?: ""
-                        Text(
-                            text = "• ${v.symbolBn}: ${v.meaningBn}$valSuffix",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = v.symbolBn,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "${v.meaningBn}$valSuffix",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
                     }
                     if (breakdown.plainMeaningBn.isNotBlank()) {
                         Text(
                             text = "সহজ অর্থ: ${breakdown.plainMeaningBn}",
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     if (breakdown.whyApplicableBn.isNotBlank()) {
                         Text(
                             text = "কেন প্রযোজ্য: ${breakdown.whyApplicableBn}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -228,34 +343,266 @@ fun FormulaBreakdownDetailCard(breakdown: FormulaBreakdown) {
     }
 }
 
+@Immutable
+data class SolverProblemIdentity(
+    val topic: SolverTopic,
+    val originalProblemBn: String,
+    val finalAnswerBn: String
+) {
+    companion object {
+        fun from(result: SolverResult): SolverProblemIdentity = SolverProblemIdentity(
+            topic = result.topic,
+            originalProblemBn = result.originalProblemBn,
+            finalAnswerBn = result.finalAnswerBn
+        )
+    }
+}
+
+@Immutable
+data class StepLearningUiState(
+    val showSimple: Boolean = false,
+    val showRuleAndWhy: Boolean = false,
+    val showAnalogyAndTrap: Boolean = false,
+    val showTryItYourself: Boolean = false,
+    val hintLevel: Int = 0,
+    val userAttempt: String = "",
+    val attemptFeedbackBn: String? = null
+) {
+    companion object {
+        fun defaultFor(
+            stepIndex: Int,
+            mode: SolverMode,
+            forceExpandAll: Boolean?
+        ): StepLearningUiState = StepLearningUiState(
+            showSimple = forceExpandAll ?: false,
+            showRuleAndWhy = forceExpandAll ?: (mode == SolverMode.LEARNING && stepIndex == 1),
+            showAnalogyAndTrap = forceExpandAll ?: false,
+            showTryItYourself = false,
+            hintLevel = 0,
+            userAttempt = "",
+            attemptFeedbackBn = null
+        )
+    }
+}
+
+@Stable
+class SolverLearningSessionHolder(
+    initialIdentity: SolverProblemIdentity? = null
+) {
+    var activeIdentity by mutableStateOf(initialIdentity)
+        private set
+
+    var forceExpandAllSteps by mutableStateOf<Boolean?>(null)
+    var learningState by mutableStateOf(SolverLearningState.WORKED_EXAMPLE_STUDIED)
+    private val _stepStates = mutableStateMapOf<Int, StepLearningUiState>()
+
+    fun syncForResult(result: SolverResult?) {
+        if (result == null || !result.isSuccess) {
+            clear()
+            return
+        }
+        val nextIdentity = SolverProblemIdentity.from(result)
+        if (activeIdentity != nextIdentity) {
+            activeIdentity = nextIdentity
+            forceExpandAllSteps = null
+            learningState = SolverLearningState.WORKED_EXAMPLE_STUDIED
+            _stepStates.clear()
+        }
+    }
+
+    fun clear() {
+        activeIdentity = null
+        forceExpandAllSteps = null
+        learningState = SolverLearningState.WORKED_EXAMPLE_STUDIED
+        _stepStates.clear()
+    }
+
+    fun getStepState(stepIndex: Int, mode: SolverMode): StepLearningUiState {
+        return _stepStates[stepIndex] ?: StepLearningUiState.defaultFor(
+            stepIndex = stepIndex,
+            mode = mode,
+            forceExpandAll = forceExpandAllSteps
+        )
+    }
+
+    fun updateStepState(
+        stepIndex: Int,
+        mode: SolverMode,
+        transform: (StepLearningUiState) -> StepLearningUiState
+    ) {
+        val current = getStepState(stepIndex, mode)
+        _stepStates[stepIndex] = transform(current)
+    }
+
+    fun expandAll(steps: List<SolutionStep>) {
+        forceExpandAllSteps = true
+        steps.forEach { step ->
+            val current = _stepStates[step.stepIndex] ?: StepLearningUiState.defaultFor(
+                stepIndex = step.stepIndex,
+                mode = SolverMode.LEARNING,
+                forceExpandAll = true
+            )
+            _stepStates[step.stepIndex] = current.copy(
+                showSimple = true,
+                showRuleAndWhy = true,
+                showAnalogyAndTrap = true
+            )
+        }
+    }
+
+    fun collapseAll(steps: List<SolutionStep>) {
+        forceExpandAllSteps = false
+        steps.forEach { step ->
+            val current = _stepStates[step.stepIndex] ?: StepLearningUiState.defaultFor(
+                stepIndex = step.stepIndex,
+                mode = SolverMode.LEARNING,
+                forceExpandAll = false
+            )
+            _stepStates[step.stepIndex] = current.copy(
+                showSimple = false,
+                showRuleAndWhy = false,
+                showAnalogyAndTrap = false,
+                showTryItYourself = false
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InteractiveLearningStepCard(
     step: SolutionStep,
     mode: SolverMode,
     forceExpandAll: Boolean?,
-    onStepSelfCheckVerified: () -> Unit
+    onStepSelfCheckVerified: () -> Unit,
+    isLastStep: Boolean = false,
+    stepUiState: StepLearningUiState? = null,
+    onStepUiStateChange: ((StepLearningUiState) -> Unit)? = null
 ) {
-    var showSimple by remember(step.stepIndex, forceExpandAll) {
+    // Preserve Step 1 default "why" selection on initial Learning Mode render for guided discovery
+    // while keeping subsequent steps compact unless the user expands them.
+    var localShowSimple by remember(step.stepIndex, forceExpandAll) {
         mutableStateOf(forceExpandAll ?: false)
     }
-    var showRuleAndWhy by remember(step.stepIndex, forceExpandAll) {
-        mutableStateOf(forceExpandAll ?: (mode == SolverMode.LEARNING))
+    var localShowRuleAndWhy by remember(step.stepIndex, forceExpandAll) {
+        mutableStateOf(forceExpandAll ?: (mode == SolverMode.LEARNING && step.stepIndex == 1))
     }
-    var showAnalogyAndTrap by remember(step.stepIndex, forceExpandAll) {
+    var localShowAnalogyAndTrap by remember(step.stepIndex, forceExpandAll) {
         mutableStateOf(forceExpandAll ?: false)
     }
-    var showTryItYourself by remember(step.stepIndex, forceExpandAll) {
+    var localShowTryItYourself by remember(step.stepIndex, forceExpandAll) {
         mutableStateOf(false)
     }
-    var hintLevel by remember(step.stepIndex) { mutableIntStateOf(0) }
-    var userAttempt by remember(step.stepIndex) { mutableStateOf("") }
-    var attemptFeedbackBn by remember(step.stepIndex) { mutableStateOf<String?>(null) }
+    var localHintLevel by remember(step.stepIndex) { mutableIntStateOf(0) }
+    var localUserAttempt by remember(step.stepIndex) { mutableStateOf("") }
+    var localAttemptFeedbackBn by remember(step.stepIndex) { mutableStateOf<String?>(null) }
+
+    val useHoisted = stepUiState != null && onStepUiStateChange != null
+    val activeState = stepUiState ?: StepLearningUiState(
+        showSimple = localShowSimple,
+        showRuleAndWhy = localShowRuleAndWhy,
+        showAnalogyAndTrap = localShowAnalogyAndTrap,
+        showTryItYourself = localShowTryItYourself,
+        hintLevel = localHintLevel,
+        userAttempt = localUserAttempt,
+        attemptFeedbackBn = localAttemptFeedbackBn
+    )
+    fun updateUiState(transform: (StepLearningUiState) -> StepLearningUiState) {
+        val next = transform(activeState)
+        if (useHoisted) {
+            onStepUiStateChange?.invoke(next)
+        } else {
+            localShowSimple = next.showSimple
+            localShowRuleAndWhy = next.showRuleAndWhy
+            localShowAnalogyAndTrap = next.showAnalogyAndTrap
+            localShowTryItYourself = next.showTryItYourself
+            localHintLevel = next.hintLevel
+            localUserAttempt = next.userAttempt
+            localAttemptFeedbackBn = next.attemptFeedbackBn
+        }
+    }
+
+    val showSimple = activeState.showSimple
+    val showRuleAndWhy = activeState.showRuleAndWhy
+    val showAnalogyAndTrap = activeState.showAnalogyAndTrap
+    val showTryItYourself = activeState.showTryItYourself
+    val hintLevel = activeState.hintLevel
+    val userAttempt = activeState.userAttempt
+    val attemptFeedbackBn = activeState.attemptFeedbackBn
 
     val beforeStr = step.expressionBeforeBn ?: ""
     val afterStr = step.expressionAfterBn ?: ""
+    val anyDetailOpen = showSimple || showRuleAndWhy || showAnalogyAndTrap || showTryItYourself
 
+    if (mode != SolverMode.LEARNING) {
+        // Streamlined compact summary step card for QUICK and BCS modes
+        Surface(
+            shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStep),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            tonalElevation = 1.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("solver_step_card_${step.stepIndex}")
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = SolverDesignTokens.modeAccentColor(mode),
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(26.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = BengaliNumberFormatter.toBn(step.stepIndex),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(
+                        text = step.titleBn,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.55f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = step.expressionOrMathBn,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                    )
+                }
+                Text(
+                    text = step.explanationBn,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    // LEARNING MODE: Guided Step Card with Timeline Header, Independent Chips & Self-Check Workspace
     ElevatedCard(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStep),
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -264,252 +611,440 @@ fun InteractiveLearningStepCard(
             .fillMaxWidth()
             .testTag("solver_step_card_${step.stepIndex}")
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(SolverDesignTokens.stepBadgeSize)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text(
                                 text = BengaliNumberFormatter.toBn(step.stepIndex),
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = step.titleBn,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "ধাপ ${BengaliNumberFormatter.toBn(step.stepIndex)}${if (isLastStep) " (চূড়ান্ত ধাপ)" else ""}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = step.titleBn,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+                IconButton(
+                    onClick = {
+                        val target = !anyDetailOpen
+                        updateUiState {
+                            it.copy(
+                                showSimple = target,
+                                showRuleAndWhy = target,
+                                showAnalogyAndTrap = target,
+                                showTryItYourself = if (!target) false else it.showTryItYourself
+                            )
+                        }
+                    },
+                    modifier = Modifier.size(SolverDesignTokens.minTouchTarget)
+                ) {
+                    Icon(
+                        imageVector = if (anyDetailOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (anyDetailOpen) "ধাপের বিস্তারিত সংক্ষিপ্ত করুন" else "ধাপের বিস্তারিত দেখুন",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
             Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(10.dp),
+                color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.55f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
                         text = step.expressionOrMathBn,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        ),
                         color = MaterialTheme.colorScheme.primary
                     )
                     if (beforeStr.isNotBlank() && afterStr.isNotBlank() && beforeStr != afterStr) {
                         Text(
                             text = "রূপান্তর: $beforeStr ➜ $afterStr",
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = step.explanationBn,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (mode == SolverMode.LEARNING) {
-                Spacer(modifier = Modifier.height(8.dp))
-                @OptIn(ExperimentalLayoutApi::class)
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    FilterChip(
-                        selected = showSimple,
-                        onClick = { showSimple = !showSimple },
-                        label = { Text("সহজ ব্যাখ্যা", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("step_${step.stepIndex}_chip_simple")
-                    )
-                    FilterChip(
-                        selected = showRuleAndWhy,
-                        onClick = { showRuleAndWhy = !showRuleAndWhy },
-                        label = { Text("কেন এই ধাপ?", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("step_${step.stepIndex}_chip_why")
-                    )
-                    FilterChip(
-                        selected = showAnalogyAndTrap,
-                        onClick = { showAnalogyAndTrap = !showAnalogyAndTrap },
-                        label = { Text("উদাহরণ ও ভুল", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("step_${step.stepIndex}_chip_analogy")
-                    )
-                    FilterChip(
-                        selected = showTryItYourself,
-                        onClick = { showTryItYourself = !showTryItYourself },
-                        label = { Text("ইঙ্গিত/চেষ্টা", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("step_${step.stepIndex}_chip_try")
-                    )
-                }
-
-                AnimatedVisibility(visible = showSimple && step.simpleExplanationBn.isNotBlank()) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                    ) {
+            Spacer(modifier = Modifier.height(10.dp))
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = showSimple,
+                    onClick = { updateUiState { it.copy(showSimple = !it.showSimple) } },
+                    label = {
                         Text(
-                            text = "সহজ ভাষায় (Level 1): ${step.simpleExplanationBn}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(8.dp)
+                            text = "সহজ ব্যাখ্যা",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (showSimple) FontWeight.Bold else FontWeight.Medium
                         )
-                    }
-                }
+                    },
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("step_${step.stepIndex}_chip_simple")
+                )
+                FilterChip(
+                    selected = showRuleAndWhy,
+                    onClick = { updateUiState { it.copy(showRuleAndWhy = !it.showRuleAndWhy) } },
+                    label = {
+                        Text(
+                            text = "কেন এই ধাপ?",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (showRuleAndWhy) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("step_${step.stepIndex}_chip_why")
+                )
+                FilterChip(
+                    selected = showAnalogyAndTrap,
+                    onClick = { updateUiState { it.copy(showAnalogyAndTrap = !it.showAnalogyAndTrap) } },
+                    label = {
+                        Text(
+                            text = "উদাহরণ",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (showAnalogyAndTrap) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("step_${step.stepIndex}_chip_analogy")
+                )
+                FilterChip(
+                    selected = showTryItYourself,
+                    onClick = { updateUiState { it.copy(showTryItYourself = !it.showTryItYourself) } },
+                    label = {
+                        Text(
+                            text = "নিজে চেষ্টা করুন",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (showTryItYourself) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("step_${step.stepIndex}_chip_try")
+                )
+            }
 
-                AnimatedVisibility(visible = showRuleAndWhy) {
-                    val whyText = step.whyThisStepBn ?: step.detailedRuleBn ?: ""
-                    if (whyText.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+            AnimatedVisibility(
+                visible = showSimple && step.simpleExplanationBn.isNotBlank(),
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.primaryContainer, 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    Text(
+                        text = "সহজ ভাষায়: ${step.simpleExplanationBn}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showRuleAndWhy,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
+                val whyText = step.whyThisStepBn ?: step.detailedRuleBn ?: ""
+                if (whyText.isNotBlank()) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.secondaryContainer, 0.48f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Help,
-                                    contentDescription = "কেন এই ধাপ?",
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "কেন এই ধাপ: $whyText",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Help,
+                                contentDescription = "কেন এই ধাপ?",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .padding(top = 2.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "কেন এই ধাপ: $whyText",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 }
+            }
 
-                AnimatedVisibility(visible = showAnalogyAndTrap) {
-                    val analogy = step.conceptualAnalogyBn ?: ""
-                    val mistake = step.commonMistakeBn ?: ""
+            AnimatedVisibility(
+                visible = showAnalogyAndTrap,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
+                val analogy = step.conceptualAnalogyBn ?: ""
+                val mistake = step.commonMistakeBn ?: ""
+                if (analogy.isNotBlank() || mistake.isNotBlank()) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         if (analogy.isNotBlank()) {
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(10.dp),
+                                color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.tertiaryContainer, 0.45f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.22f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "বাস্তব উদাহরণ (Level 3): $analogy",
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(8.dp)
+                                    text = "বাস্তব উদাহরণ: $analogy",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(10.dp)
                                 )
                             }
                         }
                         if (mistake.isNotBlank()) {
-                            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isDark) Color(0xFF450A0A).copy(alpha = 0.7f) else Color(0xFFFEF2F2),
+                                shape = RoundedCornerShape(10.dp),
+                                color = SolverDesignTokens.mistakeContainerColor(),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.28f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = "সাধারণ ভুল সতর্কতা: $mistake",
-                                    fontSize = 11.sp,
-                                    color = if (isDark) Color(0xFFFCA5A5) else Color(0xFF991B1B),
-                                    modifier = Modifier.padding(8.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.WarningAmber,
+                                        contentDescription = "সাধারণ ভুল সতর্কতা",
+                                        tint = SolverDesignTokens.mistakeContentColor(),
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .padding(top = 2.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "সাধারণ ভুল সতর্কতা: $mistake",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SolverDesignTokens.mistakeContentColor()
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
 
-                AnimatedVisibility(visible = showTryItYourself) {
-                    val h1 = step.hint1Bn ?: ""
-                    val h2 = step.hint2Bn ?: ""
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+            AnimatedVisibility(
+                visible = showTryItYourself,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
+                val h1 = step.hint1Bn ?: ""
+                val h2 = step.hint2Bn ?: ""
+                Surface(
+                    shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
+                    color = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.55f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(8.dp),
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Psychology,
+                                contentDescription = "ধাপটি নিজে চেষ্টা করুন",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "প্রগতিশীল ইঙ্গিত ও অনুশীলন",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(
-                                    onClick = { hintLevel = 1 },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text("ইঙ্গিত ১ (ধারণা)", fontSize = 11.sp)
-                                }
-                                OutlinedButton(
-                                    onClick = { hintLevel = 2 },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text("ইঙ্গিত ২ (পরবর্তী সূত্র)", fontSize = 11.sp)
-                                }
-                            }
-                            if (hintLevel >= 1 && h1.isNotBlank()) {
-                                Text("ইঙ্গিত ১: $h1", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
-                            }
-                            if (hintLevel >= 2 && h2.isNotBlank()) {
-                                Text("ইঙ্গিত ২: $h2", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            OutlinedButton(
+                                onClick = {
+                                    updateUiState {
+                                        it.copy(hintLevel = if (it.hintLevel == 1) 0 else 1)
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("step_${step.stepIndex}_hint_1_btn")
                             ) {
-                                OutlinedTextField(
-                                    value = userAttempt,
-                                    onValueChange = { userAttempt = it },
-                                    label = { Text("নিজে ধাপটির মান লিখুন", fontSize = 11.sp) },
-                                    singleLine = true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Button(
-                                    onClick = {
-                                        val expected = (step.expectedStepValueBn ?: "").ifBlank { afterStr }
-                                        val isMatch = SharedMathEngine.isAnswerCorrect(userAttempt, expected) ||
-                                            (userAttempt.trim().isNotBlank() && expected.contains(userAttempt.trim()))
-                                        if (isMatch) {
-                                            attemptFeedbackBn = "সঠিক! আপনি এই ধাপটি নিজে সমাধান করেছেন।"
-                                            onStepSelfCheckVerified()
-                                        } else {
-                                            attemptFeedbackBn = "আবার চেষ্টা করুন। প্রত্যাশিত ফলাফল: $expected"
-                                        }
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text("যাচাই", fontSize = 11.sp)
-                                }
-                            }
-                            attemptFeedbackBn?.let { fb ->
                                 Text(
-                                    text = fb,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (fb.startsWith("সঠিক")) Color(0xFF059669) else Color(0xFFD97706)
+                                    text = "ইঙ্গিত ১ (ধারণা)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
+                            OutlinedButton(
+                                onClick = {
+                                    updateUiState { it.copy(hintLevel = 2) }
+                                },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("step_${step.stepIndex}_hint_2_btn")
+                            ) {
+                                Text(
+                                    text = "ইঙ্গিত ২ (পরবর্তী সূত্র)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        if (hintLevel >= 1 && h1.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "ইঙ্গিত ১: $h1",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+                        if (hintLevel >= 2 && h2.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "ইঙ্গিত ২: $h2",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(8.dp)
+                                )
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = userAttempt,
+                                onValueChange = { typed ->
+                                    updateUiState { it.copy(userAttempt = typed) }
+                                },
+                                label = { Text("নিজে ধাপটির মান লিখুন", style = MaterialTheme.typography.labelSmall) },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    val expected = (step.expectedStepValueBn ?: "").ifBlank { afterStr }
+                                    val isMatch = SharedMathEngine.isAnswerCorrect(userAttempt, expected) ||
+                                        (userAttempt.trim().isNotBlank() && expected.contains(userAttempt.trim()))
+                                    if (isMatch) {
+                                        updateUiState {
+                                            it.copy(attemptFeedbackBn = "সঠিক! আপনি এই ধাপটি নিজে সমাধান করেছেন।")
+                                        }
+                                        onStepSelfCheckVerified()
+                                    } else {
+                                        updateUiState {
+                                            it.copy(attemptFeedbackBn = "আবার চেষ্টা করুন। প্রত্যাশিত ফলাফল: $expected")
+                                        }
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            ) {
+                                Text(
+                                    text = "যাচাই",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        attemptFeedbackBn?.let { fb ->
+                            val isCorrectFb = fb.startsWith("সঠিক")
+                            Text(
+                                text = fb,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isCorrectFb) SolverDesignTokens.successContentColor() else SolverDesignTokens.warningTitleColor()
+                            )
                         }
                     }
                 }
@@ -518,6 +1053,7 @@ fun InteractiveLearningStepCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
     var expanded by remember { mutableStateOf(true) }
@@ -526,15 +1062,16 @@ fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.45f)
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_inline_visual_card")
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -555,20 +1092,38 @@ fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
                         )
                     }
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 OutlinedButton(
                     onClick = { expanded = !expanded },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    modifier = Modifier.testTag("btn_toggle_inline_visual")
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("btn_toggle_inline_visual")
                 ) {
-                    Text(if (expanded) "চিত্র লুকান" else "চিত্র দেখুন", fontSize = 11.sp)
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (expanded) "চিত্র লুকান" else "চিত্র দেখুন",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
                         color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
@@ -576,7 +1131,7 @@ fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
                             Canvas(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(76.dp)
+                                    .height(78.dp)
                                     .semantics {
                                         contentDescription = a11yText
                                     }
@@ -638,18 +1193,25 @@ fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
                                 }
                             }
                             if (visualSpec.labelsBn.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Row(
+                                Spacer(modifier = Modifier.height(8.dp))
+                                FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     visualSpec.labelsBn.take(4).forEach { lbl ->
-                                        Text(
-                                            text = lbl,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                        ) {
+                                            Text(
+                                                text = lbl,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -664,36 +1226,38 @@ fun InlineSolverVisualCard(visualSpec: VisualModelSpec) {
 @Composable
 fun ShortcutAndTrapCard(shortcutDetails: ShortcutDetails) {
     var showDerivation by remember { mutableStateOf(false) }
-    val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val containerBg = if (isDark) Color(0xFF451A03).copy(alpha = 0.65f) else Color(0xFFFFFBEB)
-    val titleColor = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E)
-    val bodyColor = if (isDark) Color(0xFFFEF3C7) else Color(0xFF78350F)
-    val positiveColor = if (isDark) Color(0xFF6EE7B7) else Color(0xFF065F46)
-    val avoidColor = if (isDark) Color(0xFFFCA5A5) else Color(0xFF991B1B)
-    val trapColor = if (isDark) Color(0xFFFBBF24) else Color(0xFFB45309)
+    val containerBg = SolverDesignTokens.warningContainerColor()
+    val titleColor = SolverDesignTokens.warningTitleColor()
+    val bodyColor = SolverDesignTokens.warningBodyColor()
+    val positiveColor = SolverDesignTokens.successContentColor()
+    val avoidColor = SolverDesignTokens.mistakeContentColor()
+    val trapColor = SolverDesignTokens.warningIconColor()
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(containerColor = containerBg),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, SolverDesignTokens.warningBorderColor()),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_shortcut_details_card")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Icon(
                         imageVector = Icons.Default.Lightbulb,
                         contentDescription = "শর্টকাট কৌশল",
-                        tint = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706),
+                        tint = trapColor,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -704,21 +1268,38 @@ fun ShortcutAndTrapCard(shortcutDetails: ShortcutDetails) {
                         color = titleColor
                     )
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 OutlinedButton(
                     onClick = { showDerivation = !showDerivation },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
                 ) {
-                    Text(if (showDerivation) "ব্যাখ্যা লুকান" else "কেন কাজ করে?", fontSize = 11.sp)
+                    Text(
+                        text = if (showDerivation) "ব্যাখ্যা লুকান" else "কেন কাজ করে?",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-            Text(
-                text = "দ্রুত সূত্র: ${shortcutDetails.shortcutFormulaOrRuleBn}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = bodyColor
-            )
-            AnimatedVisibility(visible = showDerivation) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "দ্রুত সূত্র: ${shortcutDetails.shortcutFormulaOrRuleBn}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            AnimatedVisibility(
+                visible = showDerivation,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = "• কেন কাজ করে: ${shortcutDetails.whyShortcutWorksBn}",
                         style = MaterialTheme.typography.bodySmall,
@@ -727,18 +1308,20 @@ fun ShortcutAndTrapCard(shortcutDetails: ShortcutDetails) {
                     Text(
                         text = "• কখন ব্যবহার করবেন: ${shortcutDetails.whenToUseBn}",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
                         color = positiveColor
                     )
                     Text(
                         text = "• কখন ব্যবহার করবেন না: ${shortcutDetails.whenToAvoidBn}",
                         style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
                         color = avoidColor
                     )
                     Text(
                         text = "• পরীক্ষার সাধারণ ফাঁদ: ${shortcutDetails.commonTrapBn}",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
-                        color = trapColor
+                        color = titleColor
                     )
                 }
             }
@@ -746,6 +1329,7 @@ fun ShortcutAndTrapCard(shortcutDetails: ShortcutDetails) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BcsSyllabusAndNavigatorCard(
     mapping: BcsSyllabusMapping,
@@ -755,24 +1339,25 @@ fun BcsSyllabusAndNavigatorCard(
     val companionModules = remember { SolverPedagogyEnricher.getBcsCompanionModules() }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.tertiaryContainer, 0.45f)
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.25f)),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_bcs_syllabus_card")
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = "বিসিএস সিলেবাস ম্যাপিং",
@@ -784,11 +1369,11 @@ fun BcsSyllabusAndNavigatorCard(
                         text = "BPSC সিলেবাস ও উৎস যাচাইকরণ",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Text(
@@ -796,7 +1381,7 @@ fun BcsSyllabusAndNavigatorCard(
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -804,11 +1389,13 @@ fun BcsSyllabusAndNavigatorCard(
             Text(
                 text = "• প্রিলিমিনারি: ${mapping.preliminarySectionBn} (${mapping.preliminaryMarksBn})",
                 style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "• লিখিত পরীক্ষা: ${mapping.writtenSectionBn} (${mapping.writtenMarksBn})",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "• নোট: ${mapping.examPatternNoteBn}",
@@ -818,31 +1405,40 @@ fun BcsSyllabusAndNavigatorCard(
 
             OutlinedButton(
                 onClick = { showCompanionModules = !showCompanionModules },
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.testTag("btn_toggle_bcs_companion_navigator")
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                    .testTag("btn_toggle_bcs_companion_navigator")
             ) {
                 Text(
                     text = if (showCompanionModules) "অন্যান্য বিসিএস অধ্যায় লুকান" else "পূর্ণাঙ্গ বিসিএস সিলেবাসের অন্যান্য মডিউল দেখুন",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
                 )
             }
 
-            AnimatedVisibility(visible = showCompanionModules) {
+            AnimatedVisibility(
+                visible = showCompanionModules,
+                enter = expandVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeIn(tween(SolverDesignTokens.EXPANSION_ANIM_MS)),
+                exit = shrinkVertically(tween(SolverDesignTokens.EXPANSION_ANIM_MS)) + fadeOut(tween(SolverDesignTokens.EXPANSION_ANIM_MS))
+            ) {
                 Column(
-                    modifier = Modifier.padding(top = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     companionModules.forEach { item ->
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(8.dp),
+                                    .padding(10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -855,13 +1451,14 @@ fun BcsSyllabusAndNavigatorCard(
                                     )
                                     Text(
                                         text = item.topicsCoveredBn,
-                                        style = MaterialTheme.typography.bodySmall
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 OutlinedButton(
                                     onClick = {
-                                        val screen = when (item.targetRouteType) {
+                                        val screen = when (item.targetRouteType.uppercase(java.util.Locale.ROOT)) {
                                             "FORMULA_LIBRARY" -> Screen.FormulaLibrary
                                             "VISUAL_EXPLORER" -> Screen.VisualExplorer
                                             "PRACTICE_LAB" -> Screen.PracticeLab
@@ -870,9 +1467,14 @@ fun BcsSyllabusAndNavigatorCard(
                                         }
                                         viewModel?.navigateTo(screen)
                                     },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
                                 ) {
-                                    Text(item.targetModuleNameBn, fontSize = 10.sp)
+                                    Text(
+                                        text = item.targetModuleNameBn,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -883,6 +1485,7 @@ fun BcsSyllabusAndNavigatorCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LearnerFeedbackStatusRow(
     learningState: SolverLearningState,
@@ -891,30 +1494,32 @@ fun LearnerFeedbackStatusRow(
     onTrySimilar: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.5f)
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_learner_feedback_card")
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = "শেখার অগ্রগতি ও প্রতিক্রিয়া:",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = MaterialTheme.colorScheme.primaryContainer
                 ) {
                     Text(
@@ -922,44 +1527,61 @@ fun LearnerFeedbackStatusRow(
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = {
                         onStateChanged(SolverLearningState.SELF_REPORTED_CONFIDENCE)
                     },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text("বুঝেছি", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "বুঝেছি",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 OutlinedButton(
                     onClick = onShowSimpleExplanation,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Text("আরও সহজ ব্যাখ্যা", fontSize = 11.sp)
+                    Text(
+                        text = "আরও সহজ ব্যাখ্যা",
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 }
                 Button(
-                    onClick = {
-                        onTrySimilar()
-                    },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+                    onClick = onTrySimilar,
+                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                 ) {
-                    Text("নিজে অনুশীলন", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "নিজে অনুশীলন",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SimultaneousLinearSystemAndBridgeCard(
     selectedTopic: SolverTopic,
@@ -1018,14 +1640,15 @@ fun SimultaneousLinearSystemAndBridgeCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("solver_simultaneous_and_bridge_card"),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusHero),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-        )
+            containerColor = MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.tertiaryContainer, 0.38f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.24f))
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (isEquationTopic) {
                 Row(
@@ -1043,17 +1666,21 @@ fun SimultaneousLinearSystemAndBridgeCard(
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f).testTag("sim_solver_header_title")
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("sim_solver_header_title")
                     )
                     if (selectedTopic != SolverTopic.LINEAR_EQUATIONS) {
                         OutlinedButton(
                             onClick = { expandedInOtherTopic = !expandedInOtherTopic },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.testTag("btn_toggle_simultaneous_solver")
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                .testTag("btn_toggle_simultaneous_solver")
                         ) {
                             Text(
                                 text = if (expandedInOtherTopic) "সংক্ষিপ্ত করুন" else "সহসমীকরণ খুলুন",
-                                fontSize = 11.sp
+                                style = MaterialTheme.typography.labelSmall
                             )
                         }
                     }
@@ -1069,32 +1696,32 @@ fun SimultaneousLinearSystemAndBridgeCard(
             }
 
             if (isEquationTopic && (expandedInOtherTopic || selectedTopic == SolverTopic.LINEAR_EQUATIONS)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = systemDimension == 2,
-                        onClick = { systemDimension = 2 },
-                        label = { Text("২ চলক (x, y)", fontSize = 11.sp) },
-                        modifier = Modifier.testTag("sim_dim_2x2")
-                    )
-                    FilterChip(
-                        selected = systemDimension == 3,
-                        onClick = { systemDimension = 3 },
-                        label = { Text("৩ চলক (x, y, z)", fontSize = 11.sp) },
-                        modifier = Modifier.testTag("sim_dim_3x3")
-                    )
-                }
+                CompactSegmentedSwitch(
+                    options = listOf(2, 3),
+                    selectedOption = systemDimension,
+                    onOptionSelected = { systemDimension = it },
+                    labelProvider = { dim -> if (dim == 2) "২ চলক (x, y)" else "৩ চলক (x, y, z)" },
+                    subtitleProvider = { dim -> if (dim == 2) "২×২ ব্যবস্থা" else "৩×৩ ব্যবস্থা" },
+                    testTagProvider = { dim -> if (dim == 2) "sim_dim_2x2" else "sim_dim_3x3" }
+                )
 
                 if (systemDimension == 2) {
-                    @OptIn(ExperimentalLayoutApi::class)
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf("Cramer's Rule", "অপনয়ন (Elimination)", "প্রতিস্থাপন (Substitution)").forEachIndexed { idx, title ->
                             FilterChip(
                                 selected = methodTab == idx,
                                 onClick = { methodTab = idx },
-                                label = { Text(title, fontSize = 10.sp) }
+                                label = {
+                                    Text(
+                                        text = title,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = if (methodTab == idx) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
                             )
                         }
                     }
@@ -1151,11 +1778,15 @@ fun SimultaneousLinearSystemAndBridgeCard(
                         )
                     }
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
                         color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             val activeSteps = when (methodTab) {
                                 1 -> simResult2x2.eliminationStepsBn.ifEmpty { simResult2x2.stepsBn }
                                 2 -> simResult2x2.substitutionStepsBn.ifEmpty { simResult2x2.stepsBn }
@@ -1164,10 +1795,11 @@ fun SimultaneousLinearSystemAndBridgeCard(
                             activeSteps.forEach { (stepTitle, stepBody) ->
                                 Text(
                                     text = "• $stepTitle: $stepBody",
-                                    style = MaterialTheme.typography.bodySmall
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (simResult2x2.isUniqueSolution) {
                                     "নির্ণেয় সমাধান: x = ${simResult2x2.xExactBn}, y = ${simResult2x2.yExactBn}"
@@ -1176,7 +1808,11 @@ fun SimultaneousLinearSystemAndBridgeCard(
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (simResult2x2.isUniqueSolution) Color(0xFF059669) else Color(0xFFD97706)
+                                color = if (simResult2x2.isUniqueSolution) {
+                                    SolverDesignTokens.successContentColor()
+                                } else {
+                                    SolverDesignTokens.warningTitleColor()
+                                }
                             )
                         }
                     }
@@ -1205,15 +1841,23 @@ fun SimultaneousLinearSystemAndBridgeCard(
                         OutlinedTextField(value = sim3D3, onValueChange = { sim3D3 = it }, label = { Text("d₃") }, singleLine = true, modifier = Modifier.weight(1f))
                     }
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
                         color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             simResult3x3.stepsBn.forEach { (stepTitle, stepBody) ->
-                                Text(text = "• $stepTitle: $stepBody", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    text = "• $stepTitle: $stepBody",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = if (simResult3x3.isUniqueSolution) {
                                     "নির্ণেয় সমাধান: x = ${simResult3x3.xExactBn}, y = ${simResult3x3.yExactBn}, z = ${simResult3x3.zExactBn}"
@@ -1222,7 +1866,11 @@ fun SimultaneousLinearSystemAndBridgeCard(
                                 },
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (simResult3x3.isUniqueSolution) Color(0xFF059669) else Color(0xFFD97706)
+                                color = if (simResult3x3.isUniqueSolution) {
+                                    SolverDesignTokens.successContentColor()
+                                } else {
+                                    SolverDesignTokens.warningTitleColor()
+                                }
                             )
                         }
                     }
@@ -1230,22 +1878,54 @@ fun SimultaneousLinearSystemAndBridgeCard(
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = { viewModel?.navigateTo(Screen.FormulaLibrary) },
-                    modifier = Modifier.weight(1f).testTag("btn_solver_to_formula_lib"),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("btn_solver_to_formula_lib"),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
                 ) {
-                    Text("সংশ্লিষ্ট সূত্র দেখুন", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Default.Functions,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "সংশ্লিষ্ট সূত্র দেখুন",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
                 }
                 OutlinedButton(
                     onClick = { viewModel?.navigateTo(Screen.VisualExplorer) },
-                    modifier = Modifier.weight(1f).testTag("btn_solver_to_visual_explorer"),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .heightIn(min = SolverDesignTokens.minTouchTarget)
+                        .testTag("btn_solver_to_visual_explorer"),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
                 ) {
-                    Text("ভিজ্যুয়াল এক্সপ্লোরার", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Default.Timeline,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "ভিজ্যুয়াল এক্সপ্লোরার",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

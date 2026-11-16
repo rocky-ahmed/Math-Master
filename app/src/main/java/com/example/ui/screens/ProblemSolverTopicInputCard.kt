@@ -1,0 +1,1308 @@
+package com.example.ui.screens
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.math.BengaliNumberFormatter
+import com.example.math.InterestCalculationMode
+import com.example.math.SolverTopic
+import com.example.ui.theme.MathSpacing
+
+data class TopicValidationState(
+    val messageBn: String,
+    val isError: Boolean = true
+)
+
+/**
+ * Computes live, non-blocking topic-aware input validation guidance for the active topic.
+ */
+fun computeTopicInputValidation(
+    topic: SolverTopic,
+    arithmeticExpr: String,
+    fractionNum1: String,
+    fractionDen1: String,
+    fractionNum2: String,
+    fractionDen2: String,
+    percentageSubType: Int,
+    percentVal1: String,
+    percentVal2: String,
+    ratioSubType: Int,
+    ratioTotal: String,
+    ratioR1: String,
+    ratioR2: String,
+    profitLossSubType: Int,
+    plCp: String,
+    plSp: String,
+    plPercent: String,
+    plMp: String,
+    averageInput: String,
+    interestMode: InterestCalculationMode,
+    siP: String,
+    siR: String,
+    siT: String,
+    siI: String,
+    workTimeA: String,
+    workTimeB: String,
+    sdtSpeed: String,
+    sdtDistance: String,
+    sdtTime: String,
+    divNumber: String,
+    hcfLcmInput: String,
+    sqCubeNumber: String,
+    sqCubeOp: Int,
+    linearEqInput: String,
+    quadA: String,
+    quadB: String,
+    quadC: String,
+    factorInput: String,
+    simplifyInput: String
+): TopicValidationState? {
+    return when (topic) {
+        SolverTopic.BASIC_ARITHMETIC -> {
+            val trimmed = arithmeticExpr.trim()
+            if (trimmed.isEmpty()) {
+                TopicValidationState("অনুগ্রহ করে একটি গাণিতিক রাশি লিখুন (যেমন: (২৫ + ১৫) × ২)।")
+            } else {
+                var depth = 0
+                var unbalanced = false
+                for (ch in trimmed) {
+                    if (ch == '(') depth++
+                    else if (ch == ')') {
+                        depth--
+                        if (depth < 0) {
+                            unbalanced = true
+                            break
+                        }
+                    }
+                }
+                if (unbalanced || depth != 0) {
+                    TopicValidationState("বন্ধনী () সঠিকভাবে মেলেনি। দয়া করে পরীক্ষা করুন।")
+                } else {
+                    null
+                }
+            }
+        }
+        SolverTopic.FRACTIONS_DECIMALS -> {
+            val n1 = parseBnToLong(fractionNum1)
+            val d1 = parseBnToLong(fractionDen1)
+            val n2 = parseBnToLong(fractionNum2)
+            val d2 = parseBnToLong(fractionDen2)
+            when {
+                n1 == null || d1 == null || n2 == null || d2 == null ->
+                    TopicValidationState("সবগুলো লব ও হরের ঘরে বৈধ পূর্ণসংখ্যা লিখুন।")
+                d1 == 0L || d2 == 0L ->
+                    TopicValidationState("ভগ্নাংশের হর শূন্য (০) হতে পারে না।")
+                else -> null
+            }
+        }
+        SolverTopic.PERCENTAGE -> {
+            val v1 = parseBnToDouble(percentVal1)
+            val v2 = parseBnToDouble(percentVal2)
+            when {
+                v1 == null || v2 == null ->
+                    TopicValidationState("শতকরা হিসাবের জন্য উভয় ঘরে বৈধ সংখ্যা লিখুন।")
+                percentageSubType == 1 && v2 == 0.0 ->
+                    TopicValidationState("মোট সংখ্যা (Y) শূন্য (০) হতে পারে না।")
+                percentageSubType == 2 && v1 == 0.0 ->
+                    TopicValidationState("শতকরা পরিবর্তন বের করতে আদি মান শূন্য হতে পারে না।")
+                else -> null
+            }
+        }
+        SolverTopic.RATIO_PROPORTION -> {
+            val r1 = parseBnToDouble(ratioR1)
+            val r2 = parseBnToDouble(ratioR2)
+            val tot = parseBnToDouble(ratioTotal)
+            when {
+                r1 == null || r2 == null ->
+                    TopicValidationState("অনুপাতের পদগুলোতে বৈধ সংখ্যা লিখুন।")
+                ratioSubType == 0 && tot == null ->
+                    TopicValidationState("মোট বণ্টনযোগ্য পরিমাণ লিখুন।")
+                ratioSubType == 1 && (tot == null || r1 == 0.0) ->
+                    TopicValidationState("চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C-এর বৈধ মান দিন (A ≠ ০)।")
+                else -> null
+            }
+        }
+        SolverTopic.PROFIT_LOSS -> {
+            when (profitLossSubType) {
+                0 -> if (parseBnToDouble(plCp) == null || parseBnToDouble(plSp) == null) {
+                    TopicValidationState("ক্রয়মূল্য ও বিক্রয়মূল্যের বৈধ মান লিখুন।")
+                } else null
+                1 -> if (parseBnToDouble(plCp) == null || parseBnToDouble(plPercent) == null) {
+                    TopicValidationState("ক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
+                } else null
+                2 -> if (parseBnToDouble(plSp) == null || parseBnToDouble(plPercent) == null) {
+                    TopicValidationState("বিক্রয়মূল্য ও লাভ/ক্ষতির হার লিখুন।")
+                } else null
+                else -> if (parseBnToDouble(plMp) == null || parseBnToDouble(plPercent) == null) {
+                    TopicValidationState("ধার্যমূল্য ও ছাড়ের হার লিখুন।")
+                } else null
+            }
+        }
+        SolverTopic.AVERAGE -> {
+            val nums = averageInput.split(",", " ", "،").mapNotNull { parseBnToDouble(it.trim()) }
+            if (nums.isEmpty()) {
+                TopicValidationState("কমা দিয়ে সংখ্যাগুলোর তালিকা লিখুন (যেমন: ১০, ২০, ৩০)।")
+            } else null
+        }
+        SolverTopic.SIMPLE_INTEREST -> {
+            val p = parseBnToDouble(siP)
+            val r = parseBnToDouble(siR)
+            val t = parseBnToDouble(siT)
+            val i = parseBnToDouble(siI)
+            if (interestMode == InterestCalculationMode.COMPOUND) {
+                if (p == null || r == null || t == null) {
+                    TopicValidationState("চক্রবৃদ্ধি মুনাফার জন্য আসল (P), হার (r) ও সময় (t) দিন।")
+                } else null
+            } else {
+                val count = listOf(p, r, t, i).count { it != null }
+                if (count < 3) {
+                    TopicValidationState("সরল মুনাফায় P, r, t, I এর মধ্যে যেকোনো ৩টি মান দিন (৪র্থটি স্বয়ংক্রিয় বের হবে)।", isError = false)
+                } else null
+            }
+        }
+        SolverTopic.TIME_AND_WORK -> {
+            val a = parseBnToDouble(workTimeA)
+            val b = parseBnToDouble(workTimeB)
+            when {
+                a == null || b == null ->
+                    TopicValidationState("কাজ বা নলের সময়ের ঘরে বৈধ সংখ্যা লিখুন।")
+                a <= 0.0 || b <= 0.0 ->
+                    TopicValidationState("সময়ের মান ধনাত্মক (> ০) হতে হবে।")
+                else -> null
+            }
+        }
+        SolverTopic.SPEED_DISTANCE_TIME -> {
+            val provided = listOf(
+                parseBnToDouble(sdtSpeed),
+                parseBnToDouble(sdtDistance),
+                parseBnToDouble(sdtTime)
+            ).count { it != null }
+            if (provided != 2) {
+                TopicValidationState("গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর মধ্যে ঠিক ২টি মান দিন (১টি ফাঁকা রাখুন)।", isError = false)
+            } else null
+        }
+        SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
+            if (parseBnToLong(divNumber) == null) {
+                TopicValidationState("বিভাজ্যতা যাচাইয়ের জন্য একটি পূর্ণসংখ্যা লিখুন।")
+            } else null
+        }
+        SolverTopic.HCF_LCM -> {
+            val nums = hcfLcmInput.split(",", " ", "،").mapNotNull { parseBnToLong(it.trim()) }
+            if (nums.size < 2) {
+                TopicValidationState("গ.সা.গু ও ল.সা.গু নির্ণয়ে কমা দিয়ে কমপক্ষে ২টি পূর্ণসংখ্যা লিখুন।")
+            } else null
+        }
+        SolverTopic.SQUARES_CUBES_ROOTS -> {
+            val n = parseBnToDouble(sqCubeNumber)
+            when {
+                n == null -> TopicValidationState("একটি বৈধ সংখ্যা লিখুন।")
+                sqCubeOp == 1 && n < 0.0 -> TopicValidationState("বাস্তব বর্গমূলের জন্য ঋণাত্মক নয় এমন সংখ্যা (≥ ০) দিন।")
+                else -> null
+            }
+        }
+        SolverTopic.LINEAR_EQUATIONS -> {
+            val eq = linearEqInput.trim()
+            when {
+                eq.isEmpty() -> TopicValidationState("একটি সরল সমীকরণ বা অসমতা লিখুন (যেমন: 3x + 12 = 45)।")
+                !eq.any { it in listOf('=', '<', '>', '≤', '≥') } ->
+                    TopicValidationState("সমীকরণ বা অসমতা চিহ্ন (=, <, >, ≤, ≥) যুক্ত করুন।")
+                else -> null
+            }
+        }
+        SolverTopic.QUADRATIC_EQUATIONS -> {
+            val a = parseBnToDouble(quadA)
+            val b = parseBnToDouble(quadB)
+            val c = parseBnToDouble(quadC)
+            when {
+                a == null || b == null || c == null ->
+                    TopicValidationState("সহগ a, b, c-এর ঘরে বৈধ সংখ্যা লিখুন।")
+                a == 0.0 ->
+                    TopicValidationState("দ্বিঘাত সমীকরণে x²-এর সহগ (a) শূন্য হতে পারে না।")
+                else -> null
+            }
+        }
+        SolverTopic.FACTORIZATION -> {
+            if (factorInput.isBlank()) {
+                TopicValidationState("উৎপাদকে বিশ্লেষণের জন্য একটি সংখ্যা বা বীজগণিতীয় রাশি লিখুন।")
+            } else null
+        }
+        SolverTopic.SIMPLIFICATION -> {
+            if (simplifyInput.isBlank()) {
+                TopicValidationState("সরলীকরণের জন্য করণী, ভগ্নাংশ বা বীজগণিতীয় রাশি লিখুন।")
+            } else null
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TopicInputCard(
+    topic: SolverTopic,
+    // Arithmetic
+    arithmeticExpr: String,
+    onArithmeticChange: (String) -> Unit,
+    // Fraction
+    fractionNum1: String,
+    fractionDen1: String,
+    fractionOp: String,
+    fractionNum2: String,
+    fractionDen2: String,
+    onFractionChange: (String, String, String, String, String) -> Unit,
+    // Percentage
+    percentageSubType: Int,
+    percentVal1: String,
+    percentVal2: String,
+    onPercentageChange: (Int, String, String) -> Unit,
+    // Ratio
+    ratioSubType: Int,
+    ratioTotal: String,
+    ratioR1: String,
+    ratioR2: String,
+    ratioR3: String,
+    onRatioChange: (Int, String, String, String, String) -> Unit,
+    // Profit & Loss
+    profitLossSubType: Int,
+    plCp: String,
+    plSp: String,
+    plPercent: String,
+    plMp: String,
+    onProfitLossChange: (Int, String, String, String, String) -> Unit,
+    // Average
+    averageInput: String,
+    onAverageChange: (String) -> Unit,
+    // Simple & Compound Interest
+    interestMode: InterestCalculationMode = InterestCalculationMode.SIMPLE,
+    compoundingFreq: Int = 1,
+    onInterestModeChange: (InterestCalculationMode, Int) -> Unit = { _, _ -> },
+    siP: String,
+    siR: String,
+    siT: String,
+    siI: String,
+    onInterestChange: (String, String, String, String) -> Unit,
+    // Time and Work
+    workSubType: Int,
+    workTimeA: String,
+    workTimeB: String,
+    workTimeC: String,
+    onWorkChange: (Int, String, String, String) -> Unit,
+    // Speed Distance Time
+    sdtSpeed: String,
+    sdtDistance: String,
+    sdtTime: String,
+    onSdtChange: (String, String, String) -> Unit,
+    // Divisibility
+    divNumber: String,
+    divDivisor: Int,
+    onDivChange: (String, Int) -> Unit,
+    // HCF & LCM
+    hcfLcmInput: String,
+    onHcfLcmChange: (String) -> Unit,
+    // Squares & Cubes
+    sqCubeNumber: String,
+    sqCubeOp: Int,
+    onSqCubeChange: (String, Int) -> Unit,
+    // Linear Equations
+    linearEqInput: String,
+    onLinearEqChange: (String) -> Unit,
+    // Quadratic Equations
+    quadA: String = "১",
+    quadB: String = "-৫",
+    quadC: String = "৬",
+    quadRelation: String = "=",
+    onQuadChange: (String, String, String) -> Unit = { _, _, _ -> },
+    onQuadRelationChange: (String) -> Unit = {},
+    // Factorization
+    factorInput: String = "x² - 5x + 6",
+    onFactorChange: (String) -> Unit = {},
+    // Simplification
+    simplifyInput: String = "√72",
+    onSimplifyChange: (String) -> Unit = {},
+    // Actions
+    onResetClick: () -> Unit = {},
+    onSolveClick: () -> Unit
+) {
+    val validationState = computeTopicInputValidation(
+        topic = topic,
+        arithmeticExpr = arithmeticExpr,
+        fractionNum1 = fractionNum1,
+        fractionDen1 = fractionDen1,
+        fractionNum2 = fractionNum2,
+        fractionDen2 = fractionDen2,
+        percentageSubType = percentageSubType,
+        percentVal1 = percentVal1,
+        percentVal2 = percentVal2,
+        ratioSubType = ratioSubType,
+        ratioTotal = ratioTotal,
+        ratioR1 = ratioR1,
+        ratioR2 = ratioR2,
+        profitLossSubType = profitLossSubType,
+        plCp = plCp,
+        plSp = plSp,
+        plPercent = plPercent,
+        plMp = plMp,
+        averageInput = averageInput,
+        interestMode = interestMode,
+        siP = siP,
+        siR = siR,
+        siT = siT,
+        siI = siI,
+        workTimeA = workTimeA,
+        workTimeB = workTimeB,
+        sdtSpeed = sdtSpeed,
+        sdtDistance = sdtDistance,
+        sdtTime = sdtTime,
+        divNumber = divNumber,
+        hcfLcmInput = hcfLcmInput,
+        sqCubeNumber = sqCubeNumber,
+        sqCubeOp = sqCubeOp,
+        linearEqInput = linearEqInput,
+        quadA = quadA,
+        quadB = quadB,
+        quadC = quadC,
+        factorInput = factorInput,
+        simplifyInput = simplifyInput
+    )
+
+    Card(
+        shape = RoundedCornerShape(SolverDesignTokens.cardRadiusStandard),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, topic.primaryColor.copy(alpha = 0.28f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("solver_input_card")
+    ) {
+        Column(modifier = Modifier.padding(SolverDesignTokens.cardPaddingStandard)) {
+            val fontScale = LocalDensity.current.fontScale
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val stackHeaderActions = maxWidth < 310.dp || (maxWidth < 340.dp && fontScale >= 1.3f)
+                if (stackHeaderActions) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(topic.primaryColor.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = topic.getIcon(),
+                                    contentDescription = null,
+                                    tint = topic.primaryColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = topic.titleBn,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = topic.descriptionBn,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            OutlinedButton(
+                                onClick = onResetClick,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("btn_reset_solver_input")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "ইনপুট মুছুন",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "মুছুন",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(topic.primaryColor.copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = topic.getIcon(),
+                                    contentDescription = null,
+                                    tint = topic.primaryColor,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = topic.titleBn,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = topic.descriptionBn,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        OutlinedButton(
+                            onClick = onResetClick,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                .testTag("btn_reset_solver_input")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Clear,
+                                contentDescription = "ইনপুট মুছুন",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "মুছুন",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            when (topic) {
+                SolverTopic.BASIC_ARITHMETIC -> {
+                    OutlinedTextField(
+                        value = arithmeticExpr,
+                        onValueChange = onArithmeticChange,
+                        label = { Text("গাণিতিক রাশি লিখুন (BODMAS)") },
+                        placeholder = { Text("যেমন: (২৫ + ১৫) × ২ - ৩০ ÷ ৩") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("arithmetic_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "নমুনা রাশি (১-ট্যাপে ব্যবহার করুন):",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(
+                            "(১৫ + ৫) × ৪ ÷ ২ - ৬",
+                            "৫০ - (১০ + ৫) × ২ + ১২",
+                            "(৪০ ÷ ৮) × ৭ + (১৫ - ৯)",
+                            "১০০ - ৪ × (১২ + ৩) + ৮"
+                        ).forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onArithmeticChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            ) {
+                                Text(sample, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                SolverTopic.FRACTIONS_DECIMALS -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = fractionNum1,
+                                onValueChange = { onFractionChange(it, fractionDen1, fractionOp, fractionNum2, fractionDen2) },
+                                label = { Text("১ম লব") },
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = fractionDen1,
+                                onValueChange = { onFractionChange(fractionNum1, it, fractionOp, fractionNum2, fractionDen2) },
+                                label = { Text("১ম হর") },
+                                singleLine = true
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "অপারেটর",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            listOf(listOf("+", "-"), listOf("*", "/")).forEach { opRow ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    opRow.forEach { op ->
+                                        val isSelected = fractionOp == op
+                                        val opSymbol = when (op) {
+                                            "*" -> "×"
+                                            "/" -> "÷"
+                                            else -> op
+                                        }
+                                        val opDesc = when (op) {
+                                            "+" -> "যোগ অপারেটর"
+                                            "-" -> "বিয়োগ অপারেটর"
+                                            "*" -> "গুণ অপারেটর"
+                                            else -> "ভাগ অপারেটর"
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isSelected) topic.primaryColor else MathSpacing.blendedContainerColor(MaterialTheme.colorScheme.surfaceVariant, 0.7f),
+                                            border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                            modifier = Modifier
+                                                .size(SolverDesignTokens.minTouchTarget)
+                                                .semantics { contentDescription = opDesc }
+                                                .testTag("fraction_op_$op")
+                                                .clickable {
+                                                    onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
+                                                }
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    text = opSymbol,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 18.sp,
+                                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            OutlinedTextField(
+                                value = fractionNum2,
+                                onValueChange = { onFractionChange(fractionNum1, fractionDen1, fractionOp, it, fractionDen2) },
+                                label = { Text("২য় লব") },
+                                singleLine = true
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = fractionDen2,
+                                onValueChange = { onFractionChange(fractionNum1, fractionDen1, fractionOp, fractionNum2, it) },
+                                label = { Text("২য় হর") },
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+                SolverTopic.PERCENTAGE -> {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("X-এর P% কত?", "X, Y-এর কত %?", "শতকরা বৃদ্ধি/হ্রাস", "ক্রমাগত % পরিবর্তন").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = percentageSubType == index,
+                                onClick = { onPercentageChange(index, percentVal1, percentVal2) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = percentVal1,
+                            onValueChange = { onPercentageChange(percentageSubType, it, percentVal2) },
+                            label = {
+                                Text(
+                                    when (percentageSubType) {
+                                        0 -> "শতকরা হার (%)"
+                                        1 -> "অংশ মান (X)"
+                                        2 -> "আদি মান"
+                                        else -> "১ম পরিবর্তন (%)"
+                                    }
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = percentVal2,
+                            onValueChange = { onPercentageChange(percentageSubType, percentVal1, it) },
+                            label = {
+                                Text(
+                                    when (percentageSubType) {
+                                        0 -> "মূল সংখ্যা"
+                                        1 -> "মোট সংখ্যা (Y)"
+                                        2 -> "পরিবর্তিত মান"
+                                        else -> "২য় পরিবর্তন (%)"
+                                    }
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                }
+                SolverTopic.RATIO_PROPORTION -> {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("পরিমাণ বণ্টন", "৪র্থ সমানুপাতী", "অনুপাত সরলীকরণ").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = ratioSubType == index,
+                                onClick = { onRatioChange(index, ratioTotal, ratioR1, ratioR2, ratioR3) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (ratioSubType == 0) {
+                        OutlinedTextField(
+                            value = ratioTotal,
+                            onValueChange = { onRatioChange(ratioSubType, it, ratioR1, ratioR2, ratioR3) },
+                            label = { Text("বণ্টনযোগ্য মোট পরিমাণ") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = ratioR1,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
+                                label = { Text("১ম অনুপাত") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = ratioR2,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
+                                label = { Text("২য় অনুপাত") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = ratioR3,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, ratioR2, it) },
+                                label = { Text("৩য় (ঐচ্ছিক)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    } else if (ratioSubType == 1) {
+                        Text(
+                            text = "A : B = C : ? (চতুর্থ রাশি নির্ণয়)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = ratioR1,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
+                                label = { Text("A") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = ratioR2,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
+                                label = { Text("B") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = ratioTotal,
+                                onValueChange = { onRatioChange(ratioSubType, it, ratioR1, ratioR2, ratioR3) },
+                                label = { Text("C") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedTextField(
+                                value = ratioR1,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, it, ratioR2, ratioR3) },
+                                label = { Text("১ম পদ") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = ratioR2,
+                                onValueChange = { onRatioChange(ratioSubType, ratioTotal, ratioR1, it, ratioR3) },
+                                label = { Text("২য় পদ") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+                SolverTopic.PROFIT_LOSS -> {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("লাভ/ক্ষতি %", "বিক্রয়মূল্য নির্ণয়", "ক্রয়মূল্য নির্ণয়", "ধার্যমূল্য ও ছাড়").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = profitLossSubType == index,
+                                onClick = { onProfitLossChange(index, plCp, plSp, plPercent, plMp) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    when (profitLossSubType) {
+                        0 -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = plCp,
+                                onValueChange = { onProfitLossChange(profitLossSubType, it, plSp, plPercent, plMp) },
+                                label = { Text("ক্রয়মূল্য (টাকা)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = plSp,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, it, plPercent, plMp) },
+                                label = { Text("বিক্রয়মূল্য (টাকা)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                        1 -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = plCp,
+                                onValueChange = { onProfitLossChange(profitLossSubType, it, plSp, plPercent, plMp) },
+                                label = { Text("ক্রয়মূল্য") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = plPercent,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
+                                label = { Text("লাভ/ক্ষতি % (- হলে ক্ষতি)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                        2 -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = plSp,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, it, plPercent, plMp) },
+                                label = { Text("বিক্রয়মূল্য") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = plPercent,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
+                                label = { Text("লাভ/ক্ষতি % (- হলে ক্ষতি)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                        else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = plMp,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, plPercent, it) },
+                                label = { Text("ধার্যমূল্য (টাকা)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = plPercent,
+                                onValueChange = { onProfitLossChange(profitLossSubType, plCp, plSp, it, plMp) },
+                                label = { Text("ছাড়ের হার (%)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+                SolverTopic.AVERAGE -> {
+                    OutlinedTextField(
+                        value = averageInput,
+                        onValueChange = onAverageChange,
+                        label = { Text("সংখ্যার তালিকা (কমা দিয়ে লিখুন)") },
+                        placeholder = { Text("যেমন: ১২, ১৮, ২৪, ৩০, ৩৬") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("average_input_field"),
+                        singleLine = true
+                    )
+                }
+                SolverTopic.SIMPLE_INTEREST -> {
+                    CompactSegmentedSwitch(
+                        options = InterestCalculationMode.entries,
+                        selectedOption = interestMode,
+                        onOptionSelected = { onInterestModeChange(it, compoundingFreq) },
+                        labelProvider = { m -> if (m == InterestCalculationMode.SIMPLE) "সরল মুনাফা" else "চক্রবৃদ্ধি মুনাফা" },
+                        subtitleProvider = { m -> if (m == InterestCalculationMode.SIMPLE) "I = Prn" else "A = P(1+r/m)^mt" },
+                        testTagProvider = { m -> "interest_mode_${m.id}" },
+                        accentColor = topic.primaryColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (interestMode == InterestCalculationMode.COMPOUND) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            listOf(1 to "বার্ষিক (m=১)", 2 to "অর্ধবার্ষিক (m=২)", 4 to "ত্রৈমাসিক (m=৪)").forEach { (freq, lbl) ->
+                                FilterChip(
+                                    selected = compoundingFreq == freq,
+                                    onClick = { onInterestModeChange(interestMode, freq) },
+                                    label = { Text(lbl, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    } else {
+                        Text(
+                            text = "P, r, t, I এর মধ্যে যেকোনো ৩টি রাশির মান দিন (বাকিটি স্বয়ংক্রিয় বের হবে):",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = siP,
+                            onValueChange = { onInterestChange(it, siR, siT, siI) },
+                            label = { Text("আসল (P)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = siR,
+                            onValueChange = { onInterestChange(siP, it, siT, siI) },
+                            label = { Text("হার % (r)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = siT,
+                            onValueChange = { onInterestChange(siP, siR, it, siI) },
+                            label = { Text("সময় বছর (t)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        if (interestMode == InterestCalculationMode.SIMPLE) {
+                            OutlinedTextField(
+                                value = siI,
+                                onValueChange = { onInterestChange(siP, siR, siT, it) },
+                                label = { Text("মুনাফা (I)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+                SolverTopic.TIME_AND_WORK -> {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("A ও B এর কাজ", "A, B ও C এর কাজ", "চৌবাচ্চা ও পাইপ").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = workSubType == index,
+                                onClick = { onWorkChange(index, workTimeA, workTimeB, workTimeC) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = workTimeA,
+                            onValueChange = { onWorkChange(workSubType, it, workTimeB, workTimeC) },
+                            label = { Text(if (workSubType == 2) "পূর্ণকারী নল (ঘন্টা)" else "A এর সময় (দিন)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = workTimeB,
+                            onValueChange = { onWorkChange(workSubType, workTimeA, it, workTimeC) },
+                            label = { Text(if (workSubType == 2) "খালি করার নল (ঘন্টা)" else "B এর সময় (দিন)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        if (workSubType == 1) {
+                            OutlinedTextField(
+                                value = workTimeC,
+                                onValueChange = { onWorkChange(workSubType, workTimeA, workTimeB, it) },
+                                label = { Text("C এর সময় (দিন)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+                SolverTopic.SPEED_DISTANCE_TIME -> {
+                    Text(
+                        text = "গতিবেগ (S), দূরত্ব (D) ও সময় (T) এর যেকোনো ২টি রাশির মান দিন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedTextField(
+                            value = sdtSpeed,
+                            onValueChange = { onSdtChange(it, sdtDistance, sdtTime) },
+                            label = { Text("গতিবেগ (km/h)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = sdtDistance,
+                            onValueChange = { onSdtChange(sdtSpeed, it, sdtTime) },
+                            label = { Text("দূরত্ব (km)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = sdtTime,
+                            onValueChange = { onSdtChange(sdtSpeed, sdtDistance, it) },
+                            label = { Text("সময় (ঘন্টা)") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                }
+                SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
+                    OutlinedTextField(
+                        value = divNumber,
+                        onValueChange = { onDivChange(it, divDivisor) },
+                        label = { Text("পরীক্ষার সংখ্যা") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "ভাজক নির্বাচন করুন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12).forEach { d ->
+                            FilterChip(
+                                selected = divDivisor == d,
+                                onClick = { onDivChange(divNumber, d) },
+                                label = {
+                                    Text(
+                                        text = BengaliNumberFormatter.toBn(d),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                }
+                SolverTopic.HCF_LCM -> {
+                    OutlinedTextField(
+                        value = hcfLcmInput,
+                        onValueChange = onHcfLcmChange,
+                        label = { Text("সংখ্যাদ্বয় বা ত্রয়ী (কমা দিয়ে লিখুন)") },
+                        placeholder = { Text("যেমন: ২৪, ৩৬ বা ১৮, ৩০, ৪২") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("hcf_lcm_input_field"),
+                        singleLine = true
+                    )
+                }
+                SolverTopic.SQUARES_CUBES_ROOTS -> {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("বর্গ (N²)", "বর্গমূল (√N)", "ঘন (N³)", "ঘনমূল (³√N)").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = sqCubeOp == index,
+                                onClick = { onSqCubeChange(sqCubeNumber, index) },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = sqCubeNumber,
+                        onValueChange = { onSqCubeChange(it, sqCubeOp) },
+                        label = { Text("সংখ্যা লিখুন") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+                SolverTopic.LINEAR_EQUATIONS -> {
+                    OutlinedTextField(
+                        value = linearEqInput,
+                        onValueChange = onLinearEqChange,
+                        label = { Text("সরল সমীকরণ বা অসমতা (যেমন: 3x+12=45, |2x-4|≤6)") },
+                        placeholder = { Text("যেমন: 3x + 12 = 45 বা |2x - 4| ≤ 6") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("linear_eq_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "নমুনা সমীকরণ ও অসমতা:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("3x + 12 = 45", "5x - 8 = 2x + 16", "2x - 3 < 7", "|2x - 4| ≤ 6").forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onLinearEqChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            ) {
+                                Text(sample, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                SolverTopic.QUADRATIC_EQUATIONS -> {
+                    Text(
+                        text = "দ্বিঘাত সমীকরণ বা অসমতা ax² + bx + c $quadRelation 0 এর সহগ দিন:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("=", "<", "≤", ">", "≥").forEach { rel ->
+                            FilterChip(
+                                selected = quadRelation == rel,
+                                onClick = { onQuadRelationChange(rel) },
+                                label = { Text("ax²+bx+c $rel 0", style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = quadA,
+                            onValueChange = { onQuadChange(it, quadB, quadC) },
+                            label = { Text("a (x² সহগ)") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("quad_input_a"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = quadB,
+                            onValueChange = { onQuadChange(quadA, it, quadC) },
+                            label = { Text("b (x সহগ)") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("quad_input_b"),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = quadC,
+                            onValueChange = { onQuadChange(quadA, quadB, it) },
+                            label = { Text("c (ধ্রুবক)") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("quad_input_c"),
+                            singleLine = true
+                        )
+                    }
+                }
+                SolverTopic.FACTORIZATION -> {
+                    OutlinedTextField(
+                        value = factorInput,
+                        onValueChange = onFactorChange,
+                        label = { Text("রাশি বা সংখ্যা (যেমন: x² - 5x + 6 বা 360)") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("factorization_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("x² - 5x + 6", "x² - 9", "2x² + 7x + 3", "360").forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onFactorChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            ) {
+                                Text(sample, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                SolverTopic.SIMPLIFICATION -> {
+                    OutlinedTextField(
+                        value = simplifyInput,
+                        onValueChange = onSimplifyChange,
+                        label = { Text("রাশি, করণী বা ভগ্নাংশ (যেমন: √72, 24/36, 3x + 2y + 5x)") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("simplification_input_field"),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf("√72", "45/60", "3x + 5y + 4x - 2y", "(24 + 12) ÷ 6").forEach { sample ->
+                            OutlinedButton(
+                                onClick = { onSimplifyChange(sample) },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                            ) {
+                                Text(sample, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (validationState != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                SolverInputValidationBanner(
+                    messageBn = validationState.messageBn,
+                    isError = validationState.isError
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Button(
+                onClick = onSolveClick,
+                colors = ButtonDefaults.buttonColors(containerColor = topic.primaryColor),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .testTag("solve_problem_btn")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "সমাধান করুন",
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "সমাধান করুন",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
