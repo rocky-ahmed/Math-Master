@@ -81,13 +81,39 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+enum class SolverPersistenceOutcome(
+    val userMessageBn: String?,
+    val isFailure: Boolean
+) {
+    SUCCESS(userMessageBn = null, isFailure = false),
+    HISTORY_SAVE_FAILED(
+        userMessageBn = "সমাধান হয়েছে, কিন্তু ইতিহাস সংরক্ষণ করা যায়নি।",
+        isFailure = true
+    ),
+    HISTORY_SAVED_ANALYTICS_UPDATE_FAILED(
+        userMessageBn = "সমাধান ও ইতিহাস সংরক্ষিত হয়েছে, কিন্তু দৈনিক অগ্রগতি আপডেট করা যায়নি।",
+        isFailure = true
+    ),
+    SKIPPED_INVALID_RESULT(userMessageBn = null, isFailure = false)
+}
+
+data class SolverPersistenceEvent(
+    val sessionId: Long,
+    val outcome: SolverPersistenceOutcome
+)
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")
@@ -732,6 +758,15 @@ class MathViewModel @JvmOverloads constructor(
     private val _tutorCompleted = MutableStateFlow(false)
     val tutorCompleted: StateFlow<Boolean> = _tutorCompleted.asStateFlow()
 
+    private fun updateScreenStack(nextStack: List<Screen>) {
+        val previousTop = _screenStack.value.lastOrNull()
+        val nextTop = nextStack.lastOrNull()
+        if (previousTop != nextTop && (previousTop == Screen.ProblemSolver || nextTop == Screen.ProblemSolver)) {
+            advanceSolverScreenSession()
+        }
+        _screenStack.value = nextStack
+    }
+
     fun navigateTo(screen: Screen) {
         val current = _screenStack.value
         if (_navigationContextStack.size != current.size) {
@@ -739,7 +774,7 @@ class MathViewModel @JvmOverloads constructor(
             current.forEach { s -> _navigationContextStack.add(captureCurrentNavigationSnapshot(s)) }
         }
         if (current.lastOrNull() != screen) {
-            _screenStack.value = current + screen
+            updateScreenStack(current + screen)
             _navigationContextStack.add(captureCurrentNavigationSnapshot(screen))
         } else {
             syncTopNavigationSnapshot()
@@ -754,10 +789,10 @@ class MathViewModel @JvmOverloads constructor(
                 _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
                 _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
             }
-            _screenStack.value = nextStack
+            updateScreenStack(nextStack)
             return true
         } else if (current.firstOrNull() != Screen.Home) {
-            _screenStack.value = listOf(Screen.Home)
+            updateScreenStack(listOf(Screen.Home))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             return true
@@ -766,18 +801,18 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun navigateToHome() {
-        _screenStack.value = listOf(Screen.Home)
+        updateScreenStack(listOf(Screen.Home))
         _navigationContextStack.clear()
         _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
     }
 
     fun navigateToTab(screen: Screen) {
         if (screen == Screen.Home) {
-            _screenStack.value = listOf(Screen.Home)
+            updateScreenStack(listOf(Screen.Home))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
         } else {
-            _screenStack.value = listOf(Screen.Home, screen)
+            updateScreenStack(listOf(Screen.Home, screen))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             _navigationContextStack.add(captureCurrentNavigationSnapshot(screen))
@@ -1798,13 +1833,13 @@ class MathViewModel @JvmOverloads constructor(
         val current = _screenStack.value
         val quizzesIndex = current.indexOfLast { it == Screen.Quizzes }
         if (quizzesIndex != -1) {
-            _screenStack.value = current.take(quizzesIndex + 1)
+            updateScreenStack(current.take(quizzesIndex + 1))
             while (_navigationContextStack.size > quizzesIndex + 1) {
                 _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
             }
             _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
-            _screenStack.value = listOf(Screen.Home, Screen.Quizzes)
+            updateScreenStack(listOf(Screen.Home, Screen.Quizzes))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Quizzes))
@@ -2194,13 +2229,13 @@ class MathViewModel @JvmOverloads constructor(
         val current = _screenStack.value
         val practiceIndex = current.indexOfLast { it == Screen.PracticeLab }
         if (practiceIndex != -1) {
-            _screenStack.value = current.take(practiceIndex + 1)
+            updateScreenStack(current.take(practiceIndex + 1))
             while (_navigationContextStack.size > practiceIndex + 1) {
                 _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
             }
             _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
-            _screenStack.value = listOf(Screen.Home, Screen.PracticeLab)
+            updateScreenStack(listOf(Screen.Home, Screen.PracticeLab))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.PracticeLab))
@@ -2525,13 +2560,13 @@ class MathViewModel @JvmOverloads constructor(
         val current = _screenStack.value
         val setupIndex = current.indexOfLast { it == Screen.MentalMath }
         if (setupIndex != -1) {
-            _screenStack.value = current.take(setupIndex + 1)
+            updateScreenStack(current.take(setupIndex + 1))
             while (_navigationContextStack.size > setupIndex + 1) {
                 _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
             }
             _navigationContextStack.lastOrNull()?.let { restoreNavigationSnapshot(it) }
         } else {
-            _screenStack.value = listOf(Screen.Home, Screen.MentalMath)
+            updateScreenStack(listOf(Screen.Home, Screen.MentalMath))
             _navigationContextStack.clear()
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.MentalMath))
@@ -3072,15 +3107,60 @@ class MathViewModel @JvmOverloads constructor(
     private val _isSolverPersistenceInFlight = MutableStateFlow(false)
     val isSolverPersistenceInFlight: StateFlow<Boolean> = _isSolverPersistenceInFlight.asStateFlow()
 
+    private val _lastSolverPersistenceOutcome = MutableStateFlow<SolverPersistenceOutcome?>(null)
+    val lastSolverPersistenceOutcome: StateFlow<SolverPersistenceOutcome?> = _lastSolverPersistenceOutcome.asStateFlow()
+
+    private val solverSessionLock = Any()
+    private val solverScreenSessionCounter = AtomicLong(1L)
+    private val _solverScreenSessionId = MutableStateFlow(1L)
+    val solverScreenSessionId: StateFlow<Long> = _solverScreenSessionId.asStateFlow()
+
+    private val _solverPersistenceEvents = Channel<SolverPersistenceEvent>(capacity = Channel.BUFFERED)
+    val solverPersistenceEvents: Flow<SolverPersistenceEvent> = _solverPersistenceEvents.receiveAsFlow()
+
     @androidx.annotation.VisibleForTesting
     internal var solverHistoryPersistDelegateForTesting: (suspend (SolverHistoryEntity) -> Unit)? = null
+
+    @androidx.annotation.VisibleForTesting
+    internal var solverAnalyticsPersistDelegateForTesting: (suspend () -> Unit)? = null
+
+    @androidx.annotation.VisibleForTesting
+    internal var solverLocalCacheUpdateDelegateForTesting: (() -> Unit)? = null
+
+    fun advanceSolverScreenSession() {
+        synchronized(solverSessionLock) {
+            val nextId = solverScreenSessionCounter.incrementAndGet()
+            _solverScreenSessionId.value = nextId
+            while (_solverPersistenceEvents.tryReceive().isSuccess) {
+                // Drain any unconsumed notifications owned by exited or superseded sessions.
+            }
+        }
+    }
+
+    private fun recordAndEmitSolverOutcome(
+        submissionSessionId: Long,
+        outcome: SolverPersistenceOutcome
+    ) {
+        _lastSolverPersistenceOutcome.value = outcome
+        if (!outcome.isFailure) return
+        synchronized(solverSessionLock) {
+            if (_solverScreenSessionId.value == submissionSessionId) {
+                _solverPersistenceEvents.trySend(
+                    SolverPersistenceEvent(
+                        sessionId = submissionSessionId,
+                        outcome = outcome
+                    )
+                )
+            }
+        }
+    }
 
     suspend fun persistSolverResultToHistory(
         topic: SolverTopic,
         inputs: Map<String, String>,
         result: SolverResult
-    ): Boolean {
-        if (!result.isSuccess) return false
+    ): SolverPersistenceOutcome {
+        if (!result.isSuccess) return SolverPersistenceOutcome.SKIPPED_INVALID_RESULT
         val summary = inputs.entries.joinToString(", ") { "${it.key} = ${it.value}" }.ifBlank { result.originalProblemBn }
         val entity = SolverHistoryEntity(
             topicId = topic.name,
@@ -3094,22 +3174,58 @@ class MathViewModel @JvmOverloads constructor(
             verificationBn = result.verificationBn ?: "",
             timestamp = System.currentTimeMillis()
         )
-        val delegate = solverHistoryPersistDelegateForTesting
-        if (delegate != null) {
-            delegate.invoke(entity)
-        } else {
-            repository.saveSolvedProblemHistory(entity)
-            repository.recordDailyStudyDelta(
-                questionsAttemptedDelta = 1,
-                correctDelta = 1,
-                wrongDelta = 0,
-                studyTimeSecondsDelta = 30,
-                examsCompletedDelta = 0,
-                practiceSessionsCompletedDelta = 1
-            )
-            recordDailyActivity(1)
+
+        // Stage 1 (Awaited Room): Persist Solver History row.
+        try {
+            val historyDelegate = solverHistoryPersistDelegateForTesting
+            if (historyDelegate != null) {
+                historyDelegate.invoke(entity)
+            } else {
+                repository.saveSolvedProblemHistory(entity)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return SolverPersistenceOutcome.HISTORY_SAVE_FAILED
         }
-        return true
+
+        // Stage 2 (Awaited Room): Update daily study analytics delta.
+        try {
+            val analyticsDelegate = solverAnalyticsPersistDelegateForTesting
+            if (analyticsDelegate != null) {
+                analyticsDelegate.invoke()
+            } else {
+                repository.recordDailyStudyDelta(
+                    questionsAttemptedDelta = 1,
+                    correctDelta = 1,
+                    wrongDelta = 0,
+                    studyTimeSecondsDelta = 30,
+                    examsCompletedDelta = 0,
+                    practiceSessionsCompletedDelta = 1
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return SolverPersistenceOutcome.HISTORY_SAVED_ANALYTICS_UPDATE_FAILED
+        }
+
+        // Stage 3 (Non-awaited local cache): Update SharedPreferences/streak cache independently.
+        // Failure here must never reclassify committed Room History + Analytics as a DB failure.
+        try {
+            val localCacheDelegate = solverLocalCacheUpdateDelegateForTesting
+            if (localCacheDelegate != null) {
+                localCacheDelegate.invoke()
+            } else {
+                recordDailyActivity(1)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Isolated local cache failure does not invalidate Room persistence SUCCESS.
+        }
+
+        return SolverPersistenceOutcome.SUCCESS
     }
 
     fun submitSolverCalculationAndPersist(
@@ -3119,6 +3235,7 @@ class MathViewModel @JvmOverloads constructor(
     ) {
         if (!solverSaveInFlight.compareAndSet(false, true)) return
         _isSolverPersistenceInFlight.value = true
+        val submissionSessionId = _solverScreenSessionId.value
         val res = try {
             solveAction()
         } catch (t: Throwable) {
@@ -3127,6 +3244,7 @@ class MathViewModel @JvmOverloads constructor(
             throw t
         }
         if (res == null || !res.isSuccess) {
+            _lastSolverPersistenceOutcome.value = SolverPersistenceOutcome.SKIPPED_INVALID_RESULT
             _isSolverPersistenceInFlight.value = false
             solverSaveInFlight.set(false)
             return
@@ -3140,11 +3258,10 @@ class MathViewModel @JvmOverloads constructor(
         }
         viewModelScope.launch {
             try {
-                persistSolverResultToHistory(topic, inputs, res)
-            } catch (e: kotlinx.coroutines.CancellationException) {
+                val outcome = persistSolverResultToHistory(topic, inputs, res)
+                recordAndEmitSolverOutcome(submissionSessionId, outcome)
+            } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                // Keep UI responsive; guard releases in finally so future solves are not permanently blocked.
             } finally {
                 _isSolverPersistenceInFlight.value = false
                 solverSaveInFlight.set(false)
@@ -3157,16 +3274,19 @@ class MathViewModel @JvmOverloads constructor(
         inputs: Map<String, String>,
         result: SolverResult
     ) {
-        if (!result.isSuccess) return
+        if (!result.isSuccess) {
+            _lastSolverPersistenceOutcome.value = SolverPersistenceOutcome.SKIPPED_INVALID_RESULT
+            return
+        }
         if (!solverSaveInFlight.compareAndSet(false, true)) return
         _isSolverPersistenceInFlight.value = true
+        val submissionSessionId = _solverScreenSessionId.value
         viewModelScope.launch {
             try {
-                persistSolverResultToHistory(topic, inputs, result)
-            } catch (e: kotlinx.coroutines.CancellationException) {
+                val outcome = persistSolverResultToHistory(topic, inputs, result)
+                recordAndEmitSolverOutcome(submissionSessionId, outcome)
+            } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
-                // Guard releases in finally.
             } finally {
                 _isSolverPersistenceInFlight.value = false
                 solverSaveInFlight.set(false)
@@ -3582,7 +3702,7 @@ class MathViewModel @JvmOverloads constructor(
         val current = _screenStack.value
         val existingIdx = current.indexOf(Screen.BookHub)
         if (existingIdx != -1) {
-            _screenStack.value = current.take(existingIdx + 1)
+            updateScreenStack(current.take(existingIdx + 1))
             while (_navigationContextStack.size > existingIdx + 1) {
                 _navigationContextStack.removeAt(_navigationContextStack.lastIndex)
             }

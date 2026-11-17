@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,6 +66,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,7 +94,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.data.model.BookmarkEntity
 import com.example.math.BengaliNumberFormatter
 import com.example.math.InterestCalculationMode
@@ -536,8 +545,51 @@ fun ProblemSolverScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        MathTopAppBar(
+    val snackbarHostState = remember { SnackbarHostState() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(viewModel, lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var activeSnackbarJob: kotlinx.coroutines.Job? = null
+            viewModel.solverPersistenceEvents.collect { event ->
+                if (event.sessionId == viewModel.solverScreenSessionId.value) {
+                    val message = event.outcome.userMessageBn
+                    if (event.outcome.isFailure && !message.isNullOrBlank()) {
+                        activeSnackbarJob?.cancel()
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        activeSnackbarJob = launch {
+                            snackbarHostState.showSnackbar(
+                                message = message,
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.testTag("solver_persistence_snackbar_host")
+            ) { snackbarData ->
+                Snackbar(
+                    snackbarData = snackbarData,
+                    modifier = Modifier.testTag("solver_persistence_snackbar")
+                )
+            }
+        }
+    ) { scaffoldPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(scaffoldPadding)
+        ) {
+            MathTopAppBar(
             title = "গণিত সমাধানকারী",
             subtitle = "ধাপভিত্তিক বাংলা সমাধান • ১৬টি বিষয়",
             onBackClick = { viewModel.navigateBack() }
@@ -1119,6 +1171,7 @@ fun ProblemSolverScreen(
                     }
                 }
             }
+        }
         }
     }
 }
