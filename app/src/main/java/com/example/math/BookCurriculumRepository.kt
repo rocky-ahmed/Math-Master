@@ -157,21 +157,37 @@ object BookCurriculumRepository {
         bookFilter: BookId? = null
     ): List<BookSearchResult> {
         val trimmed = query.trim()
-        val normalizedQuery = BengaliNumberFormatter.toEnglishDigits(trimmed).lowercase()
+        val lowerQuery = trimmed.lowercase()
+        val normalizedQuery = BengaliNumberFormatter.toEnglishDigits(lowerQuery)
         val booksToSearch = if (bookFilter != null) listOf(bookFilter) else allBooks
-        val results = mutableListOf<BookSearchResult>()
+        val results = ArrayList<BookSearchResult>(80)
+
+        fun matchesSingle(text: String): Boolean {
+            if (trimmed.isEmpty()) return true
+            val lower = text.lowercase()
+            if (lower.contains(lowerQuery)) return true
+            return BengaliNumberFormatter.toEnglishDigits(lower).contains(normalizedQuery)
+        }
 
         fun matches(vararg texts: String): Boolean {
             if (trimmed.isEmpty()) return true
-            return texts.any { text ->
-                val lower = text.lowercase()
-                val normalizedText = BengaliNumberFormatter.toEnglishDigits(lower)
-                lower.contains(trimmed.lowercase()) || normalizedText.contains(normalizedQuery)
+            for (text in texts) {
+                if (matchesSingle(text)) return true
             }
+            return false
         }
 
-        for (book in booksToSearch) {
+        fun matchesList(items: List<String>): Boolean {
+            if (trimmed.isEmpty()) return true
+            for (item in items) {
+                if (matchesSingle(item)) return true
+            }
+            return false
+        }
+
+        outerBooks@ for (book in booksToSearch) {
             for (chapter in getChapters(book)) {
+                if (results.size >= 80) break@outerBooks
                 val chNumStr = chapter.chapterNumber.toString()
                 val chNumBn = BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)
 
@@ -190,13 +206,16 @@ object BookCurriculumRepository {
                                 printedPage = chapter.printedPageStart
                             )
                         )
+                        if (results.size >= 80) break@outerBooks
                     }
                 }
 
                 // 2. Lesson search
                 if (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.LESSON) {
                     for (lesson in chapter.lessons) {
-                        if (matches(lesson.titleBn, lesson.code, lesson.sectionCodeBn, lesson.conceptExplanationBn, lesson.keyPointsBn.joinToString(" "))) {
+                        if (matches(lesson.titleBn, lesson.code, lesson.sectionCodeBn, lesson.conceptExplanationBn) ||
+                            matchesList(lesson.keyPointsBn)
+                        ) {
                             results.add(
                                 BookSearchResult(
                                     id = "les_${lesson.id}",
@@ -210,6 +229,7 @@ object BookCurriculumRepository {
                                     printedPage = lesson.printedPageStart
                                 )
                             )
+                            if (results.size >= 80) break@outerBooks
                         }
                     }
                 }
@@ -230,6 +250,7 @@ object BookCurriculumRepository {
                                     printedPage = chapter.printedPageStart
                                 )
                             )
+                            if (results.size >= 80) break@outerBooks
                         }
                     }
                 }
@@ -237,7 +258,9 @@ object BookCurriculumRepository {
                 // 4. Worked example search
                 if (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.EXAMPLE) {
                     for (ex in chapter.workedExamples) {
-                        if (matches(ex.titleBn, ex.problemStatementBn, ex.finalAnswerBn, ex.stepsBn.joinToString(" "))) {
+                        if (matches(ex.titleBn, ex.problemStatementBn, ex.finalAnswerBn) ||
+                            matchesList(ex.stepsBn)
+                        ) {
                             results.add(
                                 BookSearchResult(
                                     id = "ex_${ex.id}",
@@ -250,6 +273,7 @@ object BookCurriculumRepository {
                                     printedPage = ex.printedPage
                                 )
                             )
+                            if (results.size >= 80) break@outerBooks
                         }
                     }
                 }
@@ -257,7 +281,9 @@ object BookCurriculumRepository {
                 // 5. Theorem / Construction search
                 if (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.THEOREM) {
                     for (th in chapter.theoremsOrConstructions) {
-                        if (matches(th.titleBn, th.typeLabelBn, th.statementBn, th.stepsBn.joinToString(" "))) {
+                        if (matches(th.titleBn, th.typeLabelBn, th.statementBn) ||
+                            matchesList(th.stepsBn)
+                        ) {
                             results.add(
                                 BookSearchResult(
                                     id = "th_${th.id}",
@@ -270,6 +296,7 @@ object BookCurriculumRepository {
                                     printedPage = th.printedPage
                                 )
                             )
+                            if (results.size >= 80) break@outerBooks
                         }
                     }
                 }
@@ -277,8 +304,8 @@ object BookCurriculumRepository {
         }
 
         // 6. Question search if requested
-        if (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.QUESTION) {
-            for (book in booksToSearch) {
+        if (results.size < 80 && (filterType == BookSearchFilterType.ALL || filterType == BookSearchFilterType.QUESTION)) {
+            outerQuestions@ for (book in booksToSearch) {
                 for (chapter in getChapters(book)) {
                     val questions = BookQuestionEngine.getQuestionsForChapter(book, chapter.chapterNumber)
                     for (q in questions) {
@@ -296,12 +323,13 @@ object BookCurriculumRepository {
                                     printedPage = q.sourcePrintedPage ?: chapter.printedPageStart
                                 )
                             )
+                            if (results.size >= 80) break@outerQuestions
                         }
                     }
                 }
             }
         }
 
-        return results.take(80)
+        return results
     }
 }

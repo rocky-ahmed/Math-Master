@@ -341,7 +341,16 @@ data class SimplificationResult(
  */
 object SharedMathEngine {
 
-    private val df = DecimalFormat("#.####", DecimalFormatSymbols(Locale.US))
+    private val dfLocal = ThreadLocal.withInitial {
+        DecimalFormat("#.####", DecimalFormatSymbols(Locale.US))
+    }
+    private val WHITESPACE_REGEX = Regex("""\s+""")
+    private val MIXED_FRACTION_REGEX = Regex("""^([+-]?\d+)\s+(?:সমস্ত\s+|পূর্ণ\s+)?(\d+)\s*/\s*(\d+)$""")
+    private val EN_UNIT_REGEX = Regex(
+        """^([+-]?\d+(?:\.\d+)?(?:\s+\d+\s*/\s*\d+|\s*/\s*\d+)?)\s*(sq\.?\s*cm|sq\.?\s*m|cu\.?\s*cm|cu\.?\s*m|cm\^2|cm\^3|m\^2|m\^3|km|cm|mm|kg|gm|sec|min|hrs|hr|deg|degrees|degree|meters|meter|liters|liter|units|unit|taka|tk|m|g|s)$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val SIMPLE_FRACTION_REGEX = Regex("""^[+-]?\d+\s*/\s*[+-]?\d+$""")
 
     fun formatDouble(d: Double): String {
         if (d.isNaN() || d.isInfinite()) return "অসংজ্ঞায়িত"
@@ -349,7 +358,8 @@ object SharedMathEngine {
         return if (clean == floor(clean) && abs(clean) < 1e15) {
             clean.toLong().toString()
         } else {
-            df.format(clean)
+            val formatter = dfLocal.get() ?: DecimalFormat("#.####", DecimalFormatSymbols(Locale.US))
+            formatter.format(clean)
         }
     }
 
@@ -368,12 +378,12 @@ object SharedMathEngine {
             for (ch in raw.trim()) {
                 append(bnToEn[ch] ?: ch)
             }
-        }.replace(Regex("""\s+"""), " ").trim()
+        }.replace(WHITESPACE_REGEX, " ").trim()
 
         val unitStripped = stripCommonUnitSuffixes(asciiSpacePreserved)
 
         // Convert mixed fractions ("1 1/2", "1 সমস্ত 1/2", "1 পূর্ণ 1/2", "-2 3/4") to improper fractions
-        val mixedMatch = Regex("""^([+-]?\d+)\s+(?:সমস্ত\s+|পূর্ণ\s+)?(\d+)\s*/\s*(\d+)$""").find(unitStripped)
+        val mixedMatch = MIXED_FRACTION_REGEX.find(unitStripped)
         if (mixedMatch != null) {
             val whole = mixedMatch.groupValues[1].toLongOrNull()
             val num = mixedMatch.groupValues[2].toLongOrNull()
@@ -456,10 +466,7 @@ object SharedMathEngine {
                 }
             }
         }
-        val enUnitMatch = Regex(
-            """^([+-]?\d+(?:\.\d+)?(?:\s+\d+\s*/\s*\d+|\s*/\s*\d+)?)\s*(sq\.?\s*cm|sq\.?\s*m|cu\.?\s*cm|cu\.?\s*m|cm\^2|cm\^3|m\^2|m\^3|km|cm|mm|kg|gm|sec|min|hrs|hr|deg|degrees|degree|meters|meter|liters|liter|units|unit|taka|tk|m|g|s)$""",
-            RegexOption.IGNORE_CASE
-        ).find(result)
+        val enUnitMatch = EN_UNIT_REGEX.find(result)
         if (enUnitMatch != null) {
             val numberPart = enUnitMatch.groupValues[1].trim()
             val unitPart = enUnitMatch.groupValues[2].trim()
@@ -822,6 +829,9 @@ object SharedMathEngine {
                     errorMessageBn = "সংখ্যাটি সমর্থিত সীমার বাইরে। ১০¹² এর নিচের সংখ্যা দিন।"
                 )
             }
+            if (Thread.currentThread().isInterrupted) {
+                throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+            }
             val factors = NumberSystemProvider.getPrimeFactors(asLong)
             val expForm = formatPrimePowerBn(asLong)
             val expandedForm = factors.joinToString(" × ") { BengaliNumberFormatter.toBn(it) }
@@ -1147,7 +1157,11 @@ object SharedMathEngine {
             var largestSquareRoot = 1L
             var d = 2L
             var temp = radicand
+            var radicalIter = 0
             while (d * d <= temp) {
+                if ((radicalIter++ and 0x3FF) == 0 && Thread.currentThread().isInterrupted) {
+                    throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+                }
                 while (temp % (d * d) == 0L) {
                     largestSquareRoot *= d
                     temp /= (d * d)
@@ -1189,7 +1203,7 @@ object SharedMathEngine {
         }
 
         // Case 2: Exact Fraction a/b (arbitrary precision via BigInteger)
-        if (clean.matches(Regex("""^[+-]?\d+\s*/\s*[+-]?\d+$"""))) {
+        if (clean.matches(SIMPLE_FRACTION_REGEX)) {
             val parts = clean.split("/")
             val nBig = parts[0].trim().toBigIntegerOrNull() ?: BigInteger.ZERO
             val dBig = parts[1].trim().toBigIntegerOrNull() ?: BigInteger.ZERO

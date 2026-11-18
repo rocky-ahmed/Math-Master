@@ -1,17 +1,30 @@
 package com.example.math
 
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 object BookQuestionEngine {
 
+    private val chapterQuestionCache = ConcurrentHashMap<Pair<BookId, Int>, List<BookPracticeQuestion>>()
+
     /**
-     * Builds a comprehensive list of multi-format questions for any chapter of any book
+     * Builds (and caches) a comprehensive list of multi-format questions for any chapter of any book
      * covering all 10 question formats and all 3 provenance types:
      * - ORIGINAL_TEXTBOOK
      * - CONCEPT_DERIVED
      * - GENERATED
      */
     fun getQuestionsForChapter(
+        bookId: BookId,
+        chapterNumber: Int
+    ): List<BookPracticeQuestion> {
+        val key = bookId to chapterNumber
+        chapterQuestionCache[key]?.let { return it }
+        val built = buildQuestionsForChapter(bookId, chapterNumber)
+        return chapterQuestionCache.putIfAbsent(key, built) ?: built
+    }
+
+    private fun buildQuestionsForChapter(
         bookId: BookId,
         chapterNumber: Int
     ): List<BookPracticeQuestion> {
@@ -255,7 +268,7 @@ object BookQuestionEngine {
             extraIndex++
         }
 
-        return questions
+        return questions.toList()
     }
 
     fun buildSessionQuestions(

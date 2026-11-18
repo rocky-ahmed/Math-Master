@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,11 +44,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.ceil
 
 /**
  * Data item representing a home module.
@@ -64,6 +67,27 @@ data class HomeModuleItem(
 )
 
 /**
+ * Calculates the maximum safe column count from post-insets, post-padding [availableGridContentWidthDp]
+ * (without subtracting container padding a second time), inter-column [horizontalGapDp], system
+ * [fontScale], and custom [interfaceScalePercent].
+ */
+fun resolveEffectiveGridColumns(
+    requestedColumns: Int,
+    availableGridContentWidthDp: Int,
+    horizontalGapDp: Int,
+    fontScale: Float,
+    interfaceScalePercent: Int = 100
+): Int {
+    val clampedRequested = requestedColumns.coerceIn(1, 4)
+    if (availableGridContentWidthDp <= 0) return 1
+    val combinedScale = maxOf(1.0f, fontScale * (interfaceScalePercent / 100f))
+    val minCardWidthDp = ceil(136.0 * combinedScale).toInt().coerceAtLeast(1)
+    val gap = horizontalGapDp.coerceAtLeast(0)
+    val maxSupportedColumns = maxOf(1, (availableGridContentWidthDp + gap) / (minCardWidthDp + gap))
+    return clampedRequested.coerceAtMost(maxSupportedColumns)
+}
+
+/**
  * CustomModuleRenderer renders module cards honoring user's layout choice (Grid, Compact,
  * Comfortable, Table) and section-specific overrides (colors, icons, fonts, corner radius).
  */
@@ -78,37 +102,47 @@ fun CustomModuleRenderer(
 
     when (layoutType) {
         CustomLayoutType.GRID -> {
-            // Adaptive Grid with user-chosen column count (1 to 4) using responsive rows
-            val columns = global.gridColumns.coerceIn(1, 4)
-            Column(
-                modifier = modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(global.verticalGapDp.dp)
-            ) {
-                modules.chunked(columns).forEach { rowModules ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Max),
-                        horizontalArrangement = Arrangement.spacedBy(global.horizontalGapDp.dp)
-                    ) {
-                        rowModules.forEach { item ->
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                            ) {
-                                val sectionConfig = customState.getSectionConfig(item.sectionKey)
-                                MathModuleGridCard(
-                                    item = item,
-                                    global = global,
-                                    sectionConfig = sectionConfig
-                                )
+            // Adaptive Grid with user-chosen column count (1 to 4) bounded by measured content width
+            BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+                val fontScale = LocalDensity.current.fontScale
+                val columns = resolveEffectiveGridColumns(
+                    requestedColumns = global.gridColumns,
+                    availableGridContentWidthDp = maxWidth.value.toInt(),
+                    horizontalGapDp = global.horizontalGapDp,
+                    fontScale = fontScale,
+                    interfaceScalePercent = global.interfaceScalePercent
+                )
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(global.verticalGapDp.dp)
+                ) {
+                    modules.chunked(columns).forEach { rowModules ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(IntrinsicSize.Max),
+                            horizontalArrangement = Arrangement.spacedBy(global.horizontalGapDp.dp)
+                        ) {
+                            rowModules.forEach { item ->
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                ) {
+                                    val sectionConfig = customState.getSectionConfig(item.sectionKey)
+                                    MathModuleGridCard(
+                                        item = item,
+                                        global = global,
+                                        sectionConfig = sectionConfig,
+                                        modifier = Modifier.fillMaxHeight()
+                                    )
+                                }
                             }
-                        }
-                        val remaining = columns - rowModules.size
-                        if (remaining > 0) {
-                            repeat(remaining) {
-                                Spacer(modifier = Modifier.weight(1f))
+                            val remaining = columns - rowModules.size
+                            if (remaining > 0) {
+                                repeat(remaining) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
                             }
                         }
                     }
@@ -193,9 +227,9 @@ fun ComfortableModuleCard(
         CustomFontWeight.BOLD -> FontWeight.Bold
     }
 
-    // Font size resolution
-    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp
-    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp
+    // Font size resolution (0 = inherit global)
+    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it > 0 } ?: global.titleFontSizeSp).sp
+    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it > 0 } ?: global.subtitleFontSizeSp).sp
 
     // Text colors
     val customTitleColor = ColorUtils.parseHexColor(sectionConfig.titleColorHex) ?: MaterialTheme.colorScheme.onSurface
@@ -216,7 +250,7 @@ fun ComfortableModuleCard(
         )
         .clip(RoundedCornerShape(cornerRadius))
         .border(effectiveBorderThickness, subtleBorder, RoundedCornerShape(cornerRadius))
-        .clickable { item.onClick() }
+        .clickable(role = Role.Button) { item.onClick() }
         .testTag(item.testTag)
 
     ElevatedCard(
@@ -353,8 +387,8 @@ fun CompactModuleCard(
         CustomFontWeight.BOLD -> FontWeight.Bold
     }
 
-    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp * 0.95f
-    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp * 0.95f
+    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it > 0 } ?: global.titleFontSizeSp).sp * 0.95f
+    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it > 0 } ?: global.subtitleFontSizeSp).sp * 0.95f
 
     val subtleBorder = customBorderColor.copy(alpha = if (borderThickness > 0.dp) 1f else 0.12f)
     val effectiveBorderThickness = if (borderThickness > 0.dp) borderThickness else 1.dp
@@ -362,6 +396,7 @@ fun CompactModuleCard(
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (sectionConfig.cardHeightDp > 0) Modifier.heightIn(min = sectionConfig.cardHeightDp.dp) else Modifier)
             .shadow(
                 elevation = 4.dp,
                 shape = RoundedCornerShape(cornerRadius),
@@ -370,7 +405,7 @@ fun CompactModuleCard(
             )
             .clip(RoundedCornerShape(cornerRadius))
             .border(effectiveBorderThickness, subtleBorder, RoundedCornerShape(cornerRadius))
-            .clickable { item.onClick() }
+            .clickable(role = Role.Button) { item.onClick() }
             .testTag(item.testTag),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.elevatedCardColors(containerColor = customBgColor),
@@ -404,7 +439,7 @@ fun CompactModuleCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(global.iconTextSpacingDp.coerceIn(8, 28).dp))
 
             Column(
                 modifier = Modifier.weight(1f),
@@ -454,7 +489,7 @@ fun MathModuleGridCard(
     modifier: Modifier = Modifier
 ) {
     val cornerRadius = (sectionConfig.cornerRadiusDp.takeIf { it > 0 } ?: global.cornerRadiusDp).dp
-    val iconSize = (sectionConfig.iconSizeDp.takeIf { it > 0 } ?: global.iconSizeDp).dp
+    val iconSize = (sectionConfig.iconSizeDp.takeIf { it > 0 } ?: global.iconSizeDp).coerceIn(20, 44).dp
     val customBgColor = ColorUtils.parseHexColor(sectionConfig.backgroundHex) ?: MaterialTheme.colorScheme.surface
     val iconVector = sectionConfig.iconId?.let { AvailableIcon.fromId(it).toImageVector() } ?: item.defaultIcon
     val customIconColor = ColorUtils.parseHexColor(sectionConfig.iconColorHex)
@@ -471,8 +506,8 @@ fun MathModuleGridCard(
         CustomFontWeight.BOLD -> FontWeight.Bold
     }
 
-    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp * 0.95f
-    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp * 0.92f
+    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it > 0 } ?: global.titleFontSizeSp).sp * 0.95f
+    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it > 0 } ?: global.subtitleFontSizeSp).sp * 0.92f
 
     val density = LocalDensity.current
     val fontScale = density.fontScale.coerceAtLeast(1f)
@@ -480,12 +515,14 @@ fun MathModuleGridCard(
     val scaleFactor = maxOf(fontScale, customFontScale)
     val computedHeight = 200.dp * scaleFactor
     val cardHeight = if (sectionConfig.cardHeightDp > 0) sectionConfig.cardHeightDp.dp else computedHeight
+    val cardPadding = sectionConfig.paddingDp.coerceIn(8, 24).dp
+    val iconContainerSize = (iconSize + 20.dp).coerceAtLeast(48.dp)
+    val verticalIconSpacing = (global.iconTextSpacingDp / 2).coerceIn(4, 14).dp
 
     ElevatedCard(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = cardHeight)
-            .fillMaxHeight()
             .shadow(
                 elevation = 3.dp,
                 shape = RoundedCornerShape(cornerRadius),
@@ -494,7 +531,7 @@ fun MathModuleGridCard(
             )
             .clip(RoundedCornerShape(cornerRadius))
             .border(borderThickness, customBorderColor, RoundedCornerShape(cornerRadius))
-            .clickable { item.onClick() }
+            .clickable(role = Role.Button) { item.onClick() }
             .testTag(item.testTag),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.elevatedCardColors(containerColor = customBgColor),
@@ -502,8 +539,8 @@ fun MathModuleGridCard(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 14.dp),
+                .fillMaxWidth()
+                .padding(cardPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -515,7 +552,7 @@ fun MathModuleGridCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(52.dp)
+                        .size(iconContainerSize)
                         .clip(RoundedCornerShape(14.dp))
                         .background(Brush.linearGradient(item.defaultGradient))
                         .border(1.dp, Color.White.copy(alpha = 0.3f), RoundedCornerShape(14.dp)),
@@ -525,10 +562,12 @@ fun MathModuleGridCard(
                         imageVector = iconVector,
                         contentDescription = null,
                         tint = customIconColor ?: Color.White,
-                        modifier = Modifier.size(iconSize.coerceIn(24.dp, 36.dp))
+                        modifier = Modifier.size(iconSize)
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(verticalIconSpacing))
 
             // 2. Title & Subtitle Block
             Column(
@@ -620,8 +659,8 @@ fun TableModuleCard(
         CustomFontWeight.BOLD -> FontWeight.Bold
     }
 
-    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it != 16 } ?: global.titleFontSizeSp).sp * 0.95f
-    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it != 12 } ?: global.subtitleFontSizeSp).sp * 0.95f
+    val titleSize = (sectionConfig.titleFontSizeSp.takeIf { it > 0 } ?: global.titleFontSizeSp).sp * 0.95f
+    val subtitleSize = (sectionConfig.subtitleFontSizeSp.takeIf { it > 0 } ?: global.subtitleFontSizeSp).sp * 0.95f
 
     val subtleBorder = customBorderColor.copy(alpha = if (borderThickness > 0.dp) 1f else 0.2f)
     val effectiveBorderThickness = if (borderThickness > 0.dp) borderThickness else 1.dp
@@ -629,6 +668,7 @@ fun TableModuleCard(
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (sectionConfig.cardHeightDp > 0) Modifier.heightIn(min = sectionConfig.cardHeightDp.dp) else Modifier)
             .shadow(
                 elevation = 4.dp,
                 shape = RoundedCornerShape(cornerRadius),
@@ -637,7 +677,7 @@ fun TableModuleCard(
             )
             .clip(RoundedCornerShape(cornerRadius))
             .border(effectiveBorderThickness, subtleBorder, RoundedCornerShape(cornerRadius))
-            .clickable { item.onClick() }
+            .clickable(role = Role.Button) { item.onClick() }
             .testTag(item.testTag),
         shape = RoundedCornerShape(cornerRadius),
         colors = CardDefaults.elevatedCardColors(containerColor = customBgColor),
@@ -664,7 +704,7 @@ fun TableModuleCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(global.iconTextSpacingDp.coerceIn(8, 28).dp))
 
             Column(
                 modifier = Modifier.weight(1f),

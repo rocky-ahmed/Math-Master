@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -54,12 +55,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,8 +72,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +99,7 @@ import com.example.math.VisualDiagramType
 import com.example.math.VisualModelSpec
 import com.example.ui.MathViewModel
 import com.example.ui.Screen
+import com.example.ui.rememberManagedUiState
 import com.example.ui.theme.MathSpacing
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1043,7 +1050,10 @@ fun InteractiveLearningStepCard(
                                 text = fb,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isCorrectFb) SolverDesignTokens.successContentColor() else SolverDesignTokens.warningTitleColor()
+                                color = if (isCorrectFb) SolverDesignTokens.successContentColor() else SolverDesignTokens.warningTitleColor(),
+                                modifier = Modifier
+                                    .semantics { liveRegion = LiveRegionMode.Polite }
+                                    .testTag("solver_step_attempt_feedback")
                             )
                         }
                     }
@@ -1581,32 +1591,47 @@ fun LearnerFeedbackStatusRow(
     }
 }
 
+@Composable
+private fun <T> rememberSimUiState(
+    viewModel: MathViewModel?,
+    stateKey: String,
+    defaultValue: T
+): MutableState<T> {
+    return if (viewModel != null) {
+        rememberManagedUiState(viewModel, stateKey, defaultValue)
+    } else {
+        rememberSaveable(stateKey, key = stateKey) { mutableStateOf(defaultValue) }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SimultaneousLinearSystemAndBridgeCard(
     selectedTopic: SolverTopic,
     viewModel: MathViewModel? = null
 ) {
-    var expandedInOtherTopic by remember(selectedTopic) {
-        mutableStateOf(selectedTopic == SolverTopic.LINEAR_EQUATIONS)
-    }
-    var systemDimension by remember { mutableIntStateOf(2) } // 2 for 2x2, 3 for 3x3
-    var methodTab by remember { mutableIntStateOf(0) } // 0: Cramer, 1: Elimination, 2: Substitution
+    var expandedInOtherTopic by rememberSimUiState(
+        viewModel = viewModel,
+        stateKey = "sim_expanded_${selectedTopic.name}",
+        defaultValue = selectedTopic == SolverTopic.LINEAR_EQUATIONS
+    )
+    var systemDimension by rememberSimUiState(viewModel, "sim_system_dimension", 2) // 2 for 2x2, 3 for 3x3
+    var methodTab by rememberSimUiState(viewModel, "sim_method_tab", 0) // 0: Cramer, 1: Elimination, 2: Substitution
 
-    var simA1 by remember { mutableStateOf("২") }
-    var simB1 by remember { mutableStateOf("৩") }
-    var simC1 by remember { mutableStateOf("১৩") }
-    var simA2 by remember { mutableStateOf("৫") }
-    var simB2 by remember { mutableStateOf("-২") }
-    var simC2 by remember { mutableStateOf("৪") }
+    var simA1 by rememberSimUiState(viewModel, "sim_coeff_a1", "২")
+    var simB1 by rememberSimUiState(viewModel, "sim_coeff_b1", "৩")
+    var simC1 by rememberSimUiState(viewModel, "sim_coeff_c1", "১৩")
+    var simA2 by rememberSimUiState(viewModel, "sim_coeff_a2", "৫")
+    var simB2 by rememberSimUiState(viewModel, "sim_coeff_b2", "-২")
+    var simC2 by rememberSimUiState(viewModel, "sim_coeff_c2", "৪")
 
     // 3x3 additional inputs
-    var sim3D1 by remember { mutableStateOf("৬") }
-    var sim3D2 by remember { mutableStateOf("১৪") }
-    var sim3A3 by remember { mutableStateOf("১") }
-    var sim3B3 by remember { mutableStateOf("-১") }
-    var sim3C3 by remember { mutableStateOf("২") }
-    var sim3D3 by remember { mutableStateOf("৫") }
+    var sim3D1 by rememberSimUiState(viewModel, "sim_coeff_3d1", "৬")
+    var sim3D2 by rememberSimUiState(viewModel, "sim_coeff_3d2", "১৪")
+    var sim3A3 by rememberSimUiState(viewModel, "sim_coeff_3a3", "১")
+    var sim3B3 by rememberSimUiState(viewModel, "sim_coeff_3b3", "-১")
+    var sim3C3 by rememberSimUiState(viewModel, "sim_coeff_3c3", "২")
+    var sim3D3 by rememberSimUiState(viewModel, "sim_coeff_3d3", "৫")
 
     val simResult2x2 = remember(simA1, simB1, simC1, simA2, simB2, simC2) {
         val a1 = BengaliNumberFormatter.toEnglishDigits(simA1).toDoubleOrNull() ?: 2.0
@@ -1721,61 +1746,154 @@ fun SimultaneousLinearSystemAndBridgeCard(
                                         fontWeight = if (methodTab == idx) FontWeight.Bold else FontWeight.Medium
                                     )
                                 },
-                                modifier = Modifier.heightIn(min = SolverDesignTokens.minTouchTarget)
+                                modifier = Modifier
+                                    .heightIn(min = SolverDesignTokens.minTouchTarget)
+                                    .testTag("sim_method_tab_$idx")
                             )
                         }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = simA1,
-                            onValueChange = { simA1 = it },
-                            label = { Text("a₁") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = simB1,
-                            onValueChange = { simB1 = it },
-                            label = { Text("b₁") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = simC1,
-                            onValueChange = { simC1 = it },
-                            label = { Text("c₁") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = simA2,
-                            onValueChange = { simA2 = it },
-                            label = { Text("a₂") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = simB2,
-                            onValueChange = { simB2 = it },
-                            label = { Text("b₂") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
-                        OutlinedTextField(
-                            value = simC2,
-                            onValueChange = { simC2 = it },
-                            label = { Text("c₂") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f)
-                        )
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val fontScale = LocalDensity.current.fontScale
+                        val useCompact2x2 = ((maxWidth - 12.dp) / 3f) < 96.dp || fontScale >= 1.2f
+                        if (useCompact2x2) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "সমীকরণ ১ (a₁x + b₁y = c₁)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simA1,
+                                        onValueChange = { simA1 = it },
+                                        label = { Text("a₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_a1")
+                                    )
+                                    OutlinedTextField(
+                                        value = simB1,
+                                        onValueChange = { simB1 = it },
+                                        label = { Text("b₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_b1")
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simC1,
+                                        onValueChange = { simC1 = it },
+                                        label = { Text("c₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_c1")
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                                Text(
+                                    text = "সমীকরণ ২ (a₂x + b₂y = c₂)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simA2,
+                                        onValueChange = { simA2 = it },
+                                        label = { Text("a₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_a2")
+                                    )
+                                    OutlinedTextField(
+                                        value = simB2,
+                                        onValueChange = { simB2 = it },
+                                        label = { Text("b₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_b2")
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simC2,
+                                        onValueChange = { simC2 = it },
+                                        label = { Text("c₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_c2")
+                                    )
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simA1,
+                                        onValueChange = { simA1 = it },
+                                        label = { Text("a₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_a1")
+                                    )
+                                    OutlinedTextField(
+                                        value = simB1,
+                                        onValueChange = { simB1 = it },
+                                        label = { Text("b₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_b1")
+                                    )
+                                    OutlinedTextField(
+                                        value = simC1,
+                                        onValueChange = { simC1 = it },
+                                        label = { Text("c₁") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_c1")
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = simA2,
+                                        onValueChange = { simA2 = it },
+                                        label = { Text("a₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_a2")
+                                    )
+                                    OutlinedTextField(
+                                        value = simB2,
+                                        onValueChange = { simB2 = it },
+                                        label = { Text("b₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_b2")
+                                    )
+                                    OutlinedTextField(
+                                        value = simC2,
+                                        onValueChange = { simC2 = it },
+                                        label = { Text("c₂") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f).testTag("sim2_c2")
+                                    )
+                                }
+                            }
+                        }
                     }
                     Surface(
                         shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),
@@ -1822,23 +1940,106 @@ fun SimultaneousLinearSystemAndBridgeCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(value = simA1, onValueChange = { simA1 = it }, label = { Text("a₁") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = simB1, onValueChange = { simB1 = it }, label = { Text("b₁") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = simC1, onValueChange = { simC1 = it }, label = { Text("c₁") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = sim3D1, onValueChange = { sim3D1 = it }, label = { Text("d₁") }, singleLine = true, modifier = Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(value = simA2, onValueChange = { simA2 = it }, label = { Text("a₂") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = simB2, onValueChange = { simB2 = it }, label = { Text("b₂") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = simC2, onValueChange = { simC2 = it }, label = { Text("c₂") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = sim3D2, onValueChange = { sim3D2 = it }, label = { Text("d₂") }, singleLine = true, modifier = Modifier.weight(1f))
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedTextField(value = sim3A3, onValueChange = { sim3A3 = it }, label = { Text("a₃") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = sim3B3, onValueChange = { sim3B3 = it }, label = { Text("b₃") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = sim3C3, onValueChange = { sim3C3 = it }, label = { Text("c₃") }, singleLine = true, modifier = Modifier.weight(1f))
-                        OutlinedTextField(value = sim3D3, onValueChange = { sim3D3 = it }, label = { Text("d₃") }, singleLine = true, modifier = Modifier.weight(1f))
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val fontScale = LocalDensity.current.fontScale
+                        val useCompact3x3 = ((maxWidth - 18.dp) / 4f) < 96.dp || fontScale >= 1.2f
+                        if (useCompact3x3) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "সমীকরণ ১",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = simA1, onValueChange = { simA1 = it }, label = { Text("a₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a1"))
+                                    OutlinedTextField(value = simB1, onValueChange = { simB1 = it }, label = { Text("b₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b1"))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = simC1, onValueChange = { simC1 = it }, label = { Text("c₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c1"))
+                                    OutlinedTextField(value = sim3D1, onValueChange = { sim3D1 = it }, label = { Text("d₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d1"))
+                                }
+                                Text(
+                                    text = "সমীকরণ ২",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = simA2, onValueChange = { simA2 = it }, label = { Text("a₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a2"))
+                                    OutlinedTextField(value = simB2, onValueChange = { simB2 = it }, label = { Text("b₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b2"))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = simC2, onValueChange = { simC2 = it }, label = { Text("c₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c2"))
+                                    OutlinedTextField(value = sim3D2, onValueChange = { sim3D2 = it }, label = { Text("d₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d2"))
+                                }
+                                Text(
+                                    text = "সমীকরণ ৩",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = sim3A3, onValueChange = { sim3A3 = it }, label = { Text("a₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a3"))
+                                    OutlinedTextField(value = sim3B3, onValueChange = { sim3B3 = it }, label = { Text("b₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b3"))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(value = sim3C3, onValueChange = { sim3C3 = it }, label = { Text("c₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c3"))
+                                    OutlinedTextField(value = sim3D3, onValueChange = { sim3D3 = it }, label = { Text("d₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d3"))
+                                }
+                            }
+                        } else {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    OutlinedTextField(value = simA1, onValueChange = { simA1 = it }, label = { Text("a₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a1"))
+                                    OutlinedTextField(value = simB1, onValueChange = { simB1 = it }, label = { Text("b₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b1"))
+                                    OutlinedTextField(value = simC1, onValueChange = { simC1 = it }, label = { Text("c₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c1"))
+                                    OutlinedTextField(value = sim3D1, onValueChange = { sim3D1 = it }, label = { Text("d₁") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d1"))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    OutlinedTextField(value = simA2, onValueChange = { simA2 = it }, label = { Text("a₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a2"))
+                                    OutlinedTextField(value = simB2, onValueChange = { simB2 = it }, label = { Text("b₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b2"))
+                                    OutlinedTextField(value = simC2, onValueChange = { simC2 = it }, label = { Text("c₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c2"))
+                                    OutlinedTextField(value = sim3D2, onValueChange = { sim3D2 = it }, label = { Text("d₂") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d2"))
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    OutlinedTextField(value = sim3A3, onValueChange = { sim3A3 = it }, label = { Text("a₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_a3"))
+                                    OutlinedTextField(value = sim3B3, onValueChange = { sim3B3 = it }, label = { Text("b₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_b3"))
+                                    OutlinedTextField(value = sim3C3, onValueChange = { sim3C3 = it }, label = { Text("c₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_c3"))
+                                    OutlinedTextField(value = sim3D3, onValueChange = { sim3D3 = it }, label = { Text("d₃") }, singleLine = true, modifier = Modifier.weight(1f).testTag("sim3_d3"))
+                                }
+                            }
+                        }
                     }
                     Surface(
                         shape = RoundedCornerShape(SolverDesignTokens.innerPanelRadius),

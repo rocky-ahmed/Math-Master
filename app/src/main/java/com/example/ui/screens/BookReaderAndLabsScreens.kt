@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
@@ -53,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -92,27 +95,128 @@ import kotlin.math.tan
 import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+internal const val MAX_PDF_CACHE_BYTES: Int = 16 * 1024 * 1024
+internal const val MIN_VIABLE_PDF_CACHE_BYTES: Int = 512 * 1024
+internal const val MAX_PDF_CACHE_ENTRIES: Int = 6
+
+internal fun computeSafeCacheBudgetBytes(
+    vmMaxHeapBytes: Long = Runtime.getRuntime().maxMemory(),
+    currentUsedBytes: Long = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()).coerceAtLeast(0L)
+): Int {
+    if (vmMaxHeapBytes <= 0L) return 0
+    val freeHeadroomBytes = (vmMaxHeapBytes - currentUsedBytes).coerceAtLeast(0L)
+    val vmLimitSlice = (vmMaxHeapBytes / 16L).coerceAtMost(MAX_PDF_CACHE_BYTES.toLong())
+    val headroomSlice = (freeHeadroomBytes / 8L).coerceAtMost(MAX_PDF_CACHE_BYTES.toLong())
+    val rawBudget = minOf(vmLimitSlice, headroomSlice).coerceAtLeast(0L).toInt()
+    return if (rawBudget < MIN_VIABLE_PDF_CACHE_BYTES) 0 else rawBudget
+}
+
+internal class BookPdfRenderCachePool(
+    val maxBudgetBytes: Int,
+    val maxEntries: Int = MAX_PDF_CACHE_ENTRIES
+) {
+    private val cacheLock = Any()
+    private val bitmapCache: LruCache<String, Bitmap>? = if (maxBudgetBytes > 0 && maxEntries > 0) {
+        object : LruCache<String, Bitmap>(maxBudgetBytes) {
+            override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount.coerceAtLeast(1)
+        }
+    } else {
+        null
+    }
+
+    fun get(key: String): Bitmap? = synchronized(cacheLock) {
+        bitmapCache?.get(key)?.takeIf { !it.isRecycled }
+    }
+
+    fun put(key: String, bitmap: Bitmap) {
+        synchronized(cacheLock) {
+            val cache = bitmapCache ?: return
+            if (maxBudgetBytes <= 0 || maxEntries <= 0 || bitmap.isRecycled) return
+            val byteSize = bitmap.allocationByteCount.coerceAtLeast(1)
+            if (byteSize > maxBudgetBytes) return
+            val currentSnapshot = cache.snapshot()
+            if (!currentSnapshot.containsKey(key)) {
+                var currentCount = currentSnapshot.size
+                while (currentCount >= maxEntries) {
+                    val eldestKey = cache.snapshot().keys.firstOrNull() ?: break
+                    cache.remove(eldestKey)
+                    currentCount--
+                }
+            }
+            cache.put(key, bitmap)
+        }
+    }
+
+    fun evictAll() {
+        synchronized(cacheLock) {
+            bitmapCache?.evictAll()
+        }
+    }
+
+    fun clear() = evictAll()
+
+    fun trimToFraction(fraction: Float) {
+        synchronized(cacheLock) {
+            val cache = bitmapCache ?: return
+            val clamped = fraction.coerceIn(0f, 1f)
+            val targetBytes = (cache.size() * clamped).toInt().coerceAtLeast(0)
+            cache.trimToSize(targetBytes)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    fun onTrimMemory(level: Int) {
+        when (level) {
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+            ComponentCallbacks2.TRIM_MEMORY_BACKGROUND,
+            ComponentCallbacks2.TRIM_MEMORY_MODERATE,
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> clear()
+
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> trimToFraction(0.5f)
+        }
+    }
+
+    fun onLowMemory() {
+        clear()
+    }
+
+    fun currentSizeBytes(): Int = synchronized(cacheLock) { bitmapCache?.size() ?: 0 }
+
+    fun entryCount(): Int = synchronized(cacheLock) { bitmapCache?.snapshot()?.size ?: 0 }
+}
+
 internal object BookPdfRenderCache {
     val renderMutex = Mutex()
-    val extractionLock = Any()
-    private val bitmapCache = object : LruCache<String, Bitmap>(12) {}
+    val pdfExtractMutex = Mutex()
+    private val pool = BookPdfRenderCachePool(
+        maxBudgetBytes = computeSafeCacheBudgetBytes(),
+        maxEntries = MAX_PDF_CACHE_ENTRIES
+    )
 
-    @Synchronized
-    fun get(key: String): Bitmap? = bitmapCache.get(key)?.takeIf { !it.isRecycled }
+    fun get(key: String): Bitmap? = pool.get(key)
 
-    @Synchronized
-    fun put(key: String, bitmap: Bitmap) {
-        bitmapCache.put(key, bitmap)
-    }
+    fun put(key: String, bitmap: Bitmap) = pool.put(key, bitmap)
 
-    @Synchronized
-    fun evictAll() {
-        bitmapCache.evictAll()
-    }
+    fun evictAll() = pool.evictAll()
+
+    fun clear() = pool.clear()
+
+    fun trimToFraction(fraction: Float) = pool.trimToFraction(fraction)
+
+    fun onTrimMemory(level: Int) = pool.onTrimMemory(level)
+
+    fun onLowMemory() = pool.onLowMemory()
+
+    fun currentSizeBytes(): Int = pool.currentSizeBytes()
+
+    fun entryCount(): Int = pool.entryCount()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +230,24 @@ fun BookPdfReaderScreen(
     }
 
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    DisposableEffect(appContext) {
+        val trimCallback = object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                BookPdfRenderCache.onTrimMemory(level)
+            }
+
+            override fun onConfigurationChanged(newConfig: Configuration) = Unit
+
+            override fun onLowMemory() {
+                BookPdfRenderCache.onLowMemory()
+            }
+        }
+        appContext.registerComponentCallbacks(trimCallback)
+        onDispose {
+            appContext.unregisterComponentCallbacks(trimCallback)
+        }
+    }
     val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
     val printedPage by viewModel.selectedBookPrintedPage.collectAsStateWithLifecycle()
     val readingStates by viewModel.bookReadingStates.collectAsStateWithLifecycle()
@@ -777,28 +899,30 @@ internal fun resolveOfflinePdfFile(
     forceRefresh: Boolean = false
 ): File? {
     // 1. Primary path: unpack the bundled NCTB PDF from APK assets (app/src/main/assets/books/*.pdf)
-    val cachedAssetFile = synchronized(BookPdfRenderCache.extractionLock) {
-        runCatching {
-            val outFile = File(context.cacheDir, "cached_${bookId.id}.pdf")
-            if (forceRefresh || !isValidPdfFileHeader(outFile)) {
-                val tmpFile = File(context.cacheDir, "cached_${bookId.id}_${System.nanoTime()}.pdf.tmp")
-                context.assets.open(bookId.assetFileName).use { input ->
-                    tmpFile.outputStream().use { output ->
-                        input.copyTo(output)
+    val cachedAssetFile = runBlocking {
+        BookPdfRenderCache.pdfExtractMutex.withLock {
+            runCatching {
+                val outFile = File(context.cacheDir, "cached_${bookId.id}.pdf")
+                if (forceRefresh || !isValidPdfFileHeader(outFile)) {
+                    val tmpFile = File(context.cacheDir, "cached_${bookId.id}_${System.nanoTime()}.pdf.tmp")
+                    context.assets.open(bookId.assetFileName).use { input ->
+                        tmpFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
-                }
-                if (isValidPdfFileHeader(tmpFile)) {
-                    if (outFile.exists()) outFile.delete()
-                    if (!tmpFile.renameTo(outFile)) {
-                        tmpFile.copyTo(outFile, overwrite = true)
+                    if (isValidPdfFileHeader(tmpFile)) {
+                        if (outFile.exists()) outFile.delete()
+                        if (!tmpFile.renameTo(outFile)) {
+                            tmpFile.copyTo(outFile, overwrite = true)
+                            tmpFile.delete()
+                        }
+                    } else if (tmpFile.exists()) {
                         tmpFile.delete()
                     }
-                } else if (tmpFile.exists()) {
-                    tmpFile.delete()
                 }
-            }
-            outFile.takeIf { isValidPdfFileHeader(it) }
-        }.getOrNull()
+                outFile.takeIf { isValidPdfFileHeader(it) }
+            }.getOrNull()
+        }
     }
     if (cachedAssetFile != null) return cachedAssetFile
 

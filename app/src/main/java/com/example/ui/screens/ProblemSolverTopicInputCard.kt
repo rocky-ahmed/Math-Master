@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -40,8 +41,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1078,11 +1081,18 @@ fun TopicInputCard(
                                             border = if (isSelected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                             modifier = Modifier
                                                 .size(SolverDesignTokens.minTouchTarget)
-                                                .semantics { contentDescription = opDesc }
-                                                .testTag("fraction_op_$op")
-                                                .clickable {
-                                                    onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
+                                                .selectable(
+                                                    selected = isSelected,
+                                                    role = Role.RadioButton,
+                                                    onClick = {
+                                                        onFractionChange(fractionNum1, fractionDen1, op, fractionNum2, fractionDen2)
+                                                    }
+                                                )
+                                                .semantics {
+                                                    contentDescription = opDesc
+                                                    stateDescription = if (isSelected) "নির্বাচিত" else "নির্বাচিত নয়"
                                                 }
+                                                .testTag("fraction_op_$op")
                                         ) {
                                             Box(contentAlignment = Alignment.Center) {
                                                 Text(

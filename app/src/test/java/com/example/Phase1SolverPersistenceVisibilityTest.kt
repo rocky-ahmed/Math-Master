@@ -358,7 +358,7 @@ class Phase1SolverPersistenceVisibilityTest {
                 topic = SolverTopic.BASIC_ARITHMETIC,
                 solveAction = { validResult }
             )
-            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            waitUntilMain { persistCalls.get() == 1 }
             assertTrue(viewModel.isSolverPersistenceInFlight.value)
 
             // Concurrent duplicate solve rejected while first is pending

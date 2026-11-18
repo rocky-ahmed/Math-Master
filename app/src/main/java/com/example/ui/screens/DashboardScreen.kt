@@ -62,6 +62,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -120,7 +121,19 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
         viewModel.flushUnrecordedStudyTime()
     }
 
-    val analyticsData = remember(
+    val analyticsData by produceState(
+        initialValue = remember(selectedTimeFilter) {
+            LearningAnalyticsEngine.buildDashboardAnalytics(
+                timeFilter = selectedTimeFilter,
+                completedExams = emptyList(),
+                activeExam = null,
+                quizScores = emptyList(),
+                practiceHistory = emptyList(),
+                topicAnalytics = emptyList(),
+                progressItems = emptyList(),
+                dailyActivities = emptyList()
+            )
+        },
         selectedTimeFilter,
         completedExams,
         activeExam,
@@ -130,16 +143,18 @@ fun DashboardScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
         progressList,
         dailyActivities
     ) {
-        LearningAnalyticsEngine.buildDashboardAnalytics(
-            timeFilter = selectedTimeFilter,
-            completedExams = completedExams,
-            activeExam = activeExam,
-            quizScores = quizScores,
-            practiceHistory = practiceHistory,
-            topicAnalytics = topicAnalytics,
-            progressItems = progressList,
-            dailyActivities = dailyActivities
-        )
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            LearningAnalyticsEngine.buildDashboardAnalytics(
+                timeFilter = selectedTimeFilter,
+                completedExams = completedExams,
+                activeExam = activeExam,
+                quizScores = quizScores,
+                practiceHistory = practiceHistory,
+                topicAnalytics = topicAnalytics,
+                progressItems = progressList,
+                dailyActivities = dailyActivities
+            )
+        }
     }
 
     val filteredHistory = remember(practiceHistory, selectedModuleFilter, selectedTimeFilter) {

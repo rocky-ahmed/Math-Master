@@ -148,6 +148,9 @@ fun FormulaLibraryScreen(
         FormulaLibraryProvider.getSubCategories(selectedSubject)
     }
 
+    val bookmarkedIdSet = remember(bookmarks) { bookmarks.mapTo(HashSet()) { it.id } }
+    val recentIdSet = remember(recentFormulas) { recentFormulas.mapTo(HashSet()) { it.formulaId } }
+
     val filteredFormulas = remember(
         searchQuery,
         selectedSubject,
@@ -156,18 +159,16 @@ fun FormulaLibraryScreen(
         selectedTrack,
         showOnlyBookmarked,
         showOnlyRecent,
-        bookmarks,
-        recentFormulas
+        bookmarkedIdSet,
+        recentIdSet
     ) {
-        val bookmarkedIds = bookmarks.map { it.id }.toSet()
-        val recentIds = recentFormulas.map { it.formulaId }.toSet()
         FormulaLibraryProvider.searchFormulas(
             query = searchQuery,
             subject = selectedSubject,
             subCategory = selectedSubCategory,
             difficulty = selectedDifficulty,
-            onlyBookmarkedIds = if (showOnlyBookmarked) bookmarkedIds else null,
-            onlyRecentIds = if (showOnlyRecent) recentIds else null,
+            onlyBookmarkedIds = if (showOnlyBookmarked) bookmarkedIdSet else null,
+            onlyRecentIds = if (showOnlyRecent) recentIdSet else null,
             curriculumTrack = selectedTrack
         )
     }
@@ -322,7 +323,11 @@ fun FormulaLibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            items(CurriculumTrack.values()) { track ->
+            items(
+                items = CurriculumTrack.values(),
+                key = { it.id },
+                contentType = { "track_chip" }
+            ) { track ->
                 FilterChip(
                     selected = selectedTrack == track,
                     onClick = { selectedTrack = track },
@@ -359,7 +364,11 @@ fun FormulaLibraryScreen(
                     modifier = Modifier.testTag("chip_subject_ALL")
                 )
             }
-            items(FormulaSubject.values()) { subj ->
+            items(
+                items = FormulaSubject.values(),
+                key = { it.name },
+                contentType = { "subject_chip" }
+            ) { subj ->
                 val count = remember(subj) { FormulaLibraryProvider.getFormulasBySubject(subj).size }
                 FilterChip(
                     selected = selectedSubject == subj,
@@ -403,7 +412,11 @@ fun FormulaLibraryScreen(
                 )
             }
 
-            items(availableSubCategories) { subCat ->
+            items(
+                items = availableSubCategories,
+                key = { it },
+                contentType = { "subcat_chip" }
+            ) { subCat ->
                 FilterChip(
                     selected = selectedSubCategory == subCat,
                     onClick = {
@@ -417,7 +430,11 @@ fun FormulaLibraryScreen(
                 )
             }
 
-            items(FormulaDifficulty.values()) { diff ->
+            items(
+                items = FormulaDifficulty.values(),
+                key = { it.name },
+                contentType = { "diff_chip" }
+            ) { diff ->
                 FilterChip(
                     selected = selectedDifficulty == diff,
                     onClick = {
@@ -554,8 +571,12 @@ fun FormulaLibraryScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(filteredFormulas, key = { it.id }) { formula ->
-                    val isBookmarked = bookmarks.any { it.id == formula.id }
+                items(
+                    items = filteredFormulas,
+                    key = { it.id },
+                    contentType = { "formula_card" }
+                ) { formula ->
+                    val isBookmarked = bookmarkedIdSet.contains(formula.id)
                     val isExpanded = expandedFormulaIds.contains(formula.id)
 
                     FormulaCard(

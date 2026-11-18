@@ -27,7 +27,13 @@ import com.example.data.model.SolverHistoryEntity
 import com.example.data.model.StudyTimerFlushReceiptEntity
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.model.UnifiedMistakeEntity
+import com.example.data.repository.BcsTopicExamUpdate
+import com.example.data.repository.ExamQuestionMistakeOutcome
+import com.example.data.repository.MathRepository
+import com.example.data.repository.TopicExamStat
 import kotlinx.coroutines.flow.Flow
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Dao
 interface MathDao {
@@ -52,6 +58,12 @@ interface MathDao {
     @Query("SELECT * FROM quiz_scores ORDER BY timestamp DESC")
     fun getAllQuizScores(): Flow<List<QuizScoreEntity>>
 
+    @Query("SELECT COUNT(*) FROM quiz_scores")
+    fun getQuizScoresCount(): Flow<Int>
+
+    @Query("SELECT * FROM quiz_scores ORDER BY timestamp DESC LIMIT :limit")
+    fun getRecentQuizScores(limit: Int): Flow<List<QuizScoreEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQuizScore(score: QuizScoreEntity)
 
@@ -68,6 +80,9 @@ interface MathDao {
     @Query("SELECT * FROM user_progress")
     fun getAllProgress(): Flow<List<ProgressEntity>>
 
+    @Query("SELECT COUNT(*) FROM user_progress WHERE isLearned = 1 AND itemId LIKE 'table\\_%' ESCAPE '\\'")
+    fun getLearnedTablesCount(): Flow<Int>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProgress(progress: ProgressEntity)
 
@@ -77,6 +92,9 @@ interface MathDao {
 
     @Query("SELECT * FROM practice_history WHERE module = :module ORDER BY timestamp DESC")
     fun getPracticeHistoryByModule(module: String): Flow<List<PracticeHistoryEntity>>
+
+    @Query("SELECT * FROM practice_history ORDER BY timestamp DESC LIMIT :limit OFFSET :offset")
+    suspend fun getPracticeHistoryPage(limit: Int, offset: Int): List<PracticeHistoryEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPracticeHistory(history: PracticeHistoryEntity)
@@ -97,8 +115,14 @@ interface MathDao {
     @Query("SELECT * FROM topic_analytics WHERE analyticsKey = :key LIMIT 1")
     suspend fun getTopicAnalyticsByKey(key: String): TopicAnalyticsEntity?
 
+    @Query("SELECT * FROM topic_analytics WHERE analyticsKey IN (:keys)")
+    suspend fun getTopicAnalyticsByKeys(keys: List<String>): List<TopicAnalyticsEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTopicAnalytics(analytics: TopicAnalyticsEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTopicAnalyticsList(items: List<TopicAnalyticsEntity>)
 
     // Recently Viewed Formulas (Room v3)
     @Query("SELECT * FROM recent_formulas ORDER BY viewedAt DESC LIMIT 20")
@@ -135,9 +159,12 @@ interface MathDao {
     @Query("UPDATE exam_attempts SET status = 'ABANDONED', updatedAt = :timestamp WHERE status = 'IN_PROGRESS'")
     suspend fun abandonActiveExamAttempts(timestamp: Long = System.currentTimeMillis())
 
-    // Solver History (Room v4)
-    @Query("SELECT * FROM solver_history ORDER BY timestamp DESC LIMIT 100")
+    // Solver History (Room v4) — full historical completeness; use getRecentSolverHistory(limit) for bounded previews
+    @Query("SELECT * FROM solver_history ORDER BY timestamp DESC")
     fun getAllSolverHistory(): Flow<List<SolverHistoryEntity>>
+
+    @Query("SELECT * FROM solver_history ORDER BY timestamp DESC LIMIT :limit")
+    fun getRecentSolverHistory(limit: Int): Flow<List<SolverHistoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSolverHistory(history: SolverHistoryEntity)
@@ -326,8 +353,14 @@ interface MathDao {
     @Query("SELECT * FROM bcs_topic_progress WHERE topicId = :topicId LIMIT 1")
     suspend fun getBcsTopicProgressById(topicId: String): BcsTopicProgressEntity?
 
+    @Query("SELECT * FROM bcs_topic_progress WHERE topicId IN (:topicIds)")
+    suspend fun getBcsTopicProgressByIds(topicIds: List<String>): List<BcsTopicProgressEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBcsTopicProgress(progress: BcsTopicProgressEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsTopicProgressList(items: List<BcsTopicProgressEntity>)
 
     // BCS Mistake Notebook (Room v6 / v8)
     @Query("SELECT * FROM bcs_mistake_notebook ORDER BY lastMistakeAt DESC")
@@ -339,8 +372,14 @@ interface MathDao {
     @Query("SELECT * FROM bcs_mistake_notebook WHERE questionId = :questionId LIMIT 1")
     suspend fun getBcsMistakeById(questionId: String): BcsMistakeEntity?
 
+    @Query("SELECT * FROM bcs_mistake_notebook WHERE questionId IN (:questionIds)")
+    suspend fun getBcsMistakesByIds(questionIds: List<String>): List<BcsMistakeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBcsMistake(mistake: BcsMistakeEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBcsMistakes(items: List<BcsMistakeEntity>)
 
     @Query("DELETE FROM bcs_mistake_notebook WHERE questionId = :questionId")
     suspend fun deleteBcsMistakeById(questionId: String)
@@ -362,8 +401,14 @@ interface MathDao {
     @Query("SELECT * FROM unified_mistake_notebook WHERE mistakeKey = :key LIMIT 1")
     suspend fun getUnifiedMistakeByKey(key: String): UnifiedMistakeEntity?
 
+    @Query("SELECT * FROM unified_mistake_notebook WHERE mistakeKey IN (:keys)")
+    suspend fun getUnifiedMistakesByKeys(keys: List<String>): List<UnifiedMistakeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertUnifiedMistake(mistake: UnifiedMistakeEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUnifiedMistakes(items: List<UnifiedMistakeEntity>)
 
     @Query("DELETE FROM unified_mistake_notebook WHERE mistakeKey = :key")
     suspend fun deleteUnifiedMistakeByKey(key: String)
@@ -437,6 +482,811 @@ interface MathDao {
         }
         return true
     }
+
+    // =========================================================================
+    // PHASE 3 TRANSACTIONAL MULTI-TABLE WRITES (P3-DB-001, P3-DB-002)
+    // Lock ordering rule: dailyStudyWriteMutex is ALWAYS acquired in MathRepository
+    // BEFORE entering any @Transaction method that writes daily_study_activity.
+    // =========================================================================
+
+    @Transaction
+    suspend fun recordSessionAndAnalyticsTransaction(
+        module: String,
+        topicId: String,
+        topicTitleBn: String,
+        difficulty: String,
+        mode: String,
+        score: Int,
+        correctCount: Int,
+        wrongCount: Int,
+        totalQuestions: Int,
+        bestStreak: Int,
+        durationSeconds: Int,
+        nowMs: Long,
+        dateKey: String
+    ) {
+        val accuracy = if (totalQuestions > 0) (correctCount * 100) / totalQuestions else 0
+        insertPracticeHistory(
+            PracticeHistoryEntity(
+                module = module,
+                topicId = topicId,
+                topicTitleBn = topicTitleBn,
+                difficulty = difficulty,
+                mode = mode,
+                score = score,
+                correctCount = correctCount,
+                wrongCount = wrongCount,
+                totalQuestions = totalQuestions,
+                accuracyPercent = accuracy,
+                bestStreak = bestStreak,
+                durationSeconds = durationSeconds,
+                timestamp = nowMs
+            )
+        )
+
+        val analyticsKey = "${module}_${topicId}_${difficulty}"
+        val existingTopic = getTopicAnalyticsByKey(analyticsKey)
+        val attemptedDelta = correctCount + wrongCount
+        val updatedTopic = if (existingTopic == null) {
+            TopicAnalyticsEntity(
+                analyticsKey = analyticsKey,
+                module = module,
+                topicId = topicId,
+                topicTitleBn = topicTitleBn,
+                difficulty = difficulty,
+                totalAttempted = max(0, attemptedDelta),
+                totalCorrect = max(0, correctCount),
+                totalWrong = max(0, wrongCount),
+                bestStreak = max(0, bestStreak),
+                totalTimeSeconds = max(0, durationSeconds),
+                lastPracticedAt = nowMs
+            )
+        } else {
+            existingTopic.copy(
+                totalAttempted = existingTopic.totalAttempted + max(0, attemptedDelta),
+                totalCorrect = existingTopic.totalCorrect + max(0, correctCount),
+                totalWrong = existingTopic.totalWrong + max(0, wrongCount),
+                bestStreak = max(existingTopic.bestStreak, bestStreak),
+                totalTimeSeconds = existingTopic.totalTimeSeconds + max(0, durationSeconds),
+                lastPracticedAt = nowMs
+            )
+        }
+        upsertTopicAnalytics(updatedTopic)
+
+        applyDailyStudyDeltaInsideTransaction(
+            dateKey = dateKey,
+            questionsAttemptedDelta = attemptedDelta,
+            correctDelta = correctCount,
+            wrongDelta = wrongCount,
+            studyTimeSecondsDelta = max(1, durationSeconds),
+            examsCompletedDelta = if (module == "QUIZ") 1 else 0,
+            practiceSessionsCompletedDelta = if (module != "QUIZ") 1 else 0,
+            timestampMs = nowMs
+        )
+    }
+
+    @Transaction
+    suspend fun recordBookQuestionMistakeTransaction(
+        questionId: String,
+        bookId: String,
+        chapterNumber: Int,
+        questionPromptBn: String,
+        wrongAnswerBn: String,
+        correctAnswerBn: String,
+        explanationBn: String,
+        sourceProvenance: String,
+        chapterTitleBn: String,
+        nowMs: Long
+    ) {
+        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
+        val revItemId = "mistake_$rawId"
+        val existing = getBookMistakeById(questionId)
+            ?: getBookMistakeById(revItemId)
+            ?: getBookMistakeById(rawId)
+        val targetMistakeId = existing?.questionId ?: questionId
+        val updatedMistake = if (existing == null) {
+            BookMistakeEntity(
+                questionId = targetMistakeId,
+                bookId = bookId,
+                chapterNumber = chapterNumber,
+                questionPromptBn = questionPromptBn,
+                previousWrongAnswerBn = wrongAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                explanationBn = explanationBn,
+                sourceProvenance = sourceProvenance,
+                mistakeCount = 1,
+                isResolved = false,
+                lastMistakeAt = nowMs
+            )
+        } else {
+            existing.copy(
+                previousWrongAnswerBn = wrongAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                explanationBn = explanationBn,
+                mistakeCount = existing.mistakeCount + 1,
+                isResolved = false,
+                lastMistakeAt = nowMs
+            )
+        }
+        upsertBookMistake(updatedMistake)
+
+        upsertBookSpacedRevision(
+            BookSpacedRevisionEntity(
+                itemId = revItemId,
+                itemType = "QUESTION",
+                bookId = bookId,
+                chapterNumber = chapterNumber,
+                titleBn = questionPromptBn,
+                subtitleBn = "$chapterTitleBn • সঠিক উত্তর: $correctAnswerBn",
+                intervalStage = 0,
+                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(0, nowMs),
+                lastReviewedAt = nowMs
+            )
+        )
+
+        upsertUnifiedMistakeInsideTransaction(
+            mistakeKey = "BOOK_$rawId",
+            sourceModule = "BOOK",
+            subjectId = "${bookId}_ch_${chapterNumber}",
+            curriculumTrack = "NCTB",
+            questionPromptBn = questionPromptBn,
+            userAnswerBn = wrongAnswerBn,
+            correctAnswerBn = correctAnswerBn,
+            diagnosticExplanationBn = explanationBn,
+            nowMs = nowMs
+        )
+    }
+
+    @Transaction
+    suspend fun markBookMistakeResolvedTransaction(
+        questionId: String,
+        resolved: Boolean,
+        nowMs: Long
+    ) {
+        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
+        val revItemId = "mistake_$rawId"
+        val existing = getBookMistakeById(questionId)
+            ?: getBookMistakeById(revItemId)
+            ?: getBookMistakeById(rawId)
+        if (existing != null) {
+            upsertBookMistake(
+                existing.copy(
+                    isResolved = resolved,
+                    lastMistakeAt = nowMs
+                )
+            )
+        }
+        val unifiedKey = "BOOK_$rawId"
+        if (resolved) {
+            val existingRev = getBookSpacedRevisionById(revItemId)
+            if (existingRev != null) {
+                val nextStage = (existingRev.intervalStage + 1).coerceAtMost(4)
+                upsertBookSpacedRevision(
+                    existingRev.copy(
+                        intervalStage = nextStage,
+                        nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, nowMs),
+                        lastReviewedAt = nowMs
+                    )
+                )
+            }
+            resolveUnifiedMistakeInsideTransaction(unifiedKey, nowMs)
+        } else {
+            val existingUnified = getUnifiedMistakeByKey(unifiedKey)
+            if (existingUnified != null) {
+                upsertUnifiedMistake(
+                    existingUnified.copy(
+                        resolved = false,
+                        lastFailedAtMillis = nowMs
+                    )
+                )
+            }
+        }
+    }
+
+    @Transaction
+    suspend fun deleteBookMistakeTransaction(questionId: String) {
+        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
+        val revItemId = "mistake_$rawId"
+        deleteBookMistakeById(questionId)
+        if (revItemId != questionId) deleteBookMistakeById(revItemId)
+        if (rawId != questionId) deleteBookMistakeById(rawId)
+        deleteBookSpacedRevisionById(revItemId)
+        deleteBookSpacedRevisionById("mistake_$questionId")
+        deleteUnifiedMistakeByKey("BOOK_$rawId")
+    }
+
+    @Transaction
+    suspend fun recordBcsMistakeTransaction(
+        questionId: String,
+        subjectTrack: String,
+        topicId: String,
+        questionPromptBn: String,
+        wrongAnswerBn: String,
+        correctAnswerBn: String,
+        explanationBn: String,
+        shortcutTipBn: String,
+        provenanceBadgeBn: String,
+        examProfileId: String,
+        nowMs: Long
+    ) {
+        val rawQId = MathRepository.extractCanonicalBcsQuestionId(questionId)
+        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+        val resolvedKey = if (safeProfile == "BCS_50TH_PRELIM_2025") {
+            rawQId
+        } else {
+            "$safeProfile::$rawQId"
+        }
+        val existing = getBcsMistakeById(resolvedKey)
+        val updated = if (existing == null) {
+            BcsMistakeEntity(
+                questionId = resolvedKey,
+                subjectTrack = subjectTrack,
+                topicId = topicId,
+                questionPromptBn = questionPromptBn,
+                wrongAnswerBn = wrongAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                explanationBn = explanationBn,
+                shortcutTipBn = shortcutTipBn,
+                provenanceBadgeBn = provenanceBadgeBn,
+                mistakeCount = 1,
+                retrySuccessCount = 0,
+                isResolved = false,
+                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(0, nowMs),
+                intervalStage = 0,
+                lastMistakeAt = nowMs,
+                examProfileId = safeProfile
+            )
+        } else {
+            existing.copy(
+                wrongAnswerBn = wrongAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                explanationBn = explanationBn,
+                mistakeCount = existing.mistakeCount + 1,
+                isResolved = false,
+                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(0, nowMs),
+                intervalStage = 0,
+                lastMistakeAt = nowMs,
+                examProfileId = safeProfile
+            )
+        }
+        upsertBcsMistake(updated)
+        upsertUnifiedMistakeInsideTransaction(
+            mistakeKey = "BCS_${safeProfile}_$rawQId",
+            sourceModule = "BCS",
+            subjectId = topicId.ifBlank { subjectTrack },
+            curriculumTrack = "BCS",
+            questionPromptBn = questionPromptBn,
+            userAnswerBn = wrongAnswerBn,
+            correctAnswerBn = correctAnswerBn,
+            diagnosticExplanationBn = explanationBn,
+            nowMs = nowMs
+        )
+    }
+
+    @Transaction
+    suspend fun markBcsMistakeResolvedTransaction(
+        questionId: String,
+        nowMs: Long,
+        examProfileId: String
+    ) {
+        val rawQId = MathRepository.extractCanonicalBcsQuestionId(questionId)
+        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+        val scopedKey = if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
+            "$examProfileId::$rawQId"
+        } else {
+            rawQId
+        }
+        val existing = getBcsMistakeById(questionId)
+            ?: getBcsMistakeById(scopedKey)
+            ?: (if (examProfileId.isBlank() || examProfileId == "BCS_50TH_PRELIM_2025") getBcsMistakeById(rawQId) else null)
+        if (existing != null) {
+            val nextStage = (existing.intervalStage + 1).coerceAtMost(4)
+            upsertBcsMistake(
+                existing.copy(
+                    isResolved = true,
+                    retrySuccessCount = existing.retrySuccessCount + 1,
+                    intervalStage = nextStage,
+                    nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, nowMs),
+                    lastMistakeAt = nowMs
+                )
+            )
+        }
+        resolveUnifiedMistakeInsideTransaction("BCS_${safeProfile}_$rawQId", nowMs)
+        resolveUnifiedMistakeInsideTransaction("BCS_$rawQId", nowMs)
+    }
+
+    @Transaction
+    suspend fun deleteBcsMistakeTransaction(questionId: String, examProfileId: String) {
+        val rawQId = MathRepository.extractCanonicalBcsQuestionId(questionId)
+        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+        deleteBcsMistakeById(questionId)
+        if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
+            deleteBcsMistakeById("$examProfileId::$rawQId")
+        }
+        if (rawQId != questionId) {
+            deleteBcsMistakeById(rawQId)
+        }
+        deleteUnifiedMistakeByKey("BCS_${safeProfile}_$rawQId")
+        deleteUnifiedMistakeByKey("BCS_$rawQId")
+    }
+
+    @Transaction
+    suspend fun finalizeExamAttemptTransaction(
+        completedAttempt: ExamAttemptEntity,
+        perTopicStats: List<TopicExamStat>,
+        bcsTopicUpdates: List<BcsTopicExamUpdate>,
+        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>
+    ) {
+        val now = completedAttempt.completedAt ?: System.currentTimeMillis()
+        val finalAttempt = if (completedAttempt.completedAt != null) {
+            completedAttempt
+        } else {
+            completedAttempt.copy(completedAt = now)
+        }
+        upsertExamAttempt(finalAttempt)
+
+        val roundedPct = finalAttempt.percentage.roundToInt().coerceIn(0, 100)
+        insertQuizScore(
+            QuizScoreEntity(
+                topic = finalAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
+                topicTitleBn = finalAttempt.examTitleBn,
+                score = finalAttempt.correctCount,
+                totalQuestions = finalAttempt.totalQuestions,
+                percentage = roundedPct,
+                timestamp = now
+            )
+        )
+
+        // Batch TopicAnalytics reads & upserts
+        val effectiveTopicStats = if (perTopicStats.isNotEmpty()) {
+            perTopicStats
+        } else {
+            listOf(
+                TopicExamStat(
+                    topicId = completedAttempt.selectedTopicsCsv.ifBlank { "MIXED" },
+                    topicTitleBn = completedAttempt.examTitleBn,
+                    totalQuestions = completedAttempt.totalQuestions,
+                    correctCount = completedAttempt.correctCount,
+                    wrongCount = completedAttempt.wrongCount,
+                    unansweredCount = completedAttempt.unansweredCount,
+                    timeSpentSeconds = completedAttempt.elapsedSeconds
+                )
+            )
+        }
+        val topicKeys = effectiveTopicStats.map { "QUIZ_${it.topicId}_${completedAttempt.difficulty}" }.distinct()
+        val existingTopicMap = HashMap<String, TopicAnalyticsEntity>(topicKeys.size)
+        topicKeys.chunked(200).forEach { chunk ->
+            getTopicAnalyticsByKeys(chunk).forEach { existingTopicMap[it.analyticsKey] = it }
+        }
+        val topicsToUpsert = LinkedHashMap<String, TopicAnalyticsEntity>(effectiveTopicStats.size)
+        effectiveTopicStats.forEach { stat ->
+            val key = "QUIZ_${stat.topicId}_${completedAttempt.difficulty}"
+            val current = topicsToUpsert[key] ?: existingTopicMap[key]
+            val attemptedDelta = stat.correctCount + stat.wrongCount
+            topicsToUpsert[key] = if (current == null) {
+                TopicAnalyticsEntity(
+                    analyticsKey = key,
+                    module = "QUIZ",
+                    topicId = stat.topicId,
+                    topicTitleBn = stat.topicTitleBn,
+                    difficulty = completedAttempt.difficulty,
+                    totalAttempted = max(0, attemptedDelta),
+                    totalCorrect = max(0, stat.correctCount),
+                    totalWrong = max(0, stat.wrongCount),
+                    bestStreak = max(0, stat.correctCount),
+                    totalTimeSeconds = max(0, stat.timeSpentSeconds),
+                    lastPracticedAt = now
+                )
+            } else {
+                current.copy(
+                    totalAttempted = current.totalAttempted + max(0, attemptedDelta),
+                    totalCorrect = current.totalCorrect + max(0, stat.correctCount),
+                    totalWrong = current.totalWrong + max(0, stat.wrongCount),
+                    bestStreak = max(current.bestStreak, stat.correctCount),
+                    totalTimeSeconds = current.totalTimeSeconds + max(0, stat.timeSpentSeconds),
+                    lastPracticedAt = now
+                )
+            }
+        }
+        if (topicsToUpsert.isNotEmpty()) {
+            upsertTopicAnalyticsList(topicsToUpsert.values.toList())
+        }
+
+        // Single QUIZ practice_history row
+        insertPracticeHistory(
+            PracticeHistoryEntity(
+                module = "QUIZ",
+                topicId = completedAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
+                topicTitleBn = completedAttempt.examTitleBn,
+                difficulty = completedAttempt.difficulty,
+                mode = completedAttempt.examType,
+                score = completedAttempt.finalScore.roundToInt(),
+                correctCount = completedAttempt.correctCount,
+                wrongCount = completedAttempt.wrongCount,
+                totalQuestions = completedAttempt.totalQuestions,
+                accuracyPercent = completedAttempt.accuracyPercent.roundToInt(),
+                bestStreak = completedAttempt.correctCount,
+                durationSeconds = completedAttempt.elapsedSeconds,
+                timestamp = now
+            )
+        )
+
+        // Daily study delta
+        applyDailyStudyDeltaInsideTransaction(
+            dateKey = MathRepository.todayDateKey(now),
+            questionsAttemptedDelta = completedAttempt.correctCount + completedAttempt.wrongCount,
+            correctDelta = completedAttempt.correctCount,
+            wrongDelta = completedAttempt.wrongCount,
+            studyTimeSecondsDelta = max(1, completedAttempt.elapsedSeconds),
+            examsCompletedDelta = 1,
+            practiceSessionsCompletedDelta = 0,
+            timestampMs = now
+        )
+
+        // Batch BCS Topic Progress reads & upserts
+        if (bcsTopicUpdates.isNotEmpty()) {
+            val resolvedKeys = bcsTopicUpdates.map { upd ->
+                val rawTopicId = upd.topicId.substringAfter("::", upd.topicId)
+                if (upd.examProfileId == "BCS_50TH_PRELIM_2025" || upd.examProfileId.isBlank()) {
+                    rawTopicId
+                } else {
+                    BcsTopicProgressEntity.buildScopedKey(upd.examProfileId, rawTopicId)
+                }
+            }.distinct()
+            val existingBcsTopics = HashMap<String, BcsTopicProgressEntity>(resolvedKeys.size)
+            resolvedKeys.chunked(200).forEach { chunk ->
+                getBcsTopicProgressByIds(chunk).forEach { existingBcsTopics[it.topicId] = it }
+            }
+            val bcsTopicsToUpsert = LinkedHashMap<String, BcsTopicProgressEntity>(bcsTopicUpdates.size)
+            bcsTopicUpdates.forEach { upd ->
+                val rawTopicId = upd.topicId.substringAfter("::", upd.topicId)
+                val resolvedKey = if (upd.examProfileId == "BCS_50TH_PRELIM_2025" || upd.examProfileId.isBlank()) {
+                    rawTopicId
+                } else {
+                    BcsTopicProgressEntity.buildScopedKey(upd.examProfileId, rawTopicId)
+                }
+                val existing = bcsTopicsToUpsert[resolvedKey] ?: existingBcsTopics[resolvedKey]
+                val attemptedDelta = if (upd.questionsAttemptedDelta > 0) upd.questionsAttemptedDelta else if (upd.miniCheckPassed) 1 else 0
+                val correctDelta = if (upd.questionsCorrectDelta > 0) upd.questionsCorrectDelta else if (upd.miniCheckPassed) 1 else 0
+                bcsTopicsToUpsert[resolvedKey] = if (existing == null) {
+                    val baseMastery = when {
+                        upd.miniCheckPassed && upd.isGuideCompleted -> 100
+                        upd.isGuideCompleted -> 70
+                        attemptedDelta > 0 -> ((correctDelta * 100) / attemptedDelta.coerceAtLeast(1)).coerceIn(20, 95)
+                        else -> 40
+                    }
+                    BcsTopicProgressEntity(
+                        topicId = resolvedKey,
+                        subjectTrack = upd.subjectTrack,
+                        isGuideCompleted = upd.isGuideCompleted,
+                        miniCheckPassed = upd.miniCheckPassed,
+                        questionsAttempted = attemptedDelta,
+                        questionsCorrect = correctDelta,
+                        totalTimeSeconds = upd.additionalTimeSeconds,
+                        masteryPercent = baseMastery,
+                        lastStudiedAt = now,
+                        examProfileId = upd.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+                    )
+                } else {
+                    val guideDone = existing.isGuideCompleted || upd.isGuideCompleted
+                    val checkDone = existing.miniCheckPassed || upd.miniCheckPassed
+                    val nextAttempted = existing.questionsAttempted + attemptedDelta
+                    val nextCorrect = existing.questionsCorrect + correctDelta
+                    val accuracyRatio = if (nextAttempted > 0) (nextCorrect * 100) / nextAttempted else existing.masteryPercent
+                    val computedMastery = when {
+                        guideDone && checkDone && nextAttempted >= 3 -> ((accuracyRatio + 100) / 2).coerceIn(60, 100)
+                        guideDone && checkDone -> 100
+                        guideDone -> max(75, accuracyRatio)
+                        nextAttempted > 0 -> accuracyRatio.coerceIn(15, 95)
+                        else -> existing.masteryPercent
+                    }
+                    existing.copy(
+                        isGuideCompleted = guideDone,
+                        miniCheckPassed = checkDone,
+                        questionsAttempted = nextAttempted,
+                        questionsCorrect = nextCorrect,
+                        totalTimeSeconds = existing.totalTimeSeconds + upd.additionalTimeSeconds,
+                        masteryPercent = computedMastery,
+                        lastStudiedAt = now,
+                        examProfileId = upd.examProfileId.ifBlank { existing.examProfileId }
+                    )
+                }
+            }
+            if (bcsTopicsToUpsert.isNotEmpty()) {
+                upsertBcsTopicProgressList(bcsTopicsToUpsert.values.toList())
+            }
+        }
+
+        // Batch Unified & BCS Mistake updates (unified_mistake_notebook MUST execute after prior tables)
+        if (questionMistakeOutcomes.isNotEmpty()) {
+            val unifiedKeysToQuery = LinkedHashSet<String>(questionMistakeOutcomes.size * 2)
+            val bcsKeysToQuery = LinkedHashSet<String>(questionMistakeOutcomes.size * 2)
+            questionMistakeOutcomes.forEach { o ->
+                unifiedKeysToQuery.add(o.unifiedMistakeKey)
+                if (o.isBcsSession && o.bcsQuestionId.isNotBlank()) {
+                    val rawQId = MathRepository.extractCanonicalBcsQuestionId(o.bcsQuestionId)
+                    val safeProfile = o.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+                    val resolvedBcsKey = if (safeProfile == "BCS_50TH_PRELIM_2025") rawQId else "$safeProfile::$rawQId"
+                    bcsKeysToQuery.add(resolvedBcsKey)
+                    if (o.isCorrect) {
+                        bcsKeysToQuery.add(o.bcsQuestionId)
+                        bcsKeysToQuery.add(rawQId)
+                        unifiedKeysToQuery.add("BCS_${safeProfile}_$rawQId")
+                        unifiedKeysToQuery.add("BCS_$rawQId")
+                    } else if (o.shouldRecordMistake) {
+                        unifiedKeysToQuery.add("BCS_${safeProfile}_$rawQId")
+                    }
+                }
+            }
+
+            val existingUnified = HashMap<String, UnifiedMistakeEntity>(unifiedKeysToQuery.size)
+            unifiedKeysToQuery.toList().chunked(200).forEach { chunk ->
+                getUnifiedMistakesByKeys(chunk).forEach { existingUnified[it.mistakeKey] = it }
+            }
+            val existingBcs = HashMap<String, BcsMistakeEntity>(bcsKeysToQuery.size)
+            if (bcsKeysToQuery.isNotEmpty()) {
+                bcsKeysToQuery.toList().chunked(200).forEach { chunk ->
+                    getBcsMistakesByIds(chunk).forEach { existingBcs[it.questionId] = it }
+                }
+            }
+
+            val unifiedToUpsert = LinkedHashMap<String, UnifiedMistakeEntity>()
+            val bcsToUpsert = LinkedHashMap<String, BcsMistakeEntity>()
+
+            questionMistakeOutcomes.forEach { o ->
+                if (!o.isCorrect && o.shouldRecordMistake) {
+                    val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
+                    unifiedToUpsert[o.unifiedMistakeKey] = buildRecordedUnifiedMistake(
+                        existing = prevUnified,
+                        mistakeKey = o.unifiedMistakeKey,
+                        sourceModule = o.sourceModule,
+                        subjectId = o.subjectId,
+                        curriculumTrack = o.curriculumTrack,
+                        questionPromptBn = o.questionPromptBn,
+                        userAnswerBn = o.userAnswerBn,
+                        correctAnswerBn = o.correctAnswerBn,
+                        diagnosticExplanationBn = o.diagnosticExplanationBn,
+                        nowMs = now
+                    )
+                    if (o.isBcsSession) {
+                        val qId = o.bcsQuestionId.ifBlank { "bcs_q_${kotlin.math.abs(o.questionPromptBn.hashCode())}" }
+                        val rawQId = MathRepository.extractCanonicalBcsQuestionId(qId)
+                        val safeProfile = o.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+                        val resolvedBcsKey = if (safeProfile == "BCS_50TH_PRELIM_2025") rawQId else "$safeProfile::$rawQId"
+                        val prevBcs = bcsToUpsert[resolvedBcsKey] ?: existingBcs[resolvedBcsKey]
+                        bcsToUpsert[resolvedBcsKey] = if (prevBcs == null) {
+                            BcsMistakeEntity(
+                                questionId = resolvedBcsKey,
+                                subjectTrack = "MATH_REASONING",
+                                topicId = o.bcsTopicId,
+                                questionPromptBn = o.questionPromptBn,
+                                wrongAnswerBn = o.userAnswerBn,
+                                correctAnswerBn = o.correctAnswerBn,
+                                explanationBn = o.diagnosticExplanationBn,
+                                shortcutTipBn = "",
+                                provenanceBadgeBn = "",
+                                mistakeCount = 1,
+                                retrySuccessCount = 0,
+                                isResolved = false,
+                                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(0, now),
+                                intervalStage = 0,
+                                lastMistakeAt = now,
+                                examProfileId = safeProfile
+                            )
+                        } else {
+                            prevBcs.copy(
+                                wrongAnswerBn = o.userAnswerBn,
+                                correctAnswerBn = o.correctAnswerBn,
+                                explanationBn = o.diagnosticExplanationBn,
+                                mistakeCount = prevBcs.mistakeCount + 1,
+                                isResolved = false,
+                                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(0, now),
+                                intervalStage = 0,
+                                lastMistakeAt = now,
+                                examProfileId = safeProfile
+                            )
+                        }
+                        val bcsUnifiedKey = "BCS_${safeProfile}_$rawQId"
+                        val prevBcsUnified = unifiedToUpsert[bcsUnifiedKey] ?: existingUnified[bcsUnifiedKey]
+                        unifiedToUpsert[bcsUnifiedKey] = buildRecordedUnifiedMistake(
+                            existing = prevBcsUnified,
+                            mistakeKey = bcsUnifiedKey,
+                            sourceModule = "BCS",
+                            subjectId = o.bcsTopicId.ifBlank { "MATH_REASONING" },
+                            curriculumTrack = "BCS",
+                            questionPromptBn = o.questionPromptBn,
+                            userAnswerBn = o.userAnswerBn,
+                            correctAnswerBn = o.correctAnswerBn,
+                            diagnosticExplanationBn = o.diagnosticExplanationBn,
+                            nowMs = now
+                        )
+                    }
+                } else if (o.isCorrect) {
+                    val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
+                    if (prevUnified != null) {
+                        unifiedToUpsert[o.unifiedMistakeKey] = buildResolvedUnifiedMistake(prevUnified, now)
+                    }
+                    if (o.isBcsSession && o.bcsQuestionId.isNotBlank()) {
+                        val rawQId = MathRepository.extractCanonicalBcsQuestionId(o.bcsQuestionId)
+                        val safeProfile = o.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+                        val scopedKey = if (o.examProfileId.isNotBlank() && o.examProfileId != "BCS_50TH_PRELIM_2025") {
+                            "${o.examProfileId}::$rawQId"
+                        } else {
+                            rawQId
+                        }
+                        val prevBcs = bcsToUpsert[o.bcsQuestionId] ?: existingBcs[o.bcsQuestionId]
+                            ?: bcsToUpsert[scopedKey] ?: existingBcs[scopedKey]
+                            ?: if (o.examProfileId.isBlank() || o.examProfileId == "BCS_50TH_PRELIM_2025") {
+                                bcsToUpsert[rawQId] ?: existingBcs[rawQId]
+                            } else {
+                                null
+                            }
+                        if (prevBcs != null) {
+                            val nextStage = (prevBcs.intervalStage + 1).coerceAtMost(4)
+                            bcsToUpsert[prevBcs.questionId] = prevBcs.copy(
+                                isResolved = true,
+                                retrySuccessCount = prevBcs.retrySuccessCount + 1,
+                                intervalStage = nextStage,
+                                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, now),
+                                lastMistakeAt = now
+                            )
+                        }
+                        val u1 = "BCS_${safeProfile}_$rawQId"
+                        val u2 = "BCS_$rawQId"
+                        (unifiedToUpsert[u1] ?: existingUnified[u1])?.let {
+                            unifiedToUpsert[u1] = buildResolvedUnifiedMistake(it, now)
+                        }
+                        (unifiedToUpsert[u2] ?: existingUnified[u2])?.let {
+                            unifiedToUpsert[u2] = buildResolvedUnifiedMistake(it, now)
+                        }
+                    }
+                }
+            }
+
+            if (unifiedToUpsert.isNotEmpty()) {
+                upsertUnifiedMistakes(unifiedToUpsert.values.toList())
+            }
+            if (bcsToUpsert.isNotEmpty()) {
+                upsertBcsMistakes(bcsToUpsert.values.toList())
+            }
+        }
+    }
+
+    private suspend fun applyDailyStudyDeltaInsideTransaction(
+        dateKey: String,
+        questionsAttemptedDelta: Int,
+        correctDelta: Int,
+        wrongDelta: Int,
+        studyTimeSecondsDelta: Int,
+        examsCompletedDelta: Int,
+        practiceSessionsCompletedDelta: Int,
+        timestampMs: Long
+    ) {
+        val existing = getDailyStudyActivityByDate(dateKey)
+        val updated = if (existing == null) {
+            val latestConfigured = getLatestDailyStudyActivity()
+            DailyStudyActivityEntity(
+                dateKey = dateKey,
+                questionsAttempted = max(0, questionsAttemptedDelta),
+                correctCount = max(0, correctDelta),
+                wrongCount = max(0, wrongDelta),
+                studyTimeSeconds = max(0, studyTimeSecondsDelta),
+                examsCompleted = max(0, examsCompletedDelta),
+                practiceSessionsCompleted = max(0, practiceSessionsCompletedDelta),
+                dailyTargetQuestions = latestConfigured?.dailyTargetQuestions ?: 20,
+                dailyTargetMinutes = latestConfigured?.dailyTargetMinutes ?: 15,
+                updatedAt = timestampMs
+            )
+        } else {
+            existing.copy(
+                questionsAttempted = existing.questionsAttempted + max(0, questionsAttemptedDelta),
+                correctCount = existing.correctCount + max(0, correctDelta),
+                wrongCount = existing.wrongCount + max(0, wrongDelta),
+                studyTimeSeconds = existing.studyTimeSeconds + max(0, studyTimeSecondsDelta),
+                examsCompleted = existing.examsCompleted + max(0, examsCompletedDelta),
+                practiceSessionsCompleted = existing.practiceSessionsCompleted + max(0, practiceSessionsCompletedDelta),
+                updatedAt = timestampMs
+            )
+        }
+        upsertDailyStudyActivity(updated)
+    }
+
+    private suspend fun upsertUnifiedMistakeInsideTransaction(
+        mistakeKey: String,
+        sourceModule: String,
+        subjectId: String,
+        curriculumTrack: String,
+        questionPromptBn: String,
+        userAnswerBn: String,
+        correctAnswerBn: String,
+        diagnosticExplanationBn: String,
+        nowMs: Long
+    ) {
+        val existing = getUnifiedMistakeByKey(mistakeKey)
+        upsertUnifiedMistake(
+            buildRecordedUnifiedMistake(
+                existing = existing,
+                mistakeKey = mistakeKey,
+                sourceModule = sourceModule,
+                subjectId = subjectId,
+                curriculumTrack = curriculumTrack,
+                questionPromptBn = questionPromptBn,
+                userAnswerBn = userAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                diagnosticExplanationBn = diagnosticExplanationBn,
+                nowMs = nowMs
+            )
+        )
+    }
+
+    private suspend fun resolveUnifiedMistakeInsideTransaction(mistakeKey: String, nowMs: Long) {
+        val existing = getUnifiedMistakeByKey(mistakeKey) ?: return
+        upsertUnifiedMistake(buildResolvedUnifiedMistake(existing, nowMs))
+    }
+
+    private fun buildRecordedUnifiedMistake(
+        existing: UnifiedMistakeEntity?,
+        mistakeKey: String,
+        sourceModule: String,
+        subjectId: String,
+        curriculumTrack: String,
+        questionPromptBn: String,
+        userAnswerBn: String,
+        correctAnswerBn: String,
+        diagnosticExplanationBn: String,
+        nowMs: Long
+    ): UnifiedMistakeEntity {
+        return if (existing == null) {
+            UnifiedMistakeEntity(
+                mistakeKey = mistakeKey,
+                sourceModule = sourceModule,
+                subjectId = subjectId,
+                curriculumTrack = curriculumTrack,
+                questionPromptBn = questionPromptBn,
+                userAnswerBn = userAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                diagnosticExplanationBn = diagnosticExplanationBn,
+                errorType = "CONCEPTUAL",
+                failureCount = 1,
+                reviewIntervalDays = 1,
+                nextReviewAtMillis = MathRepository.nextSpacedReviewEpochMs(0, nowMs),
+                resolved = false,
+                lastFailedAtMillis = nowMs
+            )
+        } else {
+            existing.copy(
+                userAnswerBn = userAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                diagnosticExplanationBn = diagnosticExplanationBn,
+                failureCount = existing.failureCount + 1,
+                reviewIntervalDays = 1,
+                nextReviewAtMillis = MathRepository.nextSpacedReviewEpochMs(0, nowMs),
+                resolved = false,
+                lastFailedAtMillis = nowMs
+            )
+        }
+    }
+
+    private fun buildResolvedUnifiedMistake(existing: UnifiedMistakeEntity, nowMs: Long): UnifiedMistakeEntity {
+        val nextIntervalDays = when (existing.reviewIntervalDays) {
+            1 -> 3
+            3 -> 7
+            7 -> 14
+            else -> 30
+        }
+        val nextStageIndex = when (nextIntervalDays) {
+            3 -> 1
+            7 -> 2
+            else -> 3
+        }
+        return existing.copy(
+            resolved = true,
+            reviewIntervalDays = nextIntervalDays,
+            nextReviewAtMillis = MathRepository.nextSpacedReviewEpochMs(nextStageIndex, nowMs),
+            lastFailedAtMillis = nowMs
+        )
+    }
 }
+
 
 

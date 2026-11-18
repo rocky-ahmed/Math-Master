@@ -351,7 +351,11 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
                                         listOf(
                                             PracticeDifficulty.EASY,
                                             PracticeDifficulty.MEDIUM,
@@ -367,14 +371,16 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
                                     }
 
                                     Spacer(modifier = Modifier.height(10.dp))
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    FlowRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
                                         Text(
                                             text = "প্রশ্ন সংখ্যা:",
                                             style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.align(Alignment.CenterVertically)
                                         )
                                         listOf(5, 10, 15, 20).forEach { count ->
                                             FilterChip(
@@ -393,14 +399,16 @@ fun QuizzesScreen(viewModel: MathViewModel, modifier: Modifier = Modifier) {
 
                                     if (selectedMode == QuizMode.TIMED) {
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        FlowRow(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
                                                 text = "সময়সীমা:",
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.align(Alignment.CenterVertically)
                                             )
                                             listOf(60 to "১ মি.", 120 to "২ মি.", 300 to "৫ মি.").forEach { (sec, label) ->
                                                 FilterChip(

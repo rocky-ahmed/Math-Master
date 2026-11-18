@@ -24,7 +24,8 @@ val LightSurfaceVariant = Color(0xFFF1F5F9)
 val LightOnBackground = Color(0xFF0F172A)
 val LightOnSurface = Color(0xFF0F172A)
 val LightOnSurfaceVariant = Color(0xFF475569)
-val LightOutline = Color(0xFFCBD5E1)
+val LightOutline = Color(0xFF64748B)
+val LightOutlineVariant = Color(0xFFCBD5E1)
 
 // Dark Palette - Sleek OLED Slate / Cyan / Amber
 val DarkPrimary = Color(0xFF93C5FD) // Electric Sky Blue
@@ -48,7 +49,8 @@ val DarkSurfaceVariant = Color(0xFF1E293B)
 val DarkOnBackground = Color(0xFFF1F5F9)
 val DarkOnSurface = Color(0xFFF8FAFC)
 val DarkOnSurfaceVariant = Color(0xFF94A3B8)
-val DarkOutline = Color(0xFF334155)
+val DarkOutline = Color(0xFF78879B)
+val DarkOutlineVariant = Color(0xFF334155)
 
 // Status & Math Accents
 val SuccessGreen = Color(0xFF10B981)

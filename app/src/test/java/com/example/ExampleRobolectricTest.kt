@@ -1415,6 +1415,7 @@ class ExampleRobolectricTest {
             assertEquals(screen, viewModel.currentScreen)
         }
         controller.pause().stop().destroy()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
     }
 
     @Test

@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -34,6 +36,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -145,10 +151,22 @@ fun LearnedStatusBadge(
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = if (isLearned) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        modifier = modifier.clickable { onToggle() }.testTag("learned_toggle_chip")
+        modifier = modifier
+            .testTag("learned_toggle_chip")
+            .heightIn(min = 48.dp)
+            .toggleable(
+                value = isLearned,
+                role = Role.Checkbox,
+                onValueChange = { onToggle() }
+            )
+            .semantics {
+                stateDescription = if (isLearned) "শেখা সম্পন্ন" else "শেখা বাকি"
+            }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -199,13 +217,27 @@ fun BanglaNumericKeypad(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     row.forEach { (label, keyAction) ->
+                        val keyDesc = when (keyAction) {
+                            "BACK" -> "মুছে ফেলুন"
+                            "-" -> "বিয়োগ বা ঋণাত্মক চিহ্ন"
+                            "." -> "দশমিক বিন্দু"
+                            "/" -> "ভগ্নাংশ দাগ"
+                            "CLEAR" -> "সব মুছুন"
+                            else -> label
+                        }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surface,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(48.dp)
-                                .clickable {
+                                .semantics {
+                                    contentDescription = keyDesc
+                                }
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = keyDesc
+                                ) {
                                     when (keyAction) {
                                         "CLEAR" -> onClear()
                                         "BACK" -> if (currentValue.isNotEmpty()) {

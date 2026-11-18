@@ -37,7 +37,8 @@ private val DarkColorScheme = darkColorScheme(
     onBackground = DarkOnBackground,
     onSurface = DarkOnSurface,
     onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline
+    outline = DarkOutline,
+    outlineVariant = DarkOutlineVariant
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -59,7 +60,8 @@ private val LightColorScheme = lightColorScheme(
     onBackground = LightOnBackground,
     onSurface = LightOnSurface,
     onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline
+    outline = LightOutline,
+    outlineVariant = LightOutlineVariant
 )
 
 @Composable
@@ -84,15 +86,17 @@ fun MathMasterTheme(
         else -> LightColorScheme
     }
 
+    val safeConfig = globalConfig?.sanitized()
+
     // Apply user custom theme overrides if present
-    val colorScheme = if (globalConfig != null) {
-        val accentColor = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customAccentHex)
-        val primaryColor = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customPrimaryActionHex)
+    val colorScheme = if (safeConfig != null) {
+        val accentColor = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customAccentHex)
+        val primaryColor = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customPrimaryActionHex)
 
         if (darkTheme) {
-            val bg = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customDarkBackgroundHex)
-            val surface = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customDarkCardSurfaceHex)
-            val text = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customDarkTextColorHex)
+            val bg = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customDarkBackgroundHex)
+            val surface = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customDarkCardSurfaceHex)
+            val text = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customDarkTextColorHex)
             baseScheme.copy(
                 primary = primaryColor ?: baseScheme.primary,
                 secondary = accentColor ?: baseScheme.secondary,
@@ -102,9 +106,9 @@ fun MathMasterTheme(
                 onSurface = text ?: baseScheme.onSurface
             )
         } else {
-            val bg = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customLightBackgroundHex)
-            val surface = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customLightCardSurfaceHex)
-            val text = com.example.ui.customization.ColorUtils.parseHexColor(globalConfig.customLightTextColorHex)
+            val bg = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customLightBackgroundHex)
+            val surface = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customLightCardSurfaceHex)
+            val text = com.example.ui.customization.ColorUtils.parseHexColor(safeConfig.customLightTextColorHex)
             baseScheme.copy(
                 primary = primaryColor ?: baseScheme.primary,
                 secondary = accentColor ?: baseScheme.secondary,
@@ -118,13 +122,13 @@ fun MathMasterTheme(
         baseScheme
     }
 
-    val baseWeight = when (globalConfig?.fontWeight) {
+    val baseWeight = when (safeConfig?.fontWeight) {
         com.example.ui.customization.CustomFontWeight.BOLD -> FontWeight.Bold
         com.example.ui.customization.CustomFontWeight.MEDIUM -> FontWeight.Medium
         com.example.ui.customization.CustomFontWeight.REGULAR -> FontWeight.Normal
         null -> FontWeight.Normal
     }
-    val scaleFactor = ((globalConfig?.interfaceScalePercent ?: 100).toFloat() / 100f).coerceIn(0.8f, 1.3f)
+    val scaleFactor = ((safeConfig?.interfaceScalePercent ?: 100).toFloat() / 100f).coerceIn(0.8f, 1.3f)
 
     val typography = Typography.copy(
         displayLarge = Typography.displayLarge.copy(fontWeight = baseWeight, fontSize = (Typography.displayLarge.fontSize.value * scaleFactor).sp),
@@ -138,7 +142,10 @@ fun MathMasterTheme(
         titleSmall = Typography.titleSmall.copy(fontWeight = baseWeight, fontSize = (Typography.titleSmall.fontSize.value * scaleFactor).sp),
         bodyLarge = Typography.bodyLarge.copy(fontWeight = baseWeight, fontSize = (Typography.bodyLarge.fontSize.value * scaleFactor).sp),
         bodyMedium = Typography.bodyMedium.copy(fontWeight = baseWeight, fontSize = (Typography.bodyMedium.fontSize.value * scaleFactor).sp),
-        bodySmall = Typography.bodySmall.copy(fontWeight = baseWeight, fontSize = (globalConfig?.subtitleFontSizeSp?.toFloat() ?: (Typography.bodySmall.fontSize.value * scaleFactor)).sp),
+        bodySmall = Typography.bodySmall.copy(
+            fontWeight = baseWeight,
+            fontSize = ((safeConfig?.subtitleFontSizeSp?.toFloat() ?: Typography.bodySmall.fontSize.value) * scaleFactor).sp
+        ),
         labelLarge = Typography.labelLarge.copy(fontWeight = baseWeight, fontSize = (Typography.labelLarge.fontSize.value * scaleFactor).sp),
         labelMedium = Typography.labelMedium.copy(fontWeight = baseWeight, fontSize = (Typography.labelMedium.fontSize.value * scaleFactor).sp),
         labelSmall = Typography.labelSmall.copy(fontWeight = baseWeight, fontSize = (Typography.labelSmall.fontSize.value * scaleFactor).sp)

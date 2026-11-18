@@ -29,7 +29,11 @@ object SolverAtomicArithmeticEngine {
     class DomainValidationException(messageBn: String) : IllegalArgumentException(messageBn)
 
     private val usSymbols = DecimalFormatSymbols(Locale.US)
-    private val df = DecimalFormat("0.####", usSymbols)
+    private val dfLocal = ThreadLocal.withInitial { DecimalFormat("0.####", usSymbols) }
+    private val AMBIGUOUS_RADICAL_POWER_REGEX = Regex("""√\s*[0-9]+(?:\.[0-9]+)?\s*(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\^)""")
+    private val HAS_OF_KEYWORD_REGEX = Regex("""(?:এর|\bof\b)""", RegexOption.IGNORE_CASE)
+    private val SPACED_SLASH_REGEX = Regex("""(?:\s+/\s*|\s*/\s+)""")
+    private val CHAINED_SLASH_REGEX = Regex("""\d+/\d+/\d+""")
 
     private val superscriptDigitMap = mapOf(
         '⁰' to '0', '¹' to '1', '²' to '2', '³' to '3', '⁴' to '4',
@@ -97,7 +101,8 @@ object SolverAtomicArithmeticEngine {
         return if (n == asLong.toDouble() && abs(n) < 9e15) {
             BengaliNumberFormatter.toBn(asLong.toString())
         } else {
-            BengaliNumberFormatter.toBn(df.format(n))
+            val formatter = dfLocal.get() ?: DecimalFormat("0.####", usSymbols)
+            BengaliNumberFormatter.toBn(formatter.format(n))
         }
     }
 
@@ -117,19 +122,16 @@ object SolverAtomicArithmeticEngine {
         validateBrackets(asciiDigitsStr)
 
         // 2. Check Level 2C radical-exponent ambiguity: unparenthesized √9² or √9^2
-        val ambiguousRadicalPower = Regex("""√\s*[0-9]+(?:\.[0-9]+)?\s*(?:[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\^)""")
-        if (ambiguousRadicalPower.containsMatchIn(asciiDigitsStr)) {
+        if (AMBIGUOUS_RADICAL_POWER_REGEX.containsMatchIn(asciiDigitsStr)) {
             throw DomainValidationException(
                 "রাশিটি অস্পষ্ট: আপনি কি √(৯²) নাকি (√৯)² বোঝাতে চেয়েছেন? অনুগ্রহ করে বন্ধনী ব্যবহার করে স্পষ্ট করুন।"
             )
         }
 
         // 3. Check Level 3 ('এর' / 'of') with spaced or chained slash '/' ambiguity
-        val hasOfKeyword = Regex("""(?:এর|\bof\b)""", RegexOption.IGNORE_CASE).containsMatchIn(asciiDigitsStr)
+        val hasOfKeyword = HAS_OF_KEYWORD_REGEX.containsMatchIn(asciiDigitsStr)
         if (hasOfKeyword) {
-            val spacedSlash = Regex("""(?:\s+/\s*|\s*/\s+)""")
-            val chainedSlash = Regex("""\d+/\d+/\d+""")
-            if (spacedSlash.containsMatchIn(asciiDigitsStr) || chainedSlash.containsMatchIn(asciiDigitsStr)) {
+            if (SPACED_SLASH_REGEX.containsMatchIn(asciiDigitsStr) || CHAINED_SLASH_REGEX.containsMatchIn(asciiDigitsStr)) {
                 throw DomainValidationException(
                     "ভগ্নাংশ ও 'এর' এর ক্রম স্পষ্ট নয়: ভগ্নাংশ হলে '১/২ এর ৮' (ফাঁকা ছাড়া) এবং ভাগ হলে '(১ ÷ ২) এর ৮' বা '১৬ ÷ ২ এর ৪' আকারে বন্ধনীসহ লিখুন।"
                 )
@@ -151,6 +153,9 @@ object SolverAtomicArithmeticEngine {
         // 6. Main atomic reduction loop: innermost brackets first, then top-level
         var safety = 0
         while (safety < 250) {
+            if (Thread.currentThread().isInterrupted) {
+                throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+            }
             safety++
             collapseTrivialBracketedNumbers(tokens)
 

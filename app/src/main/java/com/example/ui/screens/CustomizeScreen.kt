@@ -1,24 +1,31 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,7 +75,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -82,10 +96,22 @@ import com.example.ui.customization.CustomModuleRenderer
 import com.example.ui.customization.CustomFontWeight
 import com.example.ui.customization.HomeModuleItem
 import com.example.ui.customization.SectionKey
+import com.example.ui.customization.resolveEffectiveGridColumns
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
 import com.example.ui.theme.AppThemeMode
+import com.example.ui.theme.DarkBackground
+import com.example.ui.theme.DarkOnSurface
+import com.example.ui.theme.DarkOnSurfaceVariant
+import com.example.ui.theme.DarkOutline
+import com.example.ui.theme.DarkSurface
+import com.example.ui.theme.LightBackground
+import com.example.ui.theme.LightOnSurface
+import com.example.ui.theme.LightOnSurfaceVariant
+import com.example.ui.theme.LightOutline
+import com.example.ui.theme.LightSurface
 import com.example.ui.theme.MathSpacing
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,6 +133,13 @@ fun CustomizeScreen(
     var showResetAllDialog by remember { mutableStateOf(false) }
     var showSavedSnackbar by remember { mutableStateOf(false) }
     val tabListState = rememberManagedLazyListState(viewModel, "customize:tab_$selectedTabIndex")
+
+    val isSystemDark = isSystemInDarkTheme()
+    val isDarkActive = when (currentThemeMode) {
+        AppThemeMode.DARK -> true
+        AppThemeMode.LIGHT -> false
+        AppThemeMode.SYSTEM -> isSystemDark
+    }
 
     val tabs = listOf(
         "লেআউট",
@@ -160,7 +193,9 @@ fun CustomizeScreen(
                         viewModel.discardCustomizationPreview()
                         viewModel.navigateBack()
                     },
-                    modifier = Modifier.testTag("btn_cancel_customization")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_cancel_customization")
                 ) {
                     Text("বাতিল / পূর্বাবস্থা", fontSize = 12.sp)
                 }
@@ -171,7 +206,9 @@ fun CustomizeScreen(
                         showSavedSnackbar = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.testTag("btn_save_customization")
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_save_customization")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Save,
@@ -186,8 +223,11 @@ fun CustomizeScreen(
 
         if (showSavedSnackbar) {
             Surface(
-                color = Color(0xFF10B981),
-                modifier = Modifier.fillMaxWidth()
+                color = Color(0xFF065F46),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+                    .testTag("customize_saved_banner")
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -198,9 +238,13 @@ fun CustomizeScreen(
                         text = "✓ পরিবর্তনসমূহ সফলভাবে সংরক্ষিত হয়েছে!",
                         color = Color.White,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { showSavedSnackbar = false }) {
+                    TextButton(
+                        onClick = { showSavedSnackbar = false },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
                         Text("ঠিক আছে", color = Color.White, fontSize = 12.sp)
                     }
                 }
@@ -277,10 +321,12 @@ fun CustomizeScreen(
                     item {
                         SectionAppearanceCustomizationSection(
                             previewState = previewState,
+                            isDarkTheme = isDarkActive,
                             selectedSection = selectedSectionKey,
                             onSelectSection = { selectedSectionKey = it },
                             onUpdateSection = { key, updater -> viewModel.updatePreviewSection(key, updater) },
-                            onResetSection = { key -> viewModel.resetPreviewSection(key) }
+                            onResetSection = { key -> viewModel.resetPreviewSection(key) },
+                            onResetAllSections = { viewModel.resetPreviewCategory("SECTIONS") }
                         )
                     }
                 }
@@ -354,6 +400,7 @@ fun CustomizeScreen(
 // ==========================================
 // CATEGORY 1: LAYOUT CUSTOMIZATION
 // ==========================================
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LayoutCustomizationSection(
     previewState: com.example.ui.customization.AppCustomizationState,
@@ -361,120 +408,174 @@ fun LayoutCustomizationSection(
     onResetCategory: () -> Unit
 ) {
     val global = previewState.global
+    val density = LocalDensity.current
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "১. হোম স্ক্রিন লেআউট শৈলী",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                TextButton(onClick = onResetCategory) {
-                    Text("ডিফল্ট", fontSize = 12.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Layout Style Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CustomLayoutType.values().forEach { type ->
-                    FilterChip(
-                        selected = global.layoutType == type,
-                        onClick = { onUpdateGlobal { it.copy(layoutType = type) } },
-                        label = { Text(type.displayNameBn.split(" ")[0], fontSize = 11.sp) },
-                        modifier = Modifier.testTag("chip_layout_${type.name.lowercase()}")
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val contentWidthDp = (maxWidth - 32.dp).coerceAtLeast(0.dp).value.toInt()
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "১. হোম স্ক্রিন লেআউট শৈলী",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
                     )
+                    TextButton(
+                        onClick = onResetCategory,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_layout_category")
+                    ) {
+                        Text("ডিফল্ট", fontSize = 12.sp)
+                    }
                 }
-            }
 
-            if (global.layoutType == CustomLayoutType.GRID) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Layout Style Chips (FlowRow wraps cleanly on 320dp screens)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    CustomLayoutType.values().forEach { type ->
+                        FilterChip(
+                            selected = global.layoutType == type,
+                            onClick = { onUpdateGlobal { it.copy(layoutType = type) } },
+                            label = { Text(type.displayNameBn.split(" ")[0], fontSize = 11.sp) },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("chip_layout_${type.name.lowercase()}")
+                        )
+                    }
+                }
+
+                if (global.layoutType == CustomLayoutType.GRID) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    val effectiveCols = resolveEffectiveGridColumns(
+                        requestedColumns = global.gridColumns,
+                        availableGridContentWidthDp = contentWidthDp,
+                        horizontalGapDp = global.horizontalGapDp,
+                        fontScale = density.fontScale,
+                        interfaceScalePercent = global.interfaceScalePercent
+                    )
+                    Text(
+                        text = "গ্রিড কলাম সংখ্যা: ${BengaliNumberFormatter.toBn(global.gridColumns)} কলাম",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Slider(
+                        value = global.gridColumns.toFloat(),
+                        onValueChange = { onUpdateGlobal { g -> g.copy(gridColumns = it.toInt()) } },
+                        valueRange = 1f..4f,
+                        steps = 2,
+                        modifier = Modifier.testTag("slider_grid_columns")
+                    )
+                    if (effectiveCols < global.gridColumns) {
+                        Text(
+                            text = "নোট: বর্তমান স্ক্রিন প্রস্থ ও ফন্ট স্কেলে স্পষ্টতা বজায় রাখতে সর্বোচ্চ ${BengaliNumberFormatter.toBn(effectiveCols)} কলাম দেখানো হবে।",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("grid_columns_capped_info")
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Corner Radius Slider
                 Text(
-                    text = "গ্রিড কলাম সংখ্যা: ${BengaliNumberFormatter.toBn(global.gridColumns)} কলাম",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+                    text = "কার্ড কর্নার রাউন্ড (কোণ বাঁকা): ${BengaliNumberFormatter.toBn(global.cornerRadiusDp)} dp",
+                    style = MaterialTheme.typography.bodyMedium
                 )
                 Slider(
-                    value = global.gridColumns.toFloat(),
-                    onValueChange = { onUpdateGlobal { g -> g.copy(gridColumns = it.toInt()) } },
-                    valueRange = 1f..4f,
-                    steps = 2,
-                    modifier = Modifier.testTag("slider_grid_columns")
+                    value = global.cornerRadiusDp.toFloat(),
+                    onValueChange = { onUpdateGlobal { g -> g.copy(cornerRadiusDp = it.toInt()) } },
+                    valueRange = 4f..32f,
+                    modifier = Modifier.testTag("slider_corner_radius")
                 )
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Corner Radius Slider
-            Text(
-                text = "কার্ড কর্নার রাউন্ড (কোণ বাঁকা): ${BengaliNumberFormatter.toBn(global.cornerRadiusDp)} dp",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Slider(
-                value = global.cornerRadiusDp.toFloat(),
-                onValueChange = { onUpdateGlobal { g -> g.copy(cornerRadiusDp = it.toInt()) } },
-                valueRange = 4f..32f,
-                modifier = Modifier.testTag("slider_corner_radius")
-            )
-
-            // Horizontal & Vertical Gaps
-            Text(
-                text = "কার্ডের মধ্যবর্তী ফাঁকা (Spacing): ${BengaliNumberFormatter.toBn(global.verticalGapDp)} dp",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Slider(
-                value = global.verticalGapDp.toFloat(),
-                onValueChange = { onUpdateGlobal { g -> g.copy(verticalGapDp = it.toInt(), horizontalGapDp = it.toInt()) } },
-                valueRange = 4f..24f,
-                modifier = Modifier.testTag("slider_card_gap")
-            )
-
-            // Content Alignment Center Switch
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                // Horizontal & Vertical Gaps
                 Text(
-                    text = "কার্ডের লেখা মাঝে সারিবদ্ধ (Center Align)",
+                    text = "কার্ডের মধ্যবর্তী ফাঁকা (Spacing): ${BengaliNumberFormatter.toBn(global.verticalGapDp)} dp",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Switch(
-                    checked = global.contentAlignmentCenter,
-                    onCheckedChange = { onUpdateGlobal { g -> g.copy(contentAlignmentCenter = it) } },
-                    modifier = Modifier.testTag("switch_center_align")
+                Slider(
+                    value = global.verticalGapDp.toFloat(),
+                    onValueChange = { onUpdateGlobal { g -> g.copy(verticalGapDp = it.toInt(), horizontalGapDp = it.toInt()) } },
+                    valueRange = 4f..24f,
+                    modifier = Modifier.testTag("slider_card_gap")
                 )
-            }
 
-            // Show Border Switch
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+                // Global Icon Size Slider (Unwired Field #1)
                 Text(
-                    text = "কার্ডের চারপাশে আউটলাইন বর্ডার",
+                    text = "গ্লোবাল আইকনের আকার: ${BengaliNumberFormatter.toBn(global.iconSizeDp)} dp",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                Switch(
-                    checked = global.showBorder,
-                    onCheckedChange = { onUpdateGlobal { g -> g.copy(showBorder = it, borderThicknessDp = if (it) 1 else 0) } },
-                    modifier = Modifier.testTag("switch_show_border")
+                Slider(
+                    value = global.iconSizeDp.toFloat().coerceIn(20f, 44f),
+                    onValueChange = { onUpdateGlobal { g -> g.copy(iconSizeDp = it.toInt()) } },
+                    valueRange = 20f..44f,
+                    modifier = Modifier.testTag("slider_global_icon_size")
                 )
+
+                // Global Icon-to-Text Spacing Slider (Unwired Field #2)
+                Text(
+                    text = "আইকন ও লেখার মধ্যবর্তী ফাঁকা: ${BengaliNumberFormatter.toBn(global.iconTextSpacingDp)} dp",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Slider(
+                    value = global.iconTextSpacingDp.toFloat().coerceIn(8f, 28f),
+                    onValueChange = { onUpdateGlobal { g -> g.copy(iconTextSpacingDp = it.toInt()) } },
+                    valueRange = 8f..28f,
+                    modifier = Modifier.testTag("slider_global_icon_text_spacing")
+                )
+
+                // Content Alignment Center Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "কার্ডের লেখা মাঝে সারিবদ্ধ (Center Align)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = global.contentAlignmentCenter,
+                        onCheckedChange = { onUpdateGlobal { g -> g.copy(contentAlignmentCenter = it) } },
+                        modifier = Modifier.testTag("switch_center_align")
+                    )
+                }
+
+                // Show Border Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "কার্ডের চারপাশে আউটলাইন বর্ডার",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = global.showBorder,
+                        onCheckedChange = { onUpdateGlobal { g -> g.copy(showBorder = it, borderThicknessDp = if (it) 1 else 0) } },
+                        modifier = Modifier.testTag("switch_show_border")
+                    )
+                }
             }
         }
     }
@@ -483,6 +584,7 @@ fun LayoutCustomizationSection(
 // ==========================================
 // CATEGORY 2: TYPOGRAPHY CUSTOMIZATION
 // ==========================================
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TypographyCustomizationSection(
     previewState: com.example.ui.customization.AppCustomizationState,
@@ -504,9 +606,15 @@ fun TypographyCustomizationSection(
                 Text(
                     text = "২. ফন্ট ও টাইপোগ্রাফি",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onResetCategory) {
+                TextButton(
+                    onClick = onResetCategory,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_reset_typography_category")
+                ) {
                     Text("ডিফল্ট", fontSize = 12.sp)
                 }
             }
@@ -520,16 +628,19 @@ fun TypographyCustomizationSection(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 CustomFontWeight.values().forEach { weight ->
                     FilterChip(
                         selected = global.fontWeight == weight,
                         onClick = { onUpdateGlobal { it.copy(fontWeight = weight) } },
                         label = { Text(weight.displayNameBn.split(" ")[0], fontSize = 12.sp) },
-                        modifier = Modifier.testTag("chip_font_weight_${weight.name.lowercase()}")
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("chip_font_weight_${weight.name.lowercase()}")
                     )
                 }
             }
@@ -559,6 +670,19 @@ fun TypographyCustomizationSection(
                 valueRange = 10f..18f,
                 modifier = Modifier.testTag("slider_subtitle_font_size")
             )
+
+            // Interface Scale Percent Slider (Unwired Field #3)
+            Text(
+                text = "সামগ্রিক ইন্টারফেস স্কেল: ${BengaliNumberFormatter.toBn(global.interfaceScalePercent)}%",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Slider(
+                value = global.interfaceScalePercent.toFloat().coerceIn(80f, 130f),
+                onValueChange = { onUpdateGlobal { g -> g.copy(interfaceScalePercent = it.toInt()) } },
+                valueRange = 80f..130f,
+                steps = 9,
+                modifier = Modifier.testTag("slider_interface_scale")
+            )
         }
     }
 }
@@ -575,6 +699,7 @@ fun IconCustomizationSection(
     onResetSection: (SectionKey) -> Unit
 ) {
     val sectionConfig = previewState.getSectionConfig(selectedSection)
+    val effectiveIconSize = sectionConfig.iconSizeDp.takeIf { it > 0 } ?: previewState.global.iconSizeDp
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -597,7 +722,9 @@ fun IconCustomizationSection(
                         selected = selectedSection == section,
                         onClick = { onSelectSection(section) },
                         label = { Text(section.titleBn.split(" ")[0], fontSize = 11.sp) },
-                        modifier = Modifier.testTag("chip_sec_${section.name.lowercase()}")
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("chip_sec_${section.name.lowercase()}")
                     )
                 }
             }
@@ -614,10 +741,13 @@ fun IconCustomizationSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
@@ -644,7 +774,12 @@ fun IconCustomizationSection(
                     }
                 }
 
-                TextButton(onClick = { onResetSection(selectedSection) }) {
+                TextButton(
+                    onClick = { onResetSection(selectedSection) },
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_reset_section_icon")
+                ) {
                     Text("রিসেট", fontSize = 12.sp)
                 }
             }
@@ -652,12 +787,33 @@ fun IconCustomizationSection(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Icon Size Slider
-            Text(
-                text = "আইকনের আকার: ${BengaliNumberFormatter.toBn(sectionConfig.iconSizeDp)} dp",
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (sectionConfig.iconSizeDp > 0) {
+                        "আইকনের আকার: ${BengaliNumberFormatter.toBn(sectionConfig.iconSizeDp)} dp"
+                    } else {
+                        "আইকনের আকার: গ্লোবাল (${BengaliNumberFormatter.toBn(effectiveIconSize)} dp)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (sectionConfig.iconSizeDp > 0) {
+                    TextButton(
+                        onClick = { onUpdateSection(selectedSection) { cfg -> cfg.copy(iconSizeDp = 0) } },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_inherit_global_icon_size")
+                    ) {
+                        Text("গ্লোবাল", fontSize = 11.sp)
+                    }
+                }
+            }
             Slider(
-                value = sectionConfig.iconSizeDp.toFloat(),
+                value = effectiveIconSize.toFloat().coerceIn(20f, 44f),
                 onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(iconSizeDp = it.toInt()) } },
                 valueRange = 20f..44f,
                 modifier = Modifier.testTag("slider_icon_size")
@@ -673,25 +829,38 @@ fun IconCustomizationSection(
             )
             Spacer(modifier = Modifier.height(6.dp))
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("icon_picker_row")
+            ) {
                 items(AvailableIcon.values()) { iconChoice ->
+                    val isSelected = activeIcon == iconChoice
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (activeIcon == iconChoice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                        border = if (activeIcon == iconChoice) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                         modifier = Modifier
                             .size(48.dp)
-                            .clickable {
-                                onUpdateSection(selectedSection) { cfg -> cfg.copy(iconId = iconChoice.id) }
+                            .clip(RoundedCornerShape(8.dp))
+                            .selectable(
+                                selected = isSelected,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    onUpdateSection(selectedSection) { cfg -> cfg.copy(iconId = iconChoice.id) }
+                                }
+                            )
+                            .semantics {
+                                contentDescription = iconChoice.displayNameBn
+                                stateDescription = if (isSelected) "নির্বাচিত" else "নির্বাচিত নয়"
                             }
                             .testTag("icon_pick_${iconChoice.id}")
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = iconChoice.toImageVector(),
-                                contentDescription = iconChoice.displayNameBn,
+                                contentDescription = null,
                                 modifier = Modifier.size(22.dp),
-                                tint = if (activeIcon == iconChoice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -707,14 +876,95 @@ fun IconCustomizationSection(
 @Composable
 fun SectionAppearanceCustomizationSection(
     previewState: com.example.ui.customization.AppCustomizationState,
+    isDarkTheme: Boolean,
     selectedSection: SectionKey,
     onSelectSection: (SectionKey) -> Unit,
     onUpdateSection: (SectionKey, (com.example.ui.customization.SectionCustomConfig) -> com.example.ui.customization.SectionCustomConfig) -> Unit,
-    onResetSection: (SectionKey) -> Unit
+    onResetSection: (SectionKey) -> Unit,
+    onResetAllSections: () -> Unit
 ) {
+    val global = previewState.global
     val sectionConfig = previewState.getSectionConfig(selectedSection)
-    var hexInput by remember { mutableStateOf("") }
-    var contrastWarning by remember { mutableStateOf(false) }
+    var hexInput by remember(selectedSection) { mutableStateOf("") }
+
+    // Explicit opaque parentSurface invariant: always resolve active Light/Dark backdrop with alpha == 1.0f
+    val activeParentSurface = if (isDarkTheme) {
+        ColorUtils.parseHexColor(global.customDarkBackgroundHex) ?: DarkBackground
+    } else {
+        ColorUtils.parseHexColor(global.customLightBackgroundHex) ?: LightBackground
+    }
+    val activeDefaultCardSurface = if (isDarkTheme) {
+        ColorUtils.parseHexColor(global.customDarkCardSurfaceHex) ?: DarkSurface
+    } else {
+        ColorUtils.parseHexColor(global.customLightCardSurfaceHex) ?: LightSurface
+    }
+    val activeDefaultTitleColor = if (isDarkTheme) {
+        ColorUtils.parseHexColor(global.customDarkTextColorHex) ?: DarkOnSurface
+    } else {
+        ColorUtils.parseHexColor(global.customLightTextColorHex) ?: LightOnSurface
+    }
+    val activeDefaultSubtitleColor = if (isDarkTheme) DarkOnSurfaceVariant else LightOnSurfaceVariant
+
+    val sectionBgColor = ColorUtils.parseHexColor(sectionConfig.backgroundHex)
+    val effectiveCardBg = ColorUtils.compositeOver(sectionBgColor ?: activeDefaultCardSurface, activeParentSurface)
+
+    val effTitleColor = ColorUtils.parseHexColor(sectionConfig.titleColorHex) ?: activeDefaultTitleColor
+    val effSubtitleColor = ColorUtils.parseHexColor(sectionConfig.subtitleColorHex) ?: activeDefaultSubtitleColor
+    val customIconColor = ColorUtils.parseHexColor(sectionConfig.iconColorHex)
+    val effectiveBorderThickness = if (sectionConfig.borderThicknessDp > 0) {
+        sectionConfig.borderThicknessDp
+    } else if (global.showBorder) {
+        global.borderThicknessDp.coerceAtLeast(1)
+    } else {
+        0
+    }
+    val customBorderColor = ColorUtils.parseHexColor(sectionConfig.borderColorHex)
+
+    // Evaluate conservative WCAG 2.1 contrast thresholds (4.5:1 all text, 3.0:1 non-text UI)
+    val titleRatio = ColorUtils.calculateContrastRatio(effTitleColor, effectiveCardBg, activeParentSurface)
+    val subtitleRatio = ColorUtils.calculateContrastRatio(effSubtitleColor, effectiveCardBg, activeParentSurface)
+    val iconRatio = customIconColor?.let {
+        ColorUtils.calculateContrastRatio(it, effectiveCardBg, activeParentSurface)
+    }
+    val borderRatio = if (effectiveBorderThickness > 0 && customBorderColor != null) {
+        ColorUtils.calculateContrastRatio(customBorderColor, activeParentSurface, activeParentSurface)
+    } else {
+        null
+    }
+
+    val pendingHexBg = ColorUtils.parseHexColor(hexInput)
+    val pendingEffectiveBg = pendingHexBg?.let { ColorUtils.compositeOver(it, activeParentSurface) }
+    val pendingTitleRatio = pendingEffectiveBg?.let {
+        ColorUtils.calculateContrastRatio(effTitleColor, it, activeParentSurface)
+    }
+
+    data class ContrastIssue(val labelBn: String, val ratio: Double, val required: Double)
+    val activeIssue: ContrastIssue? = when {
+        titleRatio < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO ->
+            ContrastIssue("শিরোনামের লেখা", titleRatio, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO)
+        subtitleRatio < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO ->
+            ContrastIssue("উপশিরোনামের লেখা", subtitleRatio, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO)
+        iconRatio != null && iconRatio < ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO ->
+            ContrastIssue("আইকন রঙ", iconRatio, ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO)
+        borderRatio != null && borderRatio < ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO ->
+            ContrastIssue("বর্ডার রঙ", borderRatio, ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO)
+        pendingTitleRatio != null && pendingTitleRatio < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO ->
+            ContrastIssue("প্রস্তাবিত ব্যাকগ্রাউন্ড", pendingTitleRatio, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO)
+        else -> null
+    }
+
+    val neutralSwatches = listOf(
+        Color(0xFF0F172A) to "গাঢ় স্লেট",
+        Color(0xFFFFFFFF) to "সাদা",
+        Color(0xFF1E3A8A) to "রয়েল ব্লু",
+        Color(0xFF0F766E) to "ডিপ টিল",
+        Color(0xFF7C3AED) to "পার্পল",
+        Color(0xFFE11D48) to "ক্রিমসন",
+        Color(0xFFB45309) to "অ্যাম্বার",
+        Color(0xFF93C5FD) to "স্কাই ব্লু",
+        Color(0xFF5EEAD4) to "উজ্জ্বল টিল",
+        Color(0xFFFCD34D) to "উজ্জ্বল হলুদ"
+    )
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -729,15 +979,31 @@ fun SectionAppearanceCustomizationSection(
                 Text(
                     text = "৪. স্বতন্ত্র সেকশন ডিজাইন",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { onResetSection(selectedSection) }) {
-                    Text("এই সেকশন রিসেট", fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = { onResetSection(selectedSection) },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_selected_section")
+                    ) {
+                        Text("সেকশন রিসেট", fontSize = 11.sp)
+                    }
+                    TextButton(
+                        onClick = onResetAllSections,
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_all_sections")
+                    ) {
+                        Text("সব সেকশন রিসেট", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
 
             Text(
-                text = "নির্দিষ্ট সেকশনের নিজস্ব ব্যাকগ্রাউন্ড, টেক্সট কালার ও বর্ডার সেট করুন।",
+                text = "নির্দিষ্ট সেকশনের ব্যাকগ্রাউন্ড, টেক্সট, আইকন রঙ, ফন্টের মাপ, বর্ডার ও উচ্চতা সেট করুন।",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -750,7 +1016,10 @@ fun SectionAppearanceCustomizationSection(
                     FilterChip(
                         selected = selectedSection == sec,
                         onClick = { onSelectSection(sec) },
-                        label = { Text(sec.titleBn.split(" ")[0], fontSize = 11.sp) }
+                        label = { Text(sec.titleBn.split(" ")[0], fontSize = 11.sp) },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("chip_appearance_sec_${sec.name.lowercase()}")
                     )
                 }
             }
@@ -760,11 +1029,28 @@ fun SectionAppearanceCustomizationSection(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Section Background Color Palette Picker
-            Text(
-                text = "সেকশন ব্যাকগ্রাউন্ড রঙ:",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "সেকশন ব্যাকগ্রাউন্ড রঙ:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (sectionConfig.backgroundHex != null) {
+                    TextButton(
+                        onClick = { onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = null) } },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_clear_section_bg")
+                    ) {
+                        Text("ডিফল্ট", fontSize = 11.sp)
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(6.dp))
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -776,12 +1062,21 @@ fun SectionAppearanceCustomizationSection(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .clickable {
-                                onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = hexStr) }
-                            },
+                            .selectable(
+                                selected = isSelected,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = hexStr) }
+                                }
+                            )
+                            .semantics {
+                                contentDescription = "সেকশন ব্যাকগ্রাউন্ড $label"
+                                stateDescription = if (isSelected) "নির্বাচিত" else "নির্বাচিত নয়"
+                            }
+                            .testTag("sec_bg_swatch_${hexStr.removePrefix("#").lowercase()}"),
                         shape = CircleShape,
                         color = paletteColor,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(3.dp, Color.White) else null
+                        border = if (isSelected) BorderStroke(3.dp, Color.White) else null
                     ) {
                         if (isSelected) {
                             Box(contentAlignment = Alignment.Center) {
@@ -801,13 +1096,7 @@ fun SectionAppearanceCustomizationSection(
             ) {
                 OutlinedTextField(
                     value = hexInput,
-                    onValueChange = {
-                        hexInput = it
-                        if (ColorUtils.isValidHex(it)) {
-                            val parsed = ColorUtils.parseHexColor(it)
-                            contrastWarning = parsed != null && !ColorUtils.hasAdequateContrast(Color.White, parsed)
-                        }
-                    },
+                    onValueChange = { hexInput = it },
                     label = { Text("হেক্স কালার কোড (যেমন #1E3A8A)", fontSize = 11.sp) },
                     modifier = Modifier
                         .weight(1f)
@@ -817,31 +1106,261 @@ fun SectionAppearanceCustomizationSection(
                 Spacer(modifier = Modifier.width(8.dp))
                 Button(
                     onClick = {
-                        if (ColorUtils.isValidHex(hexInput)) {
-                            onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = hexInput.trim()) }
+                        ColorUtils.normalizeHexOrNull(hexInput)?.let { normalized ->
+                            onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = normalized) }
                             hexInput = ""
                         }
                     },
-                    enabled = ColorUtils.isValidHex(hexInput)
+                    enabled = ColorUtils.isValidHex(hexInput),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_apply_hex_color")
                 ) {
                     Text("প্রয়োগ")
                 }
             }
 
-            if (contrastWarning) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "সতর্কতা: এই রঙের উপর সাদা লেখা পড়তে সমস্যা হতে পারে (Contrast low)।",
-                        fontSize = 11.sp,
-                        color = Color(0xFFD97706)
-                    )
+            if (activeIssue != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .testTag("section_contrast_warning_card")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = "কনট্রাস্ট সতর্কতা",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "সতর্কতা (${activeIssue.labelBn}): বর্তমান কনট্রাস্ট ${String.format(Locale.US, "%.2f", activeIssue.ratio)}:১, প্রয়োজন ন্যূনতম ${String.format(Locale.US, "%.1f", activeIssue.required)}:১।",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val targetCardBg = pendingEffectiveBg ?: effectiveCardBg
+                                if (pendingEffectiveBg != null) {
+                                    ColorUtils.normalizeHexOrNull(hexInput)?.let { normalized ->
+                                        onUpdateSection(selectedSection) { cfg -> cfg.copy(backgroundHex = normalized) }
+                                        hexInput = ""
+                                    }
+                                }
+                                val adjustedTitle = if (ColorUtils.calculateContrastRatio(effTitleColor, targetCardBg, activeParentSurface) < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO) {
+                                    ColorUtils.toHex(
+                                        ColorUtils.suggestAccessibleColor(
+                                            foreground = effTitleColor,
+                                            background = targetCardBg,
+                                            parentSurface = activeParentSurface,
+                                            minRatio = ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+                                        )
+                                    )
+                                } else {
+                                    sectionConfig.titleColorHex
+                                }
+                                val adjustedSubtitle = if (ColorUtils.calculateContrastRatio(effSubtitleColor, targetCardBg, activeParentSurface) < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO) {
+                                    ColorUtils.toHex(
+                                        ColorUtils.suggestAccessibleColor(
+                                            foreground = effSubtitleColor,
+                                            background = targetCardBg,
+                                            parentSurface = activeParentSurface,
+                                            minRatio = ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+                                        )
+                                    )
+                                } else {
+                                    sectionConfig.subtitleColorHex
+                                }
+                                val adjustedIcon = if (customIconColor != null && ColorUtils.calculateContrastRatio(customIconColor, targetCardBg, activeParentSurface) < ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO) {
+                                    ColorUtils.toHex(
+                                        ColorUtils.suggestAccessibleColor(
+                                            foreground = customIconColor,
+                                            background = targetCardBg,
+                                            parentSurface = activeParentSurface,
+                                            minRatio = ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO
+                                        )
+                                    )
+                                } else {
+                                    sectionConfig.iconColorHex
+                                }
+                                val adjustedBorder = if (effectiveBorderThickness > 0 && customBorderColor != null && ColorUtils.calculateContrastRatio(customBorderColor, activeParentSurface, activeParentSurface) < ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO) {
+                                    ColorUtils.toHex(
+                                        ColorUtils.suggestAccessibleColor(
+                                            foreground = customBorderColor,
+                                            background = activeParentSurface,
+                                            parentSurface = activeParentSurface,
+                                            minRatio = ColorUtils.REQUIRED_NON_TEXT_CONTRAST_RATIO
+                                        )
+                                    )
+                                } else {
+                                    sectionConfig.borderColorHex
+                                }
+                                onUpdateSection(selectedSection) { cfg ->
+                                    cfg.copy(
+                                        titleColorHex = adjustedTitle,
+                                        subtitleColorHex = adjustedSubtitle,
+                                        iconColorHex = adjustedIcon,
+                                        borderColorHex = adjustedBorder
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .testTag("btn_fix_section_contrast")
+                        ) {
+                            Text("উপযুক্ত রঙ প্রয়োগ করুন", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Title Text Color (Unwired Section #9)
+            SectionColorSwatchRow(
+                titleBn = "শিরোনামের রঙ (Title Color):",
+                selectedHex = sectionConfig.titleColorHex,
+                options = neutralSwatches,
+                testTagPrefix = "sec_title_color",
+                clearTestTag = "btn_clear_section_title_color",
+                onSelectHex = { hex -> onUpdateSection(selectedSection) { cfg -> cfg.copy(titleColorHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Subtitle Text Color (Unwired Section #10)
+            SectionColorSwatchRow(
+                titleBn = "উপশিরোনামের রঙ (Subtitle Color):",
+                selectedHex = sectionConfig.subtitleColorHex,
+                options = neutralSwatches,
+                testTagPrefix = "sec_subtitle_color",
+                clearTestTag = "btn_clear_section_subtitle_color",
+                onSelectHex = { hex -> onUpdateSection(selectedSection) { cfg -> cfg.copy(subtitleColorHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Icon Color (Unwired Section #8)
+            SectionColorSwatchRow(
+                titleBn = "আইকনের রঙ (Icon Color):",
+                selectedHex = sectionConfig.iconColorHex,
+                options = neutralSwatches,
+                testTagPrefix = "sec_icon_color",
+                clearTestTag = "btn_clear_section_icon_color",
+                onSelectHex = { hex -> onUpdateSection(selectedSection) { cfg -> cfg.copy(iconColorHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Section Title Font Size Override (Unwired Section #11)
+            val effTitleFontSp = sectionConfig.titleFontSizeSp.takeIf { it > 0 } ?: global.titleFontSizeSp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (sectionConfig.titleFontSizeSp > 0) {
+                        "সেকশন শিরোনাম ফন্ট: ${BengaliNumberFormatter.toBn(sectionConfig.titleFontSizeSp)} sp"
+                    } else {
+                        "সেকশন শিরোনাম ফন্ট: গ্লোবাল (${BengaliNumberFormatter.toBn(effTitleFontSp)} sp)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (sectionConfig.titleFontSizeSp > 0) {
+                    TextButton(
+                        onClick = { onUpdateSection(selectedSection) { cfg -> cfg.copy(titleFontSizeSp = 0) } },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_section_title_font")
+                    ) {
+                        Text("গ্লোবাল", fontSize = 11.sp)
+                    }
+                }
+            }
+            Slider(
+                value = effTitleFontSp.toFloat().coerceIn(13f, 24f),
+                onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(titleFontSizeSp = it.toInt()) } },
+                valueRange = 13f..24f,
+                modifier = Modifier.testTag("slider_section_title_font_size")
+            )
+
+            // Section Subtitle Font Size Override (Unwired Section #12)
+            val effSubtitleFontSp = sectionConfig.subtitleFontSizeSp.takeIf { it > 0 } ?: global.subtitleFontSizeSp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (sectionConfig.subtitleFontSizeSp > 0) {
+                        "সেকশন উপশিরোনাম ফন্ট: ${BengaliNumberFormatter.toBn(sectionConfig.subtitleFontSizeSp)} sp"
+                    } else {
+                        "সেকশন উপশিরোনাম ফন্ট: গ্লোবাল (${BengaliNumberFormatter.toBn(effSubtitleFontSp)} sp)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (sectionConfig.subtitleFontSizeSp > 0) {
+                    TextButton(
+                        onClick = { onUpdateSection(selectedSection) { cfg -> cfg.copy(subtitleFontSizeSp = 0) } },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_section_subtitle_font")
+                    ) {
+                        Text("গ্লোবাল", fontSize = 11.sp)
+                    }
+                }
+            }
+            Slider(
+                value = effSubtitleFontSp.toFloat().coerceIn(10f, 18f),
+                onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(subtitleFontSizeSp = it.toInt()) } },
+                valueRange = 10f..18f,
+                modifier = Modifier.testTag("slider_section_subtitle_font_size")
+            )
+
+            // Border Thickness Slider (Unwired Section #13)
+            Text(
+                text = "সেকশন বর্ডার পুরুত্ব: ${BengaliNumberFormatter.toBn(sectionConfig.borderThicknessDp)} dp",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Slider(
+                value = sectionConfig.borderThicknessDp.toFloat().coerceIn(0f, 6f),
+                onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(borderThicknessDp = it.toInt()) } },
+                valueRange = 0f..6f,
+                steps = 5,
+                modifier = Modifier.testTag("slider_section_border_thickness")
+            )
+
+            // Border Color Swatches (Unwired Section #14)
+            SectionColorSwatchRow(
+                titleBn = "বর্ডার রঙ (Border Color):",
+                selectedHex = sectionConfig.borderColorHex,
+                options = ColorUtils.PRESET_PALETTES + neutralSwatches.take(2),
+                testTagPrefix = "sec_border_color",
+                clearTestTag = "btn_clear_section_border_color",
+                onSelectHex = { hex -> onUpdateSection(selectedSection) { cfg -> cfg.copy(borderColorHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Card Padding Slider
             Text(
@@ -849,9 +1368,10 @@ fun SectionAppearanceCustomizationSection(
                 style = MaterialTheme.typography.bodyMedium
             )
             Slider(
-                value = sectionConfig.paddingDp.toFloat(),
+                value = sectionConfig.paddingDp.toFloat().coerceIn(8f, 24f),
                 onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(paddingDp = it.toInt()) } },
-                valueRange = 8f..24f
+                valueRange = 8f..24f,
+                modifier = Modifier.testTag("slider_section_padding")
             )
 
             // Corner Radius Slider
@@ -860,10 +1380,108 @@ fun SectionAppearanceCustomizationSection(
                 style = MaterialTheme.typography.bodyMedium
             )
             Slider(
-                value = sectionConfig.cornerRadiusDp.toFloat(),
+                value = sectionConfig.cornerRadiusDp.toFloat().coerceIn(4f, 32f),
                 onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(cornerRadiusDp = it.toInt()) } },
-                valueRange = 4f..32f
+                valueRange = 4f..32f,
+                modifier = Modifier.testTag("slider_section_corner_radius")
             )
+
+            // Card Min Height Slider (Unwired Section #15)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (sectionConfig.cardHeightDp > 0) {
+                        "কার্ডের ন্যূনতম উচ্চতা: ${BengaliNumberFormatter.toBn(sectionConfig.cardHeightDp)} dp"
+                    } else {
+                        "কার্ডের উচ্চতা: স্বয়ংক্রিয় (Auto)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (sectionConfig.cardHeightDp > 0) {
+                    TextButton(
+                        onClick = { onUpdateSection(selectedSection) { cfg -> cfg.copy(cardHeightDp = 0) } },
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("btn_reset_section_card_height")
+                    ) {
+                        Text("স্বয়ংক্রিয়", fontSize = 11.sp)
+                    }
+                }
+            }
+            Slider(
+                value = if (sectionConfig.cardHeightDp > 0) sectionConfig.cardHeightDp.toFloat().coerceIn(120f, 240f) else 160f,
+                onValueChange = { onUpdateSection(selectedSection) { cfg -> cfg.copy(cardHeightDp = it.toInt()) } },
+                valueRange = 120f..240f,
+                modifier = Modifier.testTag("slider_section_card_height")
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionColorSwatchRow(
+    titleBn: String,
+    selectedHex: String?,
+    options: List<Pair<Color, String>>,
+    testTagPrefix: String,
+    clearTestTag: String,
+    onSelectHex: (String?) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = titleBn,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        if (selectedHex != null) {
+            TextButton(
+                onClick = { onSelectHex(null) },
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag(clearTestTag)
+            ) {
+                Text("ডিফল্ট", fontSize = 11.sp)
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(6.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(options) { (color, label) ->
+            val hexStr = ColorUtils.toHex(color)
+            val isSelected = selectedHex.equals(hexStr, ignoreCase = true)
+            val checkTint = if (ColorUtils.relativeLuminance(color) > 0.45) Color(0xFF0F172A) else Color.White
+            Surface(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelectHex(hexStr) }
+                    )
+                    .semantics {
+                        contentDescription = "$titleBn $label"
+                        stateDescription = if (isSelected) "নির্বাচিত" else "নির্বাচিত নয়"
+                    }
+                    .testTag("${testTagPrefix}_${hexStr.removePrefix("#").lowercase()}"),
+                shape = CircleShape,
+                color = color,
+                border = if (isSelected) BorderStroke(3.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, Color.Gray)
+            ) {
+                if (isSelected) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = checkTint, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
         }
     }
 }
@@ -871,6 +1489,7 @@ fun SectionAppearanceCustomizationSection(
 // ==========================================
 // CATEGORY 5: GLOBAL THEME & COLORS
 // ==========================================
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GlobalThemeCustomizationSection(
     previewState: com.example.ui.customization.AppCustomizationState,
@@ -880,6 +1499,22 @@ fun GlobalThemeCustomizationSection(
     onResetCategory: () -> Unit
 ) {
     val global = previewState.global
+
+    val lightParent = ColorUtils.parseHexColor(global.customLightBackgroundHex) ?: LightBackground
+    val lightCardSurface = ColorUtils.parseHexColor(global.customLightCardSurfaceHex) ?: LightSurface
+    val lightTextColor = ColorUtils.parseHexColor(global.customLightTextColorHex) ?: LightOnSurface
+    val lightCardContrast = ColorUtils.calculateContrastRatio(lightTextColor, lightCardSurface, lightParent)
+    val lightBgContrast = ColorUtils.calculateContrastRatio(lightTextColor, lightParent, lightParent)
+    val lightMinContrast = minOf(lightCardContrast, lightBgContrast)
+    val hasLightContrastFailure = lightMinContrast < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+
+    val darkParent = ColorUtils.parseHexColor(global.customDarkBackgroundHex) ?: DarkBackground
+    val darkCardSurface = ColorUtils.parseHexColor(global.customDarkCardSurfaceHex) ?: DarkSurface
+    val darkTextColor = ColorUtils.parseHexColor(global.customDarkTextColorHex) ?: DarkOnSurface
+    val darkCardContrast = ColorUtils.calculateContrastRatio(darkTextColor, darkCardSurface, darkParent)
+    val darkBgContrast = ColorUtils.calculateContrastRatio(darkTextColor, darkParent, darkParent)
+    val darkMinContrast = minOf(darkCardContrast, darkBgContrast)
+    val hasDarkContrastFailure = darkMinContrast < ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -894,15 +1529,21 @@ fun GlobalThemeCustomizationSection(
                 Text(
                     text = "৫. গ্লোবাল থিম ও রঙের প্যালেট",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = onResetCategory) {
+                TextButton(
+                    onClick = onResetCategory,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("btn_reset_global_theme_category")
+                ) {
                     Text("ডিফল্ট কালার", fontSize = 12.sp)
                 }
             }
 
             Text(
-                text = "লাইট ও ডার্ক মোডের জন্য প্রাথমিক ও অ্যাকসেন্ট রঙ কাস্টমাইজ করুন।",
+                text = "লাইট ও ডার্ক মোডের প্রাথমিক, কার্ড সারফেস ও লেখার রঙ কাস্টমাইজ করুন।",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -916,16 +1557,19 @@ fun GlobalThemeCustomizationSection(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(modifier = Modifier.height(6.dp))
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 AppThemeMode.values().forEach { mode ->
                     FilterChip(
                         selected = themeMode == mode,
                         onClick = { onSetThemeMode(mode) },
                         label = { Text(mode.titleBn, fontSize = 12.sp) },
-                        modifier = Modifier.testTag("chip_theme_${mode.name.lowercase()}")
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .testTag("chip_theme_${mode.name.lowercase()}")
                     )
                 }
             }
@@ -935,11 +1579,15 @@ fun GlobalThemeCustomizationSection(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Global Accent Color
-            Text(text = "অ্যাপের প্রাথমিক রঙ (Primary Theme Color):", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "অ্যাপের প্রাথমিক রঙ (Primary Theme Color):",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(modifier = Modifier.height(6.dp))
 
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ColorUtils.PRESET_PALETTES) { (paletteColor, _) ->
+                items(ColorUtils.PRESET_PALETTES) { (paletteColor, label) ->
                     val hexStr = ColorUtils.toHex(paletteColor)
                     val isSelected = global.customPrimaryActionHex.equals(hexStr, ignoreCase = true)
 
@@ -947,12 +1595,21 @@ fun GlobalThemeCustomizationSection(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .clickable {
-                                onUpdateGlobal { it.copy(customPrimaryActionHex = hexStr, customAccentHex = hexStr) }
-                            },
+                            .selectable(
+                                selected = isSelected,
+                                role = Role.RadioButton,
+                                onClick = {
+                                    onUpdateGlobal { it.copy(customPrimaryActionHex = hexStr, customAccentHex = hexStr) }
+                                }
+                            )
+                            .semantics {
+                                contentDescription = "প্রাথমিক রঙ $label"
+                                stateDescription = if (isSelected) "নির্বাচিত" else "নির্বাচিত নয়"
+                            }
+                            .testTag("global_primary_swatch_${hexStr.removePrefix("#").lowercase()}"),
                         shape = CircleShape,
                         color = paletteColor,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(3.dp, Color.White) else null
+                        border = if (isSelected) BorderStroke(3.dp, Color.White) else null
                     ) {
                         if (isSelected) {
                             Box(contentAlignment = Alignment.Center) {
@@ -968,9 +1625,6 @@ fun GlobalThemeCustomizationSection(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Light Background Palette
-            Text(text = "লাইট মোড ব্যাকগ্রাউন্ড রঙ:", style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(6.dp))
-
             val lightBgOptions = listOf(
                 Color(0xFFF8FAFC) to "স্লেট হালকা",
                 Color(0xFFF1F5F9) to "হালকা গ্রে",
@@ -978,37 +1632,96 @@ fun GlobalThemeCustomizationSection(
                 Color(0xFFF0FDF4) to "হালকা সবুজ",
                 Color(0xFFFFFBEB) to "হালকা হলুদ"
             )
+            SectionColorSwatchRow(
+                titleBn = "লাইট মোড ব্যাকগ্রাউন্ড রঙ:",
+                selectedHex = global.customLightBackgroundHex,
+                options = lightBgOptions,
+                testTagPrefix = "light_bg_swatch",
+                clearTestTag = "btn_clear_light_bg",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customLightBackgroundHex = hex) } }
+            )
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(lightBgOptions) { (color, label) ->
-                    val hexStr = ColorUtils.toHex(color)
-                    val isSelected = global.customLightBackgroundHex.equals(hexStr, ignoreCase = true)
-                    Surface(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                onUpdateGlobal { it.copy(customLightBackgroundHex = hexStr) }
-                            },
-                        shape = CircleShape,
-                        color = color,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
-                    ) {
-                        if (isSelected) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.DarkGray, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Light Card Surface Palette (Unwired Global #4)
+            val lightCardOptions = listOf(
+                Color(0xFFFFFFFF) to "সাদা",
+                Color(0xFFF8FAFC) to "স্লেট হালকা",
+                Color(0xFFF1F5F9) to "হালকা গ্রে",
+                Color(0xFFEFF6FF) to "হালকা ব্লু",
+                Color(0xFFECFDF5) to "মিন্ট হালকা",
+                Color(0xFFFEF3C7) to "হালকা অ্যাম্বার",
+                Color(0xFF1E293B) to "গাঢ় স্লেট"
+            )
+            SectionColorSwatchRow(
+                titleBn = "লাইট মোড কার্ড সারফেস রঙ:",
+                selectedHex = global.customLightCardSurfaceHex,
+                options = lightCardOptions,
+                testTagPrefix = "light_card_swatch",
+                clearTestTag = "btn_clear_light_card_surface",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customLightCardSurfaceHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Light Text Color Palette (Unwired Global #5)
+            val lightTextOptions = listOf(
+                Color(0xFF0F172A) to "ডিপ স্লেট",
+                Color(0xFF1E293B) to "চারকোল",
+                Color(0xFF1E3A8A) to "রয়েল ব্লু",
+                Color(0xFF065F46) to "ডিপ গ্রিন",
+                Color(0xFF7C2D12) to "ডার্ক ব্রাউন",
+                Color(0xFF94A3B8) to "হালকা গ্রে (সতর্কতা পরীক্ষা)",
+                Color(0xFFFFFFFF) to "সাদা"
+            )
+            SectionColorSwatchRow(
+                titleBn = "লাইট মোড লেখার রঙ:",
+                selectedHex = global.customLightTextColorHex,
+                options = lightTextOptions,
+                testTagPrefix = "light_text_swatch",
+                clearTestTag = "btn_clear_light_text_color",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customLightTextColorHex = hex) } }
+            )
+
+            if (hasLightContrastFailure) {
+                Spacer(modifier = Modifier.height(8.dp))
+                GlobalContrastWarningBanner(
+                    modeLabelBn = "লাইট মোড",
+                    ratio = lightMinContrast,
+                    warningTag = "contrast_warning_global_light",
+                    fixButtonTag = "btn_fix_contrast_global_light",
+                    onFixClick = {
+                        val fixedText = resolveDualSurfaceAccessibleTextColor(
+                            textColor = lightTextColor,
+                            cardSurface = lightCardSurface,
+                            parentSurface = lightParent
+                        )
+                        if (fixedText != null) {
+                            onUpdateGlobal { it.copy(customLightTextColorHex = ColorUtils.toHex(fixedText)) }
+                        } else {
+                            // Card and backdrop conflict; align card surface to default LightSurface and compute accessible text
+                            val alignedText = ColorUtils.suggestAccessibleColor(
+                                foreground = lightTextColor,
+                                background = LightSurface,
+                                parentSurface = lightParent,
+                                minRatio = ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+                            )
+                            onUpdateGlobal {
+                                it.copy(
+                                    customLightCardSurfaceHex = ColorUtils.toHex(LightSurface),
+                                    customLightTextColorHex = ColorUtils.toHex(alignedText)
+                                )
                             }
                         }
                     }
-                }
+                )
             }
 
             Spacer(modifier = Modifier.height(14.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Dark Background Palette
-            Text(text = "ডার্ক মোড ব্যাকগ্রাউন্ড রঙ:", style = MaterialTheme.typography.bodyMedium)
-            Spacer(modifier = Modifier.height(6.dp))
-
             val darkBgOptions = listOf(
                 Color(0xFF0B0F19) to "ডিপ নেভি",
                 Color(0xFF111827) to "স্লেট ডার্ক",
@@ -1016,29 +1729,160 @@ fun GlobalThemeCustomizationSection(
                 Color(0xFF042F2E) to "ডিপ টিল ডার্ক",
                 Color(0xFF1E1E24) to "চারকোল"
             )
+            SectionColorSwatchRow(
+                titleBn = "ডার্ক মোড ব্যাকগ্রাউন্ড রঙ:",
+                selectedHex = global.customDarkBackgroundHex,
+                options = darkBgOptions,
+                testTagPrefix = "dark_bg_swatch",
+                clearTestTag = "btn_clear_dark_bg",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customDarkBackgroundHex = hex) } }
+            )
 
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(darkBgOptions) { (color, label) ->
-                    val hexStr = ColorUtils.toHex(color)
-                    val isSelected = global.customDarkBackgroundHex.equals(hexStr, ignoreCase = true)
-                    Surface(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable {
-                                onUpdateGlobal { it.copy(customDarkBackgroundHex = hexStr) }
-                            },
-                        shape = CircleShape,
-                        color = color,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray)
-                    ) {
-                        if (isSelected) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dark Card Surface Palette (Unwired Global #6)
+            val darkCardOptions = listOf(
+                Color(0xFF111827) to "স্লেট ডার্ক",
+                Color(0xFF1E293B) to "মিড স্লেট",
+                Color(0xFF0F172A) to "ডিপ নেভি",
+                Color(0xFF042F2E) to "ডিপ টিল",
+                Color(0xFF1E1B4B) to "ডিপ ইন্ডিগো",
+                Color(0xFF27272A) to "চারকোল",
+                Color(0xFFF8FAFC) to "হালকা স্লেট"
+            )
+            SectionColorSwatchRow(
+                titleBn = "ডার্ক মোড কার্ড সারফেস রঙ:",
+                selectedHex = global.customDarkCardSurfaceHex,
+                options = darkCardOptions,
+                testTagPrefix = "dark_card_swatch",
+                clearTestTag = "btn_clear_dark_card_surface",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customDarkCardSurfaceHex = hex) } }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Dark Text Color Palette (Unwired Global #7)
+            val darkTextOptions = listOf(
+                Color(0xFFF8FAFC) to "উজ্জ্বল স্লেট",
+                Color(0xFFF1F5F9) to "হালকা সাদা",
+                Color(0xFF93C5FD) to "স্কাই ব্লু",
+                Color(0xFF5EEAD4) to "ইলেকট্রিক টিল",
+                Color(0xFFFCD34D) to "উজ্জ্বল অ্যাম্বার",
+                Color(0xFF334155) to "ডার্ক স্লেট (সতর্কতা পরীক্ষা)",
+                Color(0xFF0F172A) to "কালচে স্লেট"
+            )
+            SectionColorSwatchRow(
+                titleBn = "ডার্ক মোড লেখার রঙ:",
+                selectedHex = global.customDarkTextColorHex,
+                options = darkTextOptions,
+                testTagPrefix = "dark_text_swatch",
+                clearTestTag = "btn_clear_dark_text_color",
+                onSelectHex = { hex -> onUpdateGlobal { it.copy(customDarkTextColorHex = hex) } }
+            )
+
+            if (hasDarkContrastFailure) {
+                Spacer(modifier = Modifier.height(8.dp))
+                GlobalContrastWarningBanner(
+                    modeLabelBn = "ডার্ক মোড",
+                    ratio = darkMinContrast,
+                    warningTag = "contrast_warning_global_dark",
+                    fixButtonTag = "btn_fix_contrast_global_dark",
+                    onFixClick = {
+                        val fixedText = resolveDualSurfaceAccessibleTextColor(
+                            textColor = darkTextColor,
+                            cardSurface = darkCardSurface,
+                            parentSurface = darkParent
+                        )
+                        if (fixedText != null) {
+                            onUpdateGlobal { it.copy(customDarkTextColorHex = ColorUtils.toHex(fixedText)) }
+                        } else {
+                            val alignedText = ColorUtils.suggestAccessibleColor(
+                                foreground = darkTextColor,
+                                background = DarkSurface,
+                                parentSurface = darkParent,
+                                minRatio = ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+                            )
+                            onUpdateGlobal {
+                                it.copy(
+                                    customDarkCardSurfaceHex = ColorUtils.toHex(DarkSurface),
+                                    customDarkTextColorHex = ColorUtils.toHex(alignedText)
+                                )
                             }
                         }
                     }
-                }
+                )
+            }
+        }
+    }
+}
+
+private fun resolveDualSurfaceAccessibleTextColor(
+    textColor: Color,
+    cardSurface: Color,
+    parentSurface: Color
+): Color? {
+    val primaryCandidate = ColorUtils.suggestAccessibleColor(
+        foreground = textColor,
+        background = cardSurface,
+        parentSurface = parentSurface,
+        minRatio = ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO
+    )
+    if (ColorUtils.hasAdequateContrast(primaryCandidate, cardSurface, parentSurface, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO) &&
+        ColorUtils.hasAdequateContrast(primaryCandidate, parentSurface, parentSurface, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO)
+    ) {
+        return primaryCandidate
+    }
+    val fallbacks = listOf(Color(0xFF0F172A), Color(0xFFF8FAFC), Color.Black, Color.White)
+    return fallbacks.firstOrNull { cand ->
+        ColorUtils.hasAdequateContrast(cand, cardSurface, parentSurface, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO) &&
+            ColorUtils.hasAdequateContrast(cand, parentSurface, parentSurface, ColorUtils.REQUIRED_TEXT_CONTRAST_RATIO)
+    }
+}
+
+@Composable
+private fun GlobalContrastWarningBanner(
+    modeLabelBn: String,
+    ratio: Double,
+    warningTag: String,
+    fixButtonTag: String,
+    onFixClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag(warningTag)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = "কনট্রাস্ট সতর্কতা",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "সতর্কতা ($modeLabelBn): বর্তমান টেক্সট কনট্রাস্ট ${String.format(Locale.US, "%.2f", ratio)}:১, প্রয়োজন ন্যূনতম ৪.৫:১।",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedButton(
+                onClick = onFixClick,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag(fixButtonTag)
+            ) {
+                Text("উপযুক্ত রঙ প্রয়োগ করুন", fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -1,12 +1,11 @@
 package com.example.ui.screens
 
-import android.content.res.Configuration
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -77,6 +76,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -98,6 +98,7 @@ import com.example.ui.customization.HomeModuleItem
 import com.example.ui.customization.MathModuleGridCard
 import com.example.ui.customization.SectionKey
 import com.example.ui.customization.TableModuleCard
+import com.example.ui.customization.resolveEffectiveGridColumns
 import com.example.ui.theme.AppThemeMode
 
 @Composable
@@ -106,15 +107,14 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
-    val progressList by viewModel.progressList.collectAsStateWithLifecycle()
-    val quizScores by viewModel.quizScores.collectAsStateWithLifecycle()
+    val learnedTablesCount by viewModel.learnedTablesCount.collectAsStateWithLifecycle()
+    val quizScoresCount by viewModel.quizScoresCount.collectAsStateWithLifecycle()
+    val recentQuizScores by viewModel.recentQuizScores.collectAsStateWithLifecycle()
     val customState by viewModel.customizationState.collectAsStateWithLifecycle()
     val studyTimerState by viewModel.studySessionTimer.collectAsStateWithLifecycle()
 
     var showThemeMenu by remember { mutableStateOf(false) }
 
-    val learnedTablesCount = progressList.count { it.itemId.startsWith("table_") && it.isLearned }
     val learnedPercentage = (learnedTablesCount * 100) / 40
 
     val homeModules = remember(viewModel) {
@@ -203,29 +203,41 @@ fun HomeScreen(
             }
         )
 
-        val configuration = LocalConfiguration.current
-        val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val screenWidthDp = configuration.screenWidthDp
-        val columns = if (customState.global.layoutType == CustomLayoutType.GRID) {
-            if (isLandscape || screenWidthDp >= 600) {
-                maxOf(customState.global.gridColumns, if (screenWidthDp >= 840) 4 else 3)
-            } else {
-                customState.global.gridColumns.coerceIn(1, 4)
-            }
-        } else {
-            1
-        }
         val gridState = com.example.ui.rememberManagedLazyGridState(
             viewModel = viewModel,
             stateKey = Screen.Home.route
         )
+        val density = LocalDensity.current
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            state = gridState,
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("home_module_grid"),
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val requestedColumns = if (customState.global.layoutType == CustomLayoutType.GRID) {
+                val widthFloor = when {
+                    maxWidth >= 840.dp -> 4
+                    maxWidth >= 600.dp -> 3
+                    else -> customState.global.gridColumns
+                }
+                maxOf(customState.global.gridColumns, widthFloor)
+            } else {
+                1
+            }
+            val columns = if (customState.global.layoutType == CustomLayoutType.GRID) {
+                resolveEffectiveGridColumns(
+                    requestedColumns = requestedColumns,
+                    availableGridContentWidthDp = (maxWidth - 32.dp).coerceAtLeast(0.dp).value.toInt(),
+                    horizontalGapDp = customState.global.horizontalGapDp,
+                    fontScale = density.fontScale,
+                    interfaceScalePercent = customState.global.interfaceScalePercent
+                )
+            } else {
+                1
+            }
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                state = gridState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("home_module_grid"),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
@@ -241,7 +253,7 @@ fun HomeScreen(
                     learnedCount = learnedTablesCount,
                     totalTables = 40,
                     percentage = learnedPercentage,
-                    quizCount = quizScores.size,
+                    quizCount = quizScoresCount,
                     onStartPractice = { viewModel.startTutor(5) },
                     onOpenDashboard = { viewModel.navigateTo(Screen.Dashboard) }
                 )
@@ -272,6 +284,7 @@ fun HomeScreen(
             items(
                 items = homeModules,
                 key = { it.sectionKey.id },
+                contentType = { "home_module" },
                 span = {
                     if (customState.global.layoutType == CustomLayoutType.GRID) {
                         GridItemSpan(1)
@@ -315,7 +328,7 @@ fun HomeScreen(
 
 
             // Recent Quiz Results
-            if (quizScores.isNotEmpty()) {
+            if (recentQuizScores.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "home_quiz_header") {
                     Spacer(modifier = Modifier.height(10.dp))
                     MathSectionHeader(
@@ -334,7 +347,11 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = 0.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(quizScores.take(5)) { score ->
+                        items(
+                            items = recentQuizScores,
+                            key = { it.id },
+                            contentType = { "recent_quiz" }
+                        ) { score ->
                             ElevatedCard(
                                 colors = CardDefaults.elevatedCardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -382,6 +399,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 }

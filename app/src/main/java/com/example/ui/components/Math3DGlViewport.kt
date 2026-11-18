@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -43,6 +46,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -117,34 +121,43 @@ fun Math3DStudioViewport(
         }
     }
 
+    val reusablePath = remember { Path() }
+
     Box(modifier = modifier.background(backgroundColor)) {
         if (renderWithGl) {
             val context = LocalContext.current
             val lifecycleOwner = LocalLifecycleOwner.current
             val glHolder = remember(context) { Math3DGlSurfaceHolder(context) }
+            var glView by remember { mutableStateOf<GLSurfaceView?>(null) }
 
-            DisposableEffect(lifecycleOwner, glHolder) {
-                if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                    glHolder.glSurfaceView.onResume()
+            DisposableEffect(lifecycleOwner, glView, glHolder) {
+                val activeView = glView
+                if (activeView != null && lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    activeView.onResume()
                 }
                 val observer = LifecycleEventObserver { _, event ->
                     when (event) {
-                        Lifecycle.Event.ON_RESUME -> glHolder.glSurfaceView.onResume()
-                        Lifecycle.Event.ON_PAUSE -> glHolder.glSurfaceView.onPause()
+                        Lifecycle.Event.ON_RESUME -> (glView ?: glHolder.glSurfaceView).onResume()
+                        Lifecycle.Event.ON_PAUSE -> (glView ?: glHolder.glSurfaceView).onPause()
                         else -> Unit
                     }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose {
                     lifecycleOwner.lifecycle.removeObserver(observer)
-                    glHolder.glSurfaceView.onPause()
+                    (glView ?: glHolder.glSurfaceView).onPause()
                     glHolder.renderer.releaseClientBuffers()
                 }
             }
 
             AndroidView(
-                factory = { glHolder.glSurfaceView },
+                factory = {
+                    glHolder.glSurfaceView.also { glView = it }
+                },
                 update = {
+                    if (glView !== it) {
+                        glView = it
+                    }
                     glHolder.renderer.updateScene(
                         faces = faces,
                         lines = internalLines,
@@ -175,17 +188,15 @@ fun Math3DStudioViewport(
                     drawLine(color = gridColor, start = Offset(0f, gy), end = Offset(size.width, gy), strokeWidth = 1f)
                     gy += step
                 }
-            }
 
-            val scene = Math3DEngine.projectScene(
-                faces = faces,
-                internalLines = internalLines,
-                camera = camera,
-                canvasWidth = size.width,
-                canvasHeight = size.height
-            )
+                val scene = Math3DEngine.projectScene(
+                    faces = faces,
+                    internalLines = internalLines,
+                    camera = camera,
+                    canvasWidth = size.width,
+                    canvasHeight = size.height
+                )
 
-            if (!renderWithGl) {
                 val faceAlphaMultiplier = when (highlightMode) {
                     SolidAnatomyHighlight.ALL -> 0.74f
                     SolidAnatomyHighlight.FACES -> 0.88f
@@ -194,13 +205,12 @@ fun Math3DStudioViewport(
 
                 scene.facesBackToFront.forEach { face ->
                     if (face.points.size >= 3) {
-                        val path = Path().apply {
-                            moveTo(face.points[0].x, face.points[0].y)
-                            for (i in 1 until face.points.size) {
-                                lineTo(face.points[i].x, face.points[i].y)
-                            }
-                            close()
+                        reusablePath.reset()
+                        reusablePath.moveTo(face.points[0].x, face.points[0].y)
+                        for (i in 1 until face.points.size) {
+                            reusablePath.lineTo(face.points[i].x, face.points[i].y)
                         }
+                        reusablePath.close()
                         val roleColor = when (face.colorRole) {
                             0 -> primaryColor
                             1 -> secondaryColor
@@ -219,7 +229,7 @@ fun Math3DStudioViewport(
                             blue = (roleColor.blue * face.lightIntensity).coerceIn(0f, 1f),
                             alpha = alpha
                         )
-                        drawPath(path = path, color = shadedColor, style = Fill)
+                        drawPath(path = reusablePath, color = shadedColor, style = Fill)
 
                         val strokeAlpha = if (highlightMode == SolidAnatomyHighlight.EDGES || face.isCrossSection) 1.0f else 0.78f
                         val strokeWidth = when {
@@ -228,7 +238,7 @@ fun Math3DStudioViewport(
                             else -> 1.8f
                         }
                         drawPath(
-                            path = path,
+                            path = reusablePath,
                             color = if (face.isCrossSection) Color(0xFFDC2626) else roleColor.copy(alpha = strokeAlpha),
                             style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
                         )
@@ -245,54 +255,125 @@ fun Math3DStudioViewport(
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
                     )
                 }
-            }
 
-            // Vertex highlights & Bengali labels rendered cleanly on top of either backend
-            if (highlightMode == SolidAnatomyHighlight.VERTICES || highlightMode == SolidAnatomyHighlight.ALL) {
-                val vertexRadius = if (highlightMode == SolidAnatomyHighlight.VERTICES) 7.5f else 4.0f
-                scene.uniqueVertices.forEach { v ->
-                    drawCircle(
-                        color = tertiaryColor,
-                        radius = vertexRadius,
-                        center = Offset(v.x, v.y)
-                    )
+                if (highlightMode == SolidAnatomyHighlight.VERTICES || highlightMode == SolidAnatomyHighlight.ALL) {
+                    val vertexRadius = if (highlightMode == SolidAnatomyHighlight.VERTICES) 7.5f else 4.0f
+                    scene.uniqueVertices.forEach { v ->
+                        drawCircle(
+                            color = tertiaryColor,
+                            radius = vertexRadius,
+                            center = Offset(v.x, v.y)
+                        )
+                    }
                 }
-            }
 
-            scene.internalLines.forEach { line ->
-                val lbl = line.labelBn
-                if (!lbl.isNullOrBlank()) {
-                    val midX = (line.start.x + line.end.x) / 2f
-                    val midY = (line.start.y + line.end.y) / 2f
-                    val textW = axisTextPaint.measureText(lbl)
-                    drawContext.canvas.nativeCanvas.drawRoundRect(
-                        midX - textW / 2f - 8f,
-                        midY - 26f,
-                        midX + textW / 2f + 8f,
-                        midY + 6f,
-                        8f,
-                        8f,
-                        labelPillPaint
-                    )
-                    drawContext.canvas.nativeCanvas.drawText(lbl, midX, midY - 2f, axisTextPaint)
-                }
-            }
-
-            if (highlightMode == SolidAnatomyHighlight.FACES || highlightMode == SolidAnatomyHighlight.ALL) {
-                scene.facesBackToFront.takeLast(6).forEach { face ->
-                    val lbl = face.labelBn
-                    if (!lbl.isNullOrBlank() && (face.isCrossSection || highlightMode == SolidAnatomyHighlight.FACES)) {
-                        val textW = labelTextPaint.measureText(lbl)
+                scene.internalLines.forEach { line ->
+                    val lbl = line.labelBn
+                    if (!lbl.isNullOrBlank()) {
+                        val midX = (line.start.x + line.end.x) / 2f
+                        val midY = (line.start.y + line.end.y) / 2f
+                        val textW = axisTextPaint.measureText(lbl)
                         drawContext.canvas.nativeCanvas.drawRoundRect(
-                            face.center2D.x - textW / 2f - 8f,
-                            face.center2D.y - 22f,
-                            face.center2D.x + textW / 2f + 8f,
-                            face.center2D.y + 10f,
+                            midX - textW / 2f - 8f,
+                            midY - 26f,
+                            midX + textW / 2f + 8f,
+                            midY + 6f,
                             8f,
                             8f,
                             labelPillPaint
                         )
-                        drawContext.canvas.nativeCanvas.drawText(lbl, face.center2D.x, face.center2D.y + 2f, labelTextPaint)
+                        drawContext.canvas.nativeCanvas.drawText(lbl, midX, midY - 2f, axisTextPaint)
+                    }
+                }
+
+                if (highlightMode == SolidAnatomyHighlight.FACES || highlightMode == SolidAnatomyHighlight.ALL) {
+                    scene.facesBackToFront.takeLast(6).forEach { face ->
+                        val lbl = face.labelBn
+                        if (!lbl.isNullOrBlank() && (face.isCrossSection || highlightMode == SolidAnatomyHighlight.FACES)) {
+                            val textW = labelTextPaint.measureText(lbl)
+                            drawContext.canvas.nativeCanvas.drawRoundRect(
+                                face.center2D.x - textW / 2f - 8f,
+                                face.center2D.y - 22f,
+                                face.center2D.x + textW / 2f + 8f,
+                                face.center2D.y + 10f,
+                                8f,
+                                8f,
+                                labelPillPaint
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(lbl, face.center2D.x, face.center2D.y + 2f, labelTextPaint)
+                        }
+                    }
+                }
+            } else {
+                // Hardware GL fast overlay path: skip software Math3DEngine.projectScene sorting & lighting
+                val wPx = size.width.roundToInt().coerceAtLeast(1)
+                val hPx = size.height.roundToInt().coerceAtLeast(1)
+
+                if (highlightMode == SolidAnatomyHighlight.VERTICES || highlightMode == SolidAnatomyHighlight.ALL) {
+                    val vertexRadius = if (highlightMode == SolidAnatomyHighlight.VERTICES) 7.5f else 4.0f
+                    val uniqueProjected = ArrayList<Offset>(32)
+                    outer@ for (face in faces) {
+                        if (face.isVolumeFill || face.isCrossSection) continue
+                        for (v in face.vertices) {
+                            val pt = Math3DGlRenderer.projectPointThroughGlPipeline(v, camera, wPx, hPx)
+                            var duplicate = false
+                            for (existing in uniqueProjected) {
+                                if (kotlin.math.abs(existing.x - pt.x) < 3f && kotlin.math.abs(existing.y - pt.y) < 3f) {
+                                    duplicate = true
+                                    break
+                                }
+                            }
+                            if (!duplicate) {
+                                uniqueProjected.add(pt)
+                                drawCircle(color = tertiaryColor, radius = vertexRadius, center = pt)
+                                if (uniqueProjected.size >= 64) break@outer
+                            }
+                        }
+                    }
+                }
+
+                for (line in internalLines) {
+                    val lbl = line.labelBn
+                    if (!lbl.isNullOrBlank()) {
+                        val s2d = Math3DGlRenderer.projectPointThroughGlPipeline(line.start, camera, wPx, hPx)
+                        val e2d = Math3DGlRenderer.projectPointThroughGlPipeline(line.end, camera, wPx, hPx)
+                        val midX = (s2d.x + e2d.x) * 0.5f
+                        val midY = (s2d.y + e2d.y) * 0.5f
+                        val textW = axisTextPaint.measureText(lbl)
+                        drawContext.canvas.nativeCanvas.drawRoundRect(
+                            midX - textW / 2f - 8f,
+                            midY - 26f,
+                            midX + textW / 2f + 8f,
+                            midY + 6f,
+                            8f,
+                            8f,
+                            labelPillPaint
+                        )
+                        drawContext.canvas.nativeCanvas.drawText(lbl, midX, midY - 2f, axisTextPaint)
+                    }
+                }
+
+                if (highlightMode == SolidAnatomyHighlight.FACES || highlightMode == SolidAnatomyHighlight.ALL) {
+                    var labelCount = 0
+                    for (idx in faces.indices.reversed()) {
+                        val face = faces[idx]
+                        val lbl = face.labelBn
+                        if (!lbl.isNullOrBlank() && (face.isCrossSection || highlightMode == SolidAnatomyHighlight.FACES)) {
+                            val c2d = Math3DGlRenderer.projectPointThroughGlPipeline(face.centroid, camera, wPx, hPx)
+                            val textW = labelTextPaint.measureText(lbl)
+                            drawContext.canvas.nativeCanvas.drawRoundRect(
+                                c2d.x - textW / 2f - 8f,
+                                c2d.y - 22f,
+                                c2d.x + textW / 2f + 8f,
+                                c2d.y + 10f,
+                                8f,
+                                8f,
+                                labelPillPaint
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(lbl, c2d.x, c2d.y + 2f, labelTextPaint)
+                            labelCount++
+                            if (labelCount >= 6) break
+                        }
                     }
                 }
             }
@@ -349,6 +430,8 @@ internal class DepthBuffer24FallbackConfigChooser : GLSurfaceView.EGLConfigChoos
     }
 }
 
+internal var glSurfaceViewFactoryForTesting: ((Context) -> GLSurfaceView)? = null
+
 private class Math3DGlSurfaceHolder(context: Context) {
     val configChooser = DepthBuffer24FallbackConfigChooser()
     val supportsEs30: Boolean = runCatching {
@@ -357,7 +440,7 @@ private class Math3DGlSurfaceHolder(context: Context) {
     }.getOrDefault(false)
 
     val renderer = Math3DGlRenderer(configChooser, supportsEs30)
-    val glSurfaceView = GLSurfaceView(context).apply {
+    val glSurfaceView = (glSurfaceViewFactoryForTesting?.invoke(context) ?: GLSurfaceView(context)).apply {
         // Negotiate ES 3.0 context when supported by hardware; fallback to ES 2.0
         setEGLContextClientVersion(if (supportsEs30) 3 else 2)
         setEGLConfigChooser(configChooser)

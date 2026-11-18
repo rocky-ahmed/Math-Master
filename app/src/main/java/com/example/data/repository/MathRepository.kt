@@ -62,15 +62,40 @@ class MathRepository(private val dao: MathDao) {
     val bookmarks: Flow<List<BookmarkEntity>> get() = allBookmarks
     val quizScores: Flow<List<QuizScoreEntity>> get() = allQuizScores
     val progressList: Flow<List<ProgressEntity>> get() = allProgress
+    val quizScoresCount: Flow<Int> = dao.getQuizScoresCount()
+    val learnedTablesCount: Flow<Int> = dao.getLearnedTablesCount()
+
+    fun getRecentSolverHistory(limit: Int): Flow<List<SolverHistoryEntity>> =
+        dao.getRecentSolverHistory(limit)
+
+    fun getRecentQuizScores(limit: Int = 5): Flow<List<QuizScoreEntity>> =
+        dao.getRecentQuizScores(limit)
+
+    suspend fun getPracticeHistoryPage(limit: Int, offset: Int): List<PracticeHistoryEntity> =
+        dao.getPracticeHistoryPage(limit, offset)
 
     companion object {
         // Default 1, 3, 7, and 14 days spaced revision intervals in milliseconds
         val SPACED_REVISION_INTERVAL_DAYS = listOf(1, 3, 7, 14)
         private const val DAY_MS = 24L * 60L * 60L * 1000L
 
+        private val DATE_FORMAT_THREAD_LOCAL = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        }
+        private val BCS_PREFIX_REGEX = Regex("""^(?:bcs_ma_exam|bcs_mistake_retry|bcs_exam|bcs_prev)_\d+_""")
+        private val BCS_REPEAT_SUFFIX_REGEX = Regex("""_rep_\d+$""")
+
         fun todayDateKey(timestampMs: Long = System.currentTimeMillis()): String {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            return sdf.format(Date(timestampMs))
+            return (DATE_FORMAT_THREAD_LOCAL.get() ?: SimpleDateFormat("yyyy-MM-dd", Locale.US))
+                .format(Date(timestampMs))
+        }
+
+        internal fun extractCanonicalBcsQuestionId(questionId: String): String {
+            val withoutProfile = questionId.substringAfter("::", questionId)
+            return withoutProfile
+                .replace(BCS_PREFIX_REGEX, "")
+                .replace(BCS_REPEAT_SUFFIX_REGEX, "")
+                .ifBlank { withoutProfile }
         }
 
         fun nextSpacedReviewEpochMs(intervalStage: Int, nowMs: Long = System.currentTimeMillis()): Long {
@@ -151,10 +176,10 @@ class MathRepository(private val dao: MathDao) {
         bestStreak: Int,
         durationSeconds: Int
     ) {
-        val accuracy = if (totalQuestions > 0) (correctCount * 100) / totalQuestions else 0
         val now = System.currentTimeMillis()
-        dao.insertPracticeHistory(
-            PracticeHistoryEntity(
+        val dateKey = todayDateKey(now)
+        dailyStudyWriteMutex.lockWith {
+            dao.recordSessionAndAnalyticsTransaction(
                 module = module,
                 topicId = topicId,
                 topicTitleBn = topicTitleBn,
@@ -164,35 +189,12 @@ class MathRepository(private val dao: MathDao) {
                 correctCount = correctCount,
                 wrongCount = wrongCount,
                 totalQuestions = totalQuestions,
-                accuracyPercent = accuracy,
                 bestStreak = bestStreak,
                 durationSeconds = durationSeconds,
-                timestamp = now
+                nowMs = now,
+                dateKey = dateKey
             )
-        )
-
-        upsertTopicMasteryDelta(
-            module = module,
-            topicId = topicId,
-            topicTitleBn = topicTitleBn,
-            difficulty = difficulty,
-            attemptedDelta = correctCount + wrongCount,
-            correctDelta = correctCount,
-            wrongDelta = wrongCount,
-            bestStreak = bestStreak,
-            durationSeconds = durationSeconds,
-            now = now
-        )
-
-        recordDailyStudyDelta(
-            questionsAttemptedDelta = correctCount + wrongCount,
-            correctDelta = correctCount,
-            wrongDelta = wrongCount,
-            studyTimeSecondsDelta = max(1, durationSeconds),
-            examsCompletedDelta = if (module == "QUIZ") 1 else 0,
-            practiceSessionsCompletedDelta = if (module != "QUIZ") 1 else 0,
-            timestampMs = now
-        )
+        }
     }
 
     suspend fun upsertTopicMasteryDelta(
@@ -307,90 +309,34 @@ class MathRepository(private val dao: MathDao) {
         dao.deleteExamAttemptSafely(attemptId, dateKey)
     }
 
+    // Preserved 2-argument JVM method signature (100% source & binary compatible), delegating to the 4-arg authoritative path.
     suspend fun finalizeExamAttempt(
         completedAttempt: ExamAttemptEntity,
         perTopicStats: List<TopicExamStat>
     ) {
-        val now = completedAttempt.completedAt ?: System.currentTimeMillis()
-        val finalAttempt = if (completedAttempt.completedAt != null) {
-            completedAttempt
-        } else {
-            completedAttempt.copy(completedAt = now)
-        }
-        dao.upsertExamAttempt(finalAttempt)
-
-        // Also record into quiz_scores for backward compatibility with legacy consumers
-        val roundedPct = finalAttempt.percentage.roundToInt().coerceIn(0, 100)
-        dao.insertQuizScore(
-            QuizScoreEntity(
-                topic = finalAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
-                topicTitleBn = finalAttempt.examTitleBn,
-                score = finalAttempt.correctCount,
-                totalQuestions = finalAttempt.totalQuestions,
-                percentage = roundedPct,
-                timestamp = now
-            )
+        finalizeExamAttempt(
+            completedAttempt = completedAttempt,
+            perTopicStats = perTopicStats,
+            bcsTopicUpdates = emptyList(),
+            questionMistakeOutcomes = emptyList()
         )
+    }
 
-        // Update per-topic analytics without inflating session count per topic
-        if (perTopicStats.isNotEmpty()) {
-            perTopicStats.forEach { stat ->
-                upsertTopicMasteryDelta(
-                    module = "QUIZ",
-                    topicId = stat.topicId,
-                    topicTitleBn = stat.topicTitleBn,
-                    difficulty = completedAttempt.difficulty,
-                    attemptedDelta = stat.correctCount + stat.wrongCount,
-                    correctDelta = stat.correctCount,
-                    wrongDelta = stat.wrongCount,
-                    bestStreak = stat.correctCount,
-                    durationSeconds = stat.timeSpentSeconds,
-                    now = now
-                )
-            }
-        } else {
-            upsertTopicMasteryDelta(
-                module = "QUIZ",
-                topicId = completedAttempt.selectedTopicsCsv.ifBlank { "MIXED" },
-                topicTitleBn = completedAttempt.examTitleBn,
-                difficulty = completedAttempt.difficulty,
-                attemptedDelta = completedAttempt.correctCount + completedAttempt.wrongCount,
-                correctDelta = completedAttempt.correctCount,
-                wrongDelta = completedAttempt.wrongCount,
-                bestStreak = completedAttempt.correctCount,
-                durationSeconds = completedAttempt.elapsedSeconds,
-                now = now
+    // Single authoritative transactional implementation.
+    suspend fun finalizeExamAttempt(
+        completedAttempt: ExamAttemptEntity,
+        perTopicStats: List<TopicExamStat>,
+        bcsTopicUpdates: List<BcsTopicExamUpdate>,
+        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>
+    ) {
+        dailyStudyWriteMutex.lockWith {
+            dao.finalizeExamAttemptTransaction(
+                completedAttempt = completedAttempt,
+                perTopicStats = perTopicStats,
+                bcsTopicUpdates = bcsTopicUpdates,
+                questionMistakeOutcomes = questionMistakeOutcomes
             )
         }
-
-        // Insert a single QUIZ practice_history entry for the exam attempt
-        dao.insertPracticeHistory(
-            PracticeHistoryEntity(
-                module = "QUIZ",
-                topicId = completedAttempt.selectedTopicsCsv.substringBefore(",").ifBlank { "MIXED" },
-                topicTitleBn = completedAttempt.examTitleBn,
-                difficulty = completedAttempt.difficulty,
-                mode = completedAttempt.examType,
-                score = completedAttempt.finalScore.roundToInt(),
-                correctCount = completedAttempt.correctCount,
-                wrongCount = completedAttempt.wrongCount,
-                totalQuestions = completedAttempt.totalQuestions,
-                accuracyPercent = completedAttempt.accuracyPercent.roundToInt(),
-                bestStreak = completedAttempt.correctCount,
-                durationSeconds = completedAttempt.elapsedSeconds,
-                timestamp = now
-            )
-        )
-
-        recordDailyStudyDelta(
-            questionsAttemptedDelta = completedAttempt.correctCount + completedAttempt.wrongCount,
-            correctDelta = completedAttempt.correctCount,
-            wrongDelta = completedAttempt.wrongCount,
-            studyTimeSecondsDelta = max(1, completedAttempt.elapsedSeconds),
-            examsCompletedDelta = 1,
-            practiceSessionsCompletedDelta = 0,
-            timestampMs = now
-        )
     }
 
     // Solver History Persistence (Room v4)
@@ -761,60 +707,16 @@ class MathRepository(private val dao: MathDao) {
         chapterTitleBn: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
-        val revItemId = "mistake_$rawId"
-        val existing = dao.getBookMistakeById(questionId)
-            ?: dao.getBookMistakeById(revItemId)
-            ?: dao.getBookMistakeById(rawId)
-        val targetMistakeId = existing?.questionId ?: questionId
-        val updatedMistake = if (existing == null) {
-            BookMistakeEntity(
-                questionId = targetMistakeId,
-                bookId = bookId,
-                chapterNumber = chapterNumber,
-                questionPromptBn = questionPromptBn,
-                previousWrongAnswerBn = wrongAnswerBn,
-                correctAnswerBn = correctAnswerBn,
-                explanationBn = explanationBn,
-                sourceProvenance = sourceProvenance,
-                mistakeCount = 1,
-                isResolved = false,
-                lastMistakeAt = nowMs
-            )
-        } else {
-            existing.copy(
-                previousWrongAnswerBn = wrongAnswerBn,
-                correctAnswerBn = correctAnswerBn,
-                explanationBn = explanationBn,
-                mistakeCount = existing.mistakeCount + 1,
-                isResolved = false,
-                lastMistakeAt = nowMs
-            )
-        }
-        dao.upsertBookMistake(updatedMistake)
-
-        // Schedule in 1/3/7/14-day spaced revision starting at stage 0 (1 day)
-        scheduleSpacedRevisionItem(
-            itemId = revItemId,
-            itemType = "QUESTION",
+        dao.recordBookQuestionMistakeTransaction(
+            questionId = questionId,
             bookId = bookId,
             chapterNumber = chapterNumber,
-            titleBn = questionPromptBn,
-            subtitleBn = "$chapterTitleBn • সঠিক উত্তর: $correctAnswerBn",
-            resetToFirstStage = true,
-            nowMs = nowMs
-        )
-
-        // Keep unified_mistake_notebook synchronized with book_mistakes
-        recordUnifiedMistake(
-            mistakeKey = "BOOK_$rawId",
-            sourceModule = "BOOK",
-            subjectId = "${bookId}_ch_${chapterNumber}",
-            curriculumTrack = "NCTB",
             questionPromptBn = questionPromptBn,
-            userAnswerBn = wrongAnswerBn,
+            wrongAnswerBn = wrongAnswerBn,
             correctAnswerBn = correctAnswerBn,
-            diagnosticExplanationBn = explanationBn,
+            explanationBn = explanationBn,
+            sourceProvenance = sourceProvenance,
+            chapterTitleBn = chapterTitleBn,
             nowMs = nowMs
         )
     }
@@ -824,36 +726,15 @@ class MathRepository(private val dao: MathDao) {
         resolved: Boolean = true,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
-        val revItemId = "mistake_$rawId"
-        val existing = dao.getBookMistakeById(questionId)
-            ?: dao.getBookMistakeById(revItemId)
-            ?: dao.getBookMistakeById(rawId)
-        if (existing != null) {
-            dao.upsertBookMistake(
-                existing.copy(
-                    isResolved = resolved,
-                    lastMistakeAt = nowMs
-                )
-            )
-        }
-        if (resolved) {
-            advanceSpacedRevisionItem(revItemId, answeredCorrectly = true, nowMs = nowMs)
-            resolveUnifiedMistake("BOOK_$rawId", nowMs = nowMs)
-        } else {
-            unresolveUnifiedMistake("BOOK_$rawId", nowMs = nowMs)
-        }
+        dao.markBookMistakeResolvedTransaction(
+            questionId = questionId,
+            resolved = resolved,
+            nowMs = nowMs
+        )
     }
 
     suspend fun deleteBookMistake(questionId: String) {
-        val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
-        val revItemId = "mistake_$rawId"
-        dao.deleteBookMistakeById(questionId)
-        if (revItemId != questionId) dao.deleteBookMistakeById(revItemId)
-        if (rawId != questionId) dao.deleteBookMistakeById(rawId)
-        dao.deleteBookSpacedRevisionById(revItemId)
-        dao.deleteBookSpacedRevisionById("mistake_$questionId")
-        dao.deleteUnifiedMistakeByKey("BOOK_$rawId")
+        dao.deleteBookMistakeTransaction(questionId)
     }
 
     suspend fun scheduleSpacedRevisionItem(
@@ -988,11 +869,7 @@ class MathRepository(private val dao: MathDao) {
     }
 
     internal fun extractCanonicalBcsQuestionId(questionId: String): String {
-        val withoutProfile = questionId.substringAfter("::", questionId)
-        return withoutProfile
-            .replace(Regex("""^(?:bcs_ma_exam|bcs_mistake_retry|bcs_exam|bcs_prev)_\d+_"""), "")
-            .replace(Regex("""_rep_\d+$"""), "")
-            .ifBlank { withoutProfile }
+        return Companion.extractCanonicalBcsQuestionId(questionId)
     }
 
     suspend fun recordBcsMistake(
@@ -1008,56 +885,17 @@ class MathRepository(private val dao: MathDao) {
         examProfileId: String = "BCS_50TH_PRELIM_2025",
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val rawQId = extractCanonicalBcsQuestionId(questionId)
-        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-        val resolvedKey = if (safeProfile == "BCS_50TH_PRELIM_2025") {
-            rawQId
-        } else {
-            "$safeProfile::$rawQId"
-        }
-        val existing = dao.getBcsMistakeById(resolvedKey)
-        val updated = if (existing == null) {
-            com.example.data.model.BcsMistakeEntity(
-                questionId = resolvedKey,
-                subjectTrack = subjectTrack,
-                topicId = topicId,
-                questionPromptBn = questionPromptBn,
-                wrongAnswerBn = wrongAnswerBn,
-                correctAnswerBn = correctAnswerBn,
-                explanationBn = explanationBn,
-                shortcutTipBn = shortcutTipBn,
-                provenanceBadgeBn = provenanceBadgeBn,
-                mistakeCount = 1,
-                retrySuccessCount = 0,
-                isResolved = false,
-                nextReviewEpochMs = nextSpacedReviewEpochMs(0, nowMs),
-                intervalStage = 0,
-                lastMistakeAt = nowMs,
-                examProfileId = safeProfile
-            )
-        } else {
-            existing.copy(
-                wrongAnswerBn = wrongAnswerBn,
-                correctAnswerBn = correctAnswerBn,
-                explanationBn = explanationBn,
-                mistakeCount = existing.mistakeCount + 1,
-                isResolved = false,
-                nextReviewEpochMs = nextSpacedReviewEpochMs(0, nowMs),
-                intervalStage = 0,
-                lastMistakeAt = nowMs,
-                examProfileId = safeProfile
-            )
-        }
-        dao.upsertBcsMistake(updated)
-        recordUnifiedMistake(
-            mistakeKey = "BCS_${safeProfile}_$rawQId",
-            sourceModule = "BCS",
-            subjectId = topicId.ifBlank { subjectTrack },
-            curriculumTrack = "BCS",
+        dao.recordBcsMistakeTransaction(
+            questionId = questionId,
+            subjectTrack = subjectTrack,
+            topicId = topicId,
             questionPromptBn = questionPromptBn,
-            userAnswerBn = wrongAnswerBn,
+            wrongAnswerBn = wrongAnswerBn,
             correctAnswerBn = correctAnswerBn,
-            diagnosticExplanationBn = explanationBn,
+            explanationBn = explanationBn,
+            shortcutTipBn = shortcutTipBn,
+            provenanceBadgeBn = provenanceBadgeBn,
+            examProfileId = examProfileId,
             nowMs = nowMs
         )
     }
@@ -1067,45 +905,18 @@ class MathRepository(private val dao: MathDao) {
         nowMs: Long = System.currentTimeMillis(),
         examProfileId: String = ""
     ) {
-        val rawQId = extractCanonicalBcsQuestionId(questionId)
-        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-        val scopedKey = if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
-            "$examProfileId::$rawQId"
-        } else {
-            rawQId
-        }
-        val existing = dao.getBcsMistakeById(questionId)
-            ?: dao.getBcsMistakeById(scopedKey)
-            ?: (if (examProfileId.isBlank() || examProfileId == "BCS_50TH_PRELIM_2025") dao.getBcsMistakeById(rawQId) else null)
-        if (existing != null) {
-            val nextStage = (existing.intervalStage + 1).coerceAtMost(4)
-            dao.upsertBcsMistake(
-                existing.copy(
-                    isResolved = true,
-                    retrySuccessCount = existing.retrySuccessCount + 1,
-                    intervalStage = nextStage,
-                    nextReviewEpochMs = nextSpacedReviewEpochMs(nextStage, nowMs),
-                    lastMistakeAt = nowMs
-                )
-            )
-        }
-        resolveUnifiedMistake("BCS_${safeProfile}_$rawQId", nowMs = nowMs)
-        resolveUnifiedMistake("BCS_$rawQId", nowMs = nowMs)
+        dao.markBcsMistakeResolvedTransaction(
+            questionId = questionId,
+            nowMs = nowMs,
+            examProfileId = examProfileId
+        )
     }
 
     suspend fun deleteBcsMistake(questionId: String, examProfileId: String = "") {
-        val rawQId = extractCanonicalBcsQuestionId(questionId)
-        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-        dao.deleteBcsMistakeById(questionId)
-        if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
-            dao.deleteBcsMistakeById("$examProfileId::$rawQId")
-        }
-        // BUG-92 FIX: Always delete legacy unprefixed rawQId row even when a non-default profile is active
-        if (rawQId != questionId) {
-            dao.deleteBcsMistakeById(rawQId)
-        }
-        dao.deleteUnifiedMistakeByKey("BCS_${safeProfile}_$rawQId")
-        dao.deleteUnifiedMistakeByKey("BCS_$rawQId")
+        dao.deleteBcsMistakeTransaction(
+            questionId = questionId,
+            examProfileId = examProfileId
+        )
     }
 
     suspend fun recordBcsStudyGoalDelta(
@@ -1274,3 +1085,30 @@ data class TopicExamStat(
     val timeSpentSeconds: Int
 )
 
+data class BcsTopicExamUpdate(
+    val topicId: String,
+    val subjectTrack: String = "MATH_REASONING",
+    val isGuideCompleted: Boolean = false,
+    val miniCheckPassed: Boolean,
+    val additionalTimeSeconds: Int,
+    val questionsAttemptedDelta: Int,
+    val questionsCorrectDelta: Int,
+    val examProfileId: String
+)
+
+data class ExamQuestionMistakeOutcome(
+    val unifiedMistakeKey: String,
+    val sourceModule: String,
+    val subjectId: String,
+    val curriculumTrack: String,
+    val questionPromptBn: String,
+    val userAnswerBn: String,
+    val correctAnswerBn: String,
+    val diagnosticExplanationBn: String,
+    val isCorrect: Boolean,
+    val shouldRecordMistake: Boolean,
+    val isBcsSession: Boolean,
+    val bcsQuestionId: String,
+    val bcsTopicId: String,
+    val examProfileId: String
+)

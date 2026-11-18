@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val viewModel: MathViewModel = viewModel()
+            val viewModel: MathViewModel = viewModel(factory = MathViewModel.Factory)
             val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
             val customState by viewModel.customizationState.collectAsStateWithLifecycle()
             val previewCustomState by viewModel.previewCustomizationState.collectAsStateWithLifecycle()
@@ -93,35 +93,69 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+fun rememberCurrentDestinationStateKey(
+    viewModel: MathViewModel,
+    currentScreen: Screen
+): String {
+    return when (currentScreen) {
+        is Screen.Home -> Screen.Home.route
+        is Screen.Tables -> Screen.Tables.route
+        is Screen.TableDetail -> {
+            val tableNum by viewModel.selectedTableNumber.collectAsStateWithLifecycle()
+            "${Screen.TableDetail.route}:$tableNum"
+        }
+        is Screen.FormulaDetail -> {
+            val formulaId by viewModel.selectedFormulaId.collectAsStateWithLifecycle()
+            "${Screen.FormulaDetail.route}:$formulaId"
+        }
+        is Screen.PracticeTutor -> {
+            val tutorNum by viewModel.tutorNumber.collectAsStateWithLifecycle()
+            "${Screen.PracticeTutor.route}:$tutorNum"
+        }
+        is Screen.BcsPreparation -> {
+            val profile by viewModel.selectedBcsExamProfile.collectAsStateWithLifecycle()
+            "${Screen.BcsPreparation.route}:${profile.id}"
+        }
+        is Screen.BookDetail -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            "${Screen.BookDetail.route}:${bookId.id}"
+        }
+        is Screen.BookChapterOverview -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            val chapter by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
+            "${Screen.BookChapterOverview.route}:${bookId.id}:$chapter"
+        }
+        is Screen.BookLesson -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            val chapter by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
+            val lessonId by viewModel.selectedBookLessonId.collectAsStateWithLifecycle()
+            "${Screen.BookLesson.route}:${bookId.id}:$chapter:$lessonId"
+        }
+        is Screen.BookPdfReader -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            val printedPage by viewModel.selectedBookPrintedPage.collectAsStateWithLifecycle()
+            "${Screen.BookPdfReader.route}:${bookId.id}:$printedPage"
+        }
+        is Screen.BookInteractiveLab -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            val chapter by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
+            val labType by viewModel.selectedBookLabType.collectAsStateWithLifecycle()
+            "${Screen.BookInteractiveLab.route}:${bookId.id}:$chapter:${labType.id}"
+        }
+        is Screen.BookRevision -> {
+            val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
+            "${Screen.BookRevision.route}:${bookId.id}"
+        }
+        else -> currentScreen.route
+    }
+}
+
+@Composable
 fun MainAppContent(viewModel: MathViewModel) {
     val screenStack by viewModel.screenStack.collectAsStateWithLifecycle()
-    val selectedTableNumber by viewModel.selectedTableNumber.collectAsStateWithLifecycle()
-    val selectedFormulaId by viewModel.selectedFormulaId.collectAsStateWithLifecycle()
-    val tutorNumber by viewModel.tutorNumber.collectAsStateWithLifecycle()
-    val selectedBcsProfile by viewModel.selectedBcsExamProfile.collectAsStateWithLifecycle()
-    val selectedBookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
-    val selectedBookChapter by viewModel.selectedBookChapterNumber.collectAsStateWithLifecycle()
-    val selectedBookLessonId by viewModel.selectedBookLessonId.collectAsStateWithLifecycle()
-    val selectedBookPrintedPage by viewModel.selectedBookPrintedPage.collectAsStateWithLifecycle()
-    val selectedBookLabType by viewModel.selectedBookLabType.collectAsStateWithLifecycle()
-
     val currentScreen = screenStack.lastOrNull() ?: Screen.Home
     val saveableStateHolder = rememberSaveableStateHolder()
-
-    val currentDestinationKey = remember(
-        currentScreen,
-        selectedTableNumber,
-        selectedFormulaId,
-        tutorNumber,
-        selectedBcsProfile,
-        selectedBookId,
-        selectedBookChapter,
-        selectedBookLessonId,
-        selectedBookPrintedPage,
-        selectedBookLabType
-    ) {
-        viewModel.getDestinationStateKey(currentScreen)
-    }
+    val currentDestinationKey = rememberCurrentDestinationStateKey(viewModel, currentScreen)
 
     val transientPlayRoutes = remember {
         setOf(

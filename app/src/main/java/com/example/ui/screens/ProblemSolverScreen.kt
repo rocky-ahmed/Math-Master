@@ -86,7 +86,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
@@ -113,7 +115,338 @@ import com.example.ui.components.MathTopAppBar
 import com.example.ui.rememberManagedLazyListState
 import com.example.ui.rememberManagedUiState
 import com.example.ui.theme.MathSpacing
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+@androidx.compose.runtime.Immutable
+internal data class SolverInputSnapshot(
+    val topic: SolverTopic,
+    val mode: SolverMode,
+    val arithmeticExpr: String,
+    val fractionNum1: String,
+    val fractionDen1: String,
+    val fractionOp: String,
+    val fractionNum2: String,
+    val fractionDen2: String,
+    val percentageSubType: Int,
+    val percentVal1: String,
+    val percentVal2: String,
+    val ratioSubType: Int,
+    val ratioTotal: String,
+    val ratioR1: String,
+    val ratioR2: String,
+    val ratioR3: String,
+    val profitLossSubType: Int,
+    val plCp: String,
+    val plSp: String,
+    val plPercent: String,
+    val plMp: String,
+    val averageInput: String,
+    val interestMode: InterestCalculationMode,
+    val compoundingFreq: Int,
+    val siP: String,
+    val siR: String,
+    val siT: String,
+    val siI: String,
+    val workSubType: Int,
+    val workTimeA: String,
+    val workTimeB: String,
+    val workTimeC: String,
+    val sdtSpeed: String,
+    val sdtDistance: String,
+    val sdtTime: String,
+    val divNumber: String,
+    val divDivisor: Int,
+    val hcfLcmInput: String,
+    val sqCubeNumber: String,
+    val sqCubeOp: Int,
+    val linearEqInput: String,
+    val quadA: String,
+    val quadB: String,
+    val quadC: String,
+    val quadRelation: String,
+    val factorInput: String,
+    val simplifyInput: String
+)
+
+private fun solverSnapshotErrorResult(
+    topic: SolverTopic,
+    mode: SolverMode,
+    messageBn: String,
+    problemBn: String = "ইনপুট যাচাই"
+): SolverResult {
+    return SolverResult(
+        topic = topic,
+        mode = mode,
+        originalProblemBn = problemBn,
+        finalAnswerBn = "সমাধান সম্ভব নয়",
+        isSuccess = false,
+        errorMessageBn = messageBn
+    )
+}
+
+internal fun computeSolutionPure(snapshot: SolverInputSnapshot): SolverResult {
+    val validation = evaluateTopicInputValidation(
+        topic = snapshot.topic,
+        arithmeticExpr = snapshot.arithmeticExpr,
+        fractionNum1 = snapshot.fractionNum1,
+        fractionDen1 = snapshot.fractionDen1,
+        fractionOp = snapshot.fractionOp,
+        fractionNum2 = snapshot.fractionNum2,
+        fractionDen2 = snapshot.fractionDen2,
+        percentageSubType = snapshot.percentageSubType,
+        percentVal1 = snapshot.percentVal1,
+        percentVal2 = snapshot.percentVal2,
+        ratioSubType = snapshot.ratioSubType,
+        ratioTotal = snapshot.ratioTotal,
+        ratioR1 = snapshot.ratioR1,
+        ratioR2 = snapshot.ratioR2,
+        ratioR3 = snapshot.ratioR3,
+        profitLossSubType = snapshot.profitLossSubType,
+        plCp = snapshot.plCp,
+        plSp = snapshot.plSp,
+        plPercent = snapshot.plPercent,
+        plMp = snapshot.plMp,
+        averageInput = snapshot.averageInput,
+        interestMode = snapshot.interestMode,
+        compoundingFreq = snapshot.compoundingFreq,
+        siP = snapshot.siP,
+        siR = snapshot.siR,
+        siT = snapshot.siT,
+        siI = snapshot.siI,
+        workSubType = snapshot.workSubType,
+        workTimeA = snapshot.workTimeA,
+        workTimeB = snapshot.workTimeB,
+        workTimeC = snapshot.workTimeC,
+        sdtSpeed = snapshot.sdtSpeed,
+        sdtDistance = snapshot.sdtDistance,
+        sdtTime = snapshot.sdtTime,
+        divNumber = snapshot.divNumber,
+        hcfLcmInput = snapshot.hcfLcmInput,
+        sqCubeNumber = snapshot.sqCubeNumber,
+        sqCubeOp = snapshot.sqCubeOp,
+        linearEqInput = snapshot.linearEqInput,
+        quadA = snapshot.quadA,
+        quadB = snapshot.quadB,
+        quadC = snapshot.quadC,
+        quadRelation = snapshot.quadRelation,
+        factorInput = snapshot.factorInput,
+        simplifyInput = snapshot.simplifyInput
+    )
+    if (!validation.canSolve) {
+        return solverSnapshotErrorResult(
+            topic = snapshot.topic,
+            mode = snapshot.mode,
+            messageBn = validation.banner?.messageBn
+                ?: "ইনপুট মান সঠিক নয়। অনুগ্রহ করে সংখ্যা বা রাশি যাচাই করুন।"
+        )
+    }
+
+    return try {
+        when (snapshot.topic) {
+            SolverTopic.BASIC_ARITHMETIC -> {
+                MathProblemSolverEngine.solveArithmetic(snapshot.arithmeticExpr, snapshot.mode)
+            }
+            SolverTopic.FRACTIONS_DECIMALS -> {
+                val n1 = parseBnToLong(snapshot.fractionNum1)
+                val d1 = parseBnToLong(snapshot.fractionDen1)
+                val n2 = parseBnToLong(snapshot.fractionNum2)
+                val d2 = parseBnToLong(snapshot.fractionDen2)
+                if (n1 == null || d1 == null || n2 == null || d2 == null) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "সবগুলো লব ও হরের ঘরে বৈধ পূর্ণসংখ্যা লিখুন।")
+                } else {
+                    MathProblemSolverEngine.solveFraction(n1, d1, snapshot.fractionOp, n2, d2, snapshot.mode)
+                }
+            }
+            SolverTopic.PERCENTAGE -> {
+                val v1 = parseBnToDouble(snapshot.percentVal1)
+                val v2 = parseBnToDouble(snapshot.percentVal2)
+                if (v1 == null || v2 == null) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "শতকরা হিসাবের জন্য উভয় ঘরে বৈধ সংখ্যা লিখুন।")
+                } else {
+                    val type = when (snapshot.percentageSubType) {
+                        0 -> MathProblemSolverEngine.PercentageType.OF_NUMBER
+                        1 -> MathProblemSolverEngine.PercentageType.WHAT_PERCENT_OF
+                        2 -> MathProblemSolverEngine.PercentageType.INCREASE_DECREASE
+                        else -> MathProblemSolverEngine.PercentageType.SUCCESSIVE
+                    }
+                    MathProblemSolverEngine.solvePercentage(type, v1, v2, snapshot.mode)
+                }
+            }
+            SolverTopic.RATIO_PROPORTION -> {
+                val r1 = parseBnToDouble(snapshot.ratioR1)
+                val r2 = parseBnToDouble(snapshot.ratioR2)
+                val tot = parseBnToDouble(snapshot.ratioTotal)
+                val r3 = if (snapshot.ratioSubType == 0 && snapshot.ratioR3.isNotBlank()) parseBnToDouble(snapshot.ratioR3) else null
+                when (snapshot.ratioSubType) {
+                    0 -> {
+                        if (tot == null || r1 == null || r2 == null || (snapshot.ratioR3.isNotBlank() && r3 == null)) {
+                            solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "বণ্টনযোগ্য মোট পরিমাণ ও অনুপাতের সব প্রদত্ত পদে বৈধ সংখ্যা লিখুন।")
+                        } else {
+                            MathProblemSolverEngine.solveRatio(
+                                MathProblemSolverEngine.RatioType.DIVIDE_QUANTITY,
+                                tot, r1, r2, r3, snapshot.mode
+                            )
+                        }
+                    }
+                    1 -> {
+                        if (tot == null || r1 == null || r2 == null) {
+                            solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C-এর বৈধ মান (> ০) দিন।")
+                        } else {
+                            MathProblemSolverEngine.solveRatio(
+                                MathProblemSolverEngine.RatioType.FOURTH_PROPORTIONAL,
+                                tot, r1, r2, null, snapshot.mode
+                            )
+                        }
+                    }
+                    else -> {
+                        if (r1 == null || r2 == null) {
+                            solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "অনুপাত সরলীকরণের জন্য উভয় পদে বৈধ সংখ্যা লিখুন।")
+                        } else {
+                            MathProblemSolverEngine.solveRatio(
+                                MathProblemSolverEngine.RatioType.SIMPLIFY,
+                                0.0, r1, r2, null, snapshot.mode
+                            )
+                        }
+                    }
+                }
+            }
+            SolverTopic.PROFIT_LOSS -> {
+                val cp = parseBnToDouble(snapshot.plCp)
+                val sp = parseBnToDouble(snapshot.plSp)
+                val pct = parseBnToDouble(snapshot.plPercent)
+                val mp = parseBnToDouble(snapshot.plMp)
+                val type = when (snapshot.profitLossSubType) {
+                    0 -> MathProblemSolverEngine.ProfitLossType.FIND_PROFIT_LOSS_PERCENT
+                    1 -> MathProblemSolverEngine.ProfitLossType.FIND_SP_FROM_CP_AND_PERCENT
+                    2 -> MathProblemSolverEngine.ProfitLossType.FIND_CP_FROM_SP_AND_PERCENT
+                    else -> MathProblemSolverEngine.ProfitLossType.DISCOUNT_MARKED_PRICE
+                }
+                MathProblemSolverEngine.solveProfitLoss(type, cp, sp, pct, mp, snapshot.mode)
+            }
+            SolverTopic.AVERAGE -> {
+                when (val parsed = parseStrictBnDoubleList(snapshot.averageInput)) {
+                    is StrictListParseResult.Invalid -> solverSnapshotErrorResult(snapshot.topic, snapshot.mode, parsed.messageBn)
+                    is StrictListParseResult.Valid -> MathProblemSolverEngine.solveAverage(parsed.values, snapshot.mode)
+                }
+            }
+            SolverTopic.SIMPLE_INTEREST -> {
+                val visibleInvalid = if (snapshot.interestMode == InterestCalculationMode.COMPOUND) {
+                    listOf(snapshot.siP, snapshot.siR, snapshot.siT).any { it.isNotBlank() && parseBnToDouble(it) == null }
+                } else {
+                    listOf(snapshot.siP, snapshot.siR, snapshot.siT, snapshot.siI).any { it.isNotBlank() && parseBnToDouble(it) == null }
+                }
+                if (visibleInvalid) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "মুনাফার হিসাবের সব প্রদত্ত ঘরে বৈধ সসীম সংখ্যা লিখুন।")
+                } else if (snapshot.interestMode == InterestCalculationMode.COMPOUND) {
+                    val p = parseBnToDouble(snapshot.siP)
+                    val r = parseBnToDouble(snapshot.siR)
+                    val t = parseBnToDouble(snapshot.siT)
+                    if (p == null || r == null || t == null) {
+                        solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "চক্রবৃদ্ধি মুনাফার জন্য আসল (P), হার (r) ও সময় (t) দিন।")
+                    } else {
+                        MathProblemSolverEngine.solveCompoundInterest(
+                            p = p,
+                            r = r,
+                            t = t,
+                            m = snapshot.compoundingFreq,
+                            mode = snapshot.mode
+                        )
+                    }
+                } else {
+                    val p = parseBnToDouble(snapshot.siP)
+                    val r = parseBnToDouble(snapshot.siR)
+                    val t = parseBnToDouble(snapshot.siT)
+                    val i = parseBnToDouble(snapshot.siI)
+                    MathProblemSolverEngine.solveSimpleInterest(p, r, t, i, null, snapshot.mode)
+                }
+            }
+            SolverTopic.TIME_AND_WORK -> {
+                val a = parseBnToDouble(snapshot.workTimeA)
+                val b = parseBnToDouble(snapshot.workTimeB)
+                val c = if (snapshot.workSubType == 1) parseBnToDouble(snapshot.workTimeC) else null
+                if (a == null || b == null || (snapshot.workSubType == 1 && c == null)) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "কাজ বা নলের সময়ের সব প্রদত্ত ঘরে বৈধ সংখ্যা লিখুন।")
+                } else {
+                    val type = when (snapshot.workSubType) {
+                        0 -> MathProblemSolverEngine.WorkType.TWO_PERSONS
+                        1 -> MathProblemSolverEngine.WorkType.THREE_PERSONS
+                        else -> MathProblemSolverEngine.WorkType.PIPE_CISTERN
+                    }
+                    MathProblemSolverEngine.solveTimeAndWork(type, a, b, c, snapshot.mode)
+                }
+            }
+            SolverTopic.SPEED_DISTANCE_TIME -> {
+                if (listOf(snapshot.sdtSpeed, snapshot.sdtDistance, snapshot.sdtTime).any { it.isNotBlank() && parseBnToDouble(it) == null }) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "গতিবেগ, দূরত্ব ও সময়ের প্রদত্ত মানগুলো অবশ্যই বৈধ সসীম সংখ্যা হতে হবে।")
+                } else {
+                    val s = parseBnToDouble(snapshot.sdtSpeed)
+                    val d = parseBnToDouble(snapshot.sdtDistance)
+                    val t = parseBnToDouble(snapshot.sdtTime)
+                    MathProblemSolverEngine.solveSpeedDistanceTime(s, d, t, snapshot.mode)
+                }
+            }
+            SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
+                val num = parseBnToLong(snapshot.divNumber)
+                if (num == null) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "বিভাজ্যতা যাচাইয়ের জন্য একটি বৈধ পূর্ণসংখ্যা লিখুন।")
+                } else {
+                    MathProblemSolverEngine.solveDivisibility(num, snapshot.divDivisor, snapshot.mode)
+                }
+            }
+            SolverTopic.HCF_LCM -> {
+                when (val parsed = parseStrictBnPositiveLongList(snapshot.hcfLcmInput)) {
+                    is StrictListParseResult.Invalid -> solverSnapshotErrorResult(snapshot.topic, snapshot.mode, parsed.messageBn)
+                    is StrictListParseResult.Valid -> MathProblemSolverEngine.solveHcfLcm(parsed.values, snapshot.mode)
+                }
+            }
+            SolverTopic.SQUARES_CUBES_ROOTS -> {
+                val n = parseBnToDouble(snapshot.sqCubeNumber)
+                if (n == null) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "একটি বৈধ সসীম সংখ্যা লিখুন।")
+                } else {
+                    val op = when (snapshot.sqCubeOp) {
+                        0 -> MathProblemSolverEngine.SquareCubeOp.SQUARE
+                        1 -> MathProblemSolverEngine.SquareCubeOp.SQUARE_ROOT
+                        2 -> MathProblemSolverEngine.SquareCubeOp.CUBE
+                        else -> MathProblemSolverEngine.SquareCubeOp.CUBE_ROOT
+                    }
+                    MathProblemSolverEngine.solveSquareCube(n, op, snapshot.mode)
+                }
+            }
+            SolverTopic.LINEAR_EQUATIONS -> {
+                MathProblemSolverEngine.solveLinearEquation(snapshot.linearEqInput, snapshot.mode)
+            }
+            SolverTopic.QUADRATIC_EQUATIONS -> {
+                val a = parseBnToDouble(snapshot.quadA)
+                val b = parseBnToDouble(snapshot.quadB)
+                val c = parseBnToDouble(snapshot.quadC)
+                if (a == null || b == null || c == null) {
+                    solverSnapshotErrorResult(snapshot.topic, snapshot.mode, "সহগ a, b, c-এর ঘরে বৈধ সসীম সংখ্যা লিখুন।")
+                } else {
+                    MathProblemSolverEngine.solveQuadraticEquation(a, b, c, snapshot.mode, snapshot.quadRelation)
+                }
+            }
+            SolverTopic.FACTORIZATION -> {
+                MathProblemSolverEngine.solveFactorization(snapshot.factorInput, snapshot.mode)
+            }
+            SolverTopic.SIMPLIFICATION -> {
+                MathProblemSolverEngine.solveSimplification(snapshot.simplifyInput, snapshot.mode)
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        SolverResult(
+            topic = snapshot.topic,
+            mode = snapshot.mode,
+            originalProblemBn = "সমস্যা বিশ্লেষণ",
+            finalAnswerBn = "ত্রুটি",
+            isSuccess = false,
+            errorMessageBn = "ইনপুট মান সঠিক নয়। অনুগ্রহ করে সংখ্যা বা রাশি যাচাই করুন।"
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -200,6 +533,7 @@ fun ProblemSolverScreen(
     var skipNextAutoSolve by remember { mutableStateOf(false) }
 
     fun resetCurrentTopicInputs() {
+        viewModel.cancelActiveSolverCalculation()
         when (selectedTopic) {
             SolverTopic.BASIC_ARITHMETIC -> arithmeticExpr = ""
             SolverTopic.FRACTIONS_DECIMALS -> {
@@ -258,284 +592,69 @@ fun ProblemSolverScreen(
     }
 
     fun invalidateStaleSolution() {
+        viewModel.cancelActiveSolverCalculation()
         if (solverResult != null) {
             solverResult = null
             learningSessionHolder.clear()
         }
     }
 
-    fun solveErrorResult(messageBn: String, problemBn: String = "ইনপুট যাচাই"): SolverResult {
-        return SolverResult(
-            topic = selectedTopic,
-            mode = selectedMode,
-            originalProblemBn = problemBn,
-            finalAnswerBn = "সমাধান সম্ভব নয়",
-            isSuccess = false,
-            errorMessageBn = messageBn
-        )
-    }
+    fun buildSolverSnapshot(): SolverInputSnapshot = SolverInputSnapshot(
+        topic = selectedTopic,
+        mode = selectedMode,
+        arithmeticExpr = arithmeticExpr,
+        fractionNum1 = fractionNum1,
+        fractionDen1 = fractionDen1,
+        fractionOp = fractionOp,
+        fractionNum2 = fractionNum2,
+        fractionDen2 = fractionDen2,
+        percentageSubType = percentageSubType,
+        percentVal1 = percentVal1,
+        percentVal2 = percentVal2,
+        ratioSubType = ratioSubType,
+        ratioTotal = ratioTotal,
+        ratioR1 = ratioR1,
+        ratioR2 = ratioR2,
+        ratioR3 = ratioR3,
+        profitLossSubType = profitLossSubType,
+        plCp = plCp,
+        plSp = plSp,
+        plPercent = plPercent,
+        plMp = plMp,
+        averageInput = averageInput,
+        interestMode = interestMode,
+        compoundingFreq = compoundingFreq,
+        siP = siP,
+        siR = siR,
+        siT = siT,
+        siI = siI,
+        workSubType = workSubType,
+        workTimeA = workTimeA,
+        workTimeB = workTimeB,
+        workTimeC = workTimeC,
+        sdtSpeed = sdtSpeed,
+        sdtDistance = sdtDistance,
+        sdtTime = sdtTime,
+        divNumber = divNumber,
+        divDivisor = divDivisor,
+        hcfLcmInput = hcfLcmInput,
+        sqCubeNumber = sqCubeNumber,
+        sqCubeOp = sqCubeOp,
+        linearEqInput = linearEqInput,
+        quadA = quadA,
+        quadB = quadB,
+        quadC = quadC,
+        quadRelation = quadRelation,
+        factorInput = factorInput,
+        simplifyInput = simplifyInput
+    )
 
     fun solveCurrentTopic() {
-        val validation = evaluateTopicInputValidation(
-            topic = selectedTopic,
-            arithmeticExpr = arithmeticExpr,
-            fractionNum1 = fractionNum1,
-            fractionDen1 = fractionDen1,
-            fractionOp = fractionOp,
-            fractionNum2 = fractionNum2,
-            fractionDen2 = fractionDen2,
-            percentageSubType = percentageSubType,
-            percentVal1 = percentVal1,
-            percentVal2 = percentVal2,
-            ratioSubType = ratioSubType,
-            ratioTotal = ratioTotal,
-            ratioR1 = ratioR1,
-            ratioR2 = ratioR2,
-            ratioR3 = ratioR3,
-            profitLossSubType = profitLossSubType,
-            plCp = plCp,
-            plSp = plSp,
-            plPercent = plPercent,
-            plMp = plMp,
-            averageInput = averageInput,
-            interestMode = interestMode,
-            compoundingFreq = compoundingFreq,
-            siP = siP,
-            siR = siR,
-            siT = siT,
-            siI = siI,
-            workSubType = workSubType,
-            workTimeA = workTimeA,
-            workTimeB = workTimeB,
-            workTimeC = workTimeC,
-            sdtSpeed = sdtSpeed,
-            sdtDistance = sdtDistance,
-            sdtTime = sdtTime,
-            divNumber = divNumber,
-            hcfLcmInput = hcfLcmInput,
-            sqCubeNumber = sqCubeNumber,
-            sqCubeOp = sqCubeOp,
-            linearEqInput = linearEqInput,
-            quadA = quadA,
-            quadB = quadB,
-            quadC = quadC,
-            quadRelation = quadRelation,
-            factorInput = factorInput,
-            simplifyInput = simplifyInput
-        )
-        if (!validation.canSolve) {
-            solverResult = solveErrorResult(
-                messageBn = validation.banner?.messageBn
-                    ?: "ইনপুট মান সঠিক নয়। অনুগ্রহ করে সংখ্যা বা রাশি যাচাই করুন।"
-            )
-            learningSessionHolder.syncForResult(solverResult)
-            return
-        }
-
-        solverResult = try {
-            when (selectedTopic) {
-                SolverTopic.BASIC_ARITHMETIC -> {
-                    MathProblemSolverEngine.solveArithmetic(arithmeticExpr, selectedMode)
-                }
-                SolverTopic.FRACTIONS_DECIMALS -> {
-                    val n1 = parseBnToLong(fractionNum1)
-                    val d1 = parseBnToLong(fractionDen1)
-                    val n2 = parseBnToLong(fractionNum2)
-                    val d2 = parseBnToLong(fractionDen2)
-                    if (n1 == null || d1 == null || n2 == null || d2 == null) {
-                        solveErrorResult("সবগুলো লব ও হরের ঘরে বৈধ পূর্ণসংখ্যা লিখুন।")
-                    } else {
-                        MathProblemSolverEngine.solveFraction(n1, d1, fractionOp, n2, d2, selectedMode)
-                    }
-                }
-                SolverTopic.PERCENTAGE -> {
-                    val v1 = parseBnToDouble(percentVal1)
-                    val v2 = parseBnToDouble(percentVal2)
-                    if (v1 == null || v2 == null) {
-                        solveErrorResult("শতকরা হিসাবের জন্য উভয় ঘরে বৈধ সংখ্যা লিখুন।")
-                    } else {
-                        val type = when (percentageSubType) {
-                            0 -> MathProblemSolverEngine.PercentageType.OF_NUMBER
-                            1 -> MathProblemSolverEngine.PercentageType.WHAT_PERCENT_OF
-                            2 -> MathProblemSolverEngine.PercentageType.INCREASE_DECREASE
-                            else -> MathProblemSolverEngine.PercentageType.SUCCESSIVE
-                        }
-                        MathProblemSolverEngine.solvePercentage(type, v1, v2, selectedMode)
-                    }
-                }
-                SolverTopic.RATIO_PROPORTION -> {
-                    val r1 = parseBnToDouble(ratioR1)
-                    val r2 = parseBnToDouble(ratioR2)
-                    val tot = parseBnToDouble(ratioTotal)
-                    val r3 = if (ratioSubType == 0 && ratioR3.isNotBlank()) parseBnToDouble(ratioR3) else null
-                    when (ratioSubType) {
-                        0 -> {
-                            if (tot == null || r1 == null || r2 == null || (ratioR3.isNotBlank() && r3 == null)) {
-                                solveErrorResult("বণ্টনযোগ্য মোট পরিমাণ ও অনুপাতের সব প্রদত্ত পদে বৈধ সংখ্যা লিখুন।")
-                            } else {
-                                MathProblemSolverEngine.solveRatio(
-                                    MathProblemSolverEngine.RatioType.DIVIDE_QUANTITY,
-                                    tot, r1, r2, r3, selectedMode
-                                )
-                            }
-                        }
-                        1 -> {
-                            if (tot == null || r1 == null || r2 == null) {
-                                solveErrorResult("চতুর্থ সমানুপাতী নির্ণয়ে A, B ও C-এর বৈধ মান (> ০) দিন।")
-                            } else {
-                                MathProblemSolverEngine.solveRatio(
-                                    MathProblemSolverEngine.RatioType.FOURTH_PROPORTIONAL,
-                                    tot, r1, r2, null, selectedMode
-                                )
-                            }
-                        }
-                        else -> {
-                            if (r1 == null || r2 == null) {
-                                solveErrorResult("অনুপাত সরলীকরণের জন্য উভয় পদে বৈধ সংখ্যা লিখুন।")
-                            } else {
-                                MathProblemSolverEngine.solveRatio(
-                                    MathProblemSolverEngine.RatioType.SIMPLIFY,
-                                    0.0, r1, r2, null, selectedMode
-                                )
-                            }
-                        }
-                    }
-                }
-                SolverTopic.PROFIT_LOSS -> {
-                    val cp = parseBnToDouble(plCp)
-                    val sp = parseBnToDouble(plSp)
-                    val pct = parseBnToDouble(plPercent)
-                    val mp = parseBnToDouble(plMp)
-                    val type = when (profitLossSubType) {
-                        0 -> MathProblemSolverEngine.ProfitLossType.FIND_PROFIT_LOSS_PERCENT
-                        1 -> MathProblemSolverEngine.ProfitLossType.FIND_SP_FROM_CP_AND_PERCENT
-                        2 -> MathProblemSolverEngine.ProfitLossType.FIND_CP_FROM_SP_AND_PERCENT
-                        else -> MathProblemSolverEngine.ProfitLossType.DISCOUNT_MARKED_PRICE
-                    }
-                    MathProblemSolverEngine.solveProfitLoss(type, cp, sp, pct, mp, selectedMode)
-                }
-                SolverTopic.AVERAGE -> {
-                    when (val parsed = parseStrictBnDoubleList(averageInput)) {
-                        is StrictListParseResult.Invalid -> solveErrorResult(parsed.messageBn)
-                        is StrictListParseResult.Valid -> MathProblemSolverEngine.solveAverage(parsed.values, selectedMode)
-                    }
-                }
-                SolverTopic.SIMPLE_INTEREST -> {
-                    val visibleInvalid = if (interestMode == InterestCalculationMode.COMPOUND) {
-                        listOf(siP, siR, siT).any { it.isNotBlank() && parseBnToDouble(it) == null }
-                    } else {
-                        listOf(siP, siR, siT, siI).any { it.isNotBlank() && parseBnToDouble(it) == null }
-                    }
-                    if (visibleInvalid) {
-                        solveErrorResult("মুনাফার হিসাবের সব প্রদত্ত ঘরে বৈধ সসীম সংখ্যা লিখুন।")
-                    } else if (interestMode == InterestCalculationMode.COMPOUND) {
-                        val p = parseBnToDouble(siP)
-                        val r = parseBnToDouble(siR)
-                        val t = parseBnToDouble(siT)
-                        if (p == null || r == null || t == null) {
-                            solveErrorResult("চক্রবৃদ্ধি মুনাফার জন্য আসল (P), হার (r) ও সময় (t) দিন।")
-                        } else {
-                            MathProblemSolverEngine.solveCompoundInterest(
-                                p = p,
-                                r = r,
-                                t = t,
-                                m = compoundingFreq,
-                                mode = selectedMode
-                            )
-                        }
-                    } else {
-                        val p = parseBnToDouble(siP)
-                        val r = parseBnToDouble(siR)
-                        val t = parseBnToDouble(siT)
-                        val i = parseBnToDouble(siI)
-                        MathProblemSolverEngine.solveSimpleInterest(p, r, t, i, null, selectedMode)
-                    }
-                }
-                SolverTopic.TIME_AND_WORK -> {
-                    val a = parseBnToDouble(workTimeA)
-                    val b = parseBnToDouble(workTimeB)
-                    val c = if (workSubType == 1) parseBnToDouble(workTimeC) else null
-                    if (a == null || b == null || (workSubType == 1 && c == null)) {
-                        solveErrorResult("কাজ বা নলের সময়ের সব প্রদত্ত ঘরে বৈধ সংখ্যা লিখুন।")
-                    } else {
-                        val type = when (workSubType) {
-                            0 -> MathProblemSolverEngine.WorkType.TWO_PERSONS
-                            1 -> MathProblemSolverEngine.WorkType.THREE_PERSONS
-                            else -> MathProblemSolverEngine.WorkType.PIPE_CISTERN
-                        }
-                        MathProblemSolverEngine.solveTimeAndWork(type, a, b, c, selectedMode)
-                    }
-                }
-                SolverTopic.SPEED_DISTANCE_TIME -> {
-                    if (listOf(sdtSpeed, sdtDistance, sdtTime).any { it.isNotBlank() && parseBnToDouble(it) == null }) {
-                        solveErrorResult("গতিবেগ, দূরত্ব ও সময়ের প্রদত্ত মানগুলো অবশ্যই বৈধ সসীম সংখ্যা হতে হবে।")
-                    } else {
-                        val s = parseBnToDouble(sdtSpeed)
-                        val d = parseBnToDouble(sdtDistance)
-                        val t = parseBnToDouble(sdtTime)
-                        MathProblemSolverEngine.solveSpeedDistanceTime(s, d, t, selectedMode)
-                    }
-                }
-                SolverTopic.NUMBER_SYSTEM_DIVISIBILITY -> {
-                    val num = parseBnToLong(divNumber)
-                    if (num == null) {
-                        solveErrorResult("বিভাজ্যতা যাচাইয়ের জন্য একটি বৈধ পূর্ণসংখ্যা লিখুন।")
-                    } else {
-                        MathProblemSolverEngine.solveDivisibility(num, divDivisor, selectedMode)
-                    }
-                }
-                SolverTopic.HCF_LCM -> {
-                    when (val parsed = parseStrictBnPositiveLongList(hcfLcmInput)) {
-                        is StrictListParseResult.Invalid -> solveErrorResult(parsed.messageBn)
-                        is StrictListParseResult.Valid -> MathProblemSolverEngine.solveHcfLcm(parsed.values, selectedMode)
-                    }
-                }
-                SolverTopic.SQUARES_CUBES_ROOTS -> {
-                    val n = parseBnToDouble(sqCubeNumber)
-                    if (n == null) {
-                        solveErrorResult("একটি বৈধ সসীম সংখ্যা লিখুন।")
-                    } else {
-                        val op = when (sqCubeOp) {
-                            0 -> MathProblemSolverEngine.SquareCubeOp.SQUARE
-                            1 -> MathProblemSolverEngine.SquareCubeOp.SQUARE_ROOT
-                            2 -> MathProblemSolverEngine.SquareCubeOp.CUBE
-                            else -> MathProblemSolverEngine.SquareCubeOp.CUBE_ROOT
-                        }
-                        MathProblemSolverEngine.solveSquareCube(n, op, selectedMode)
-                    }
-                }
-                SolverTopic.LINEAR_EQUATIONS -> {
-                    MathProblemSolverEngine.solveLinearEquation(linearEqInput, selectedMode)
-                }
-                SolverTopic.QUADRATIC_EQUATIONS -> {
-                    val a = parseBnToDouble(quadA)
-                    val b = parseBnToDouble(quadB)
-                    val c = parseBnToDouble(quadC)
-                    if (a == null || b == null || c == null) {
-                        solveErrorResult("সহগ a, b, c-এর ঘরে বৈধ সসীম সংখ্যা লিখুন।")
-                    } else {
-                        MathProblemSolverEngine.solveQuadraticEquation(a, b, c, selectedMode, quadRelation)
-                    }
-                }
-                SolverTopic.FACTORIZATION -> {
-                    MathProblemSolverEngine.solveFactorization(factorInput, selectedMode)
-                }
-                SolverTopic.SIMPLIFICATION -> {
-                    MathProblemSolverEngine.solveSimplification(simplifyInput, selectedMode)
-                }
-            }
-        } catch (e: Exception) {
-            SolverResult(
-                topic = selectedTopic,
-                mode = selectedMode,
-                originalProblemBn = "সমস্যা বিশ্লেষণ",
-                finalAnswerBn = "ত্রুটি",
-                isSuccess = false,
-                errorMessageBn = "ইনপুট মান সঠিক নয়। অনুগ্রহ করে সংখ্যা বা রাশি যাচাই করুন।"
-            )
-        }
-        learningSessionHolder.syncForResult(solverResult)
+        val result = computeSolutionPure(buildSolverSnapshot())
+        solverResult = result
+        learningSessionHolder.syncForResult(result)
     }
+
 
     LaunchedEffect(selectedTopic) {
         if (skipNextAutoSolve) {
@@ -579,7 +698,9 @@ fun ProblemSolverScreen(
             ) { snackbarData ->
                 Snackbar(
                     snackbarData = snackbarData,
-                    modifier = Modifier.testTag("solver_persistence_snackbar")
+                    modifier = Modifier
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .testTag("solver_persistence_snackbar")
                 )
             }
         }
@@ -794,11 +915,13 @@ fun ProblemSolverScreen(
                     isSolveInFlight = isSolveInFlight,
                     onResetClick = { resetCurrentTopicInputs() },
                     onSolveClick = {
+                        val snapshot = buildSolverSnapshot()
                         viewModel.submitSolverCalculationAndPersist(
-                            topic = selectedTopic,
-                            solveAction = {
-                                solveCurrentTopic()
-                                solverResult
+                            topic = snapshot.topic,
+                            solveAction = { computeSolutionPure(snapshot) },
+                            onResultCommitted = { res ->
+                                solverResult = res
+                                learningSessionHolder.syncForResult(res)
                             }
                         )
                     }
@@ -2175,10 +2298,15 @@ fun StepCardItem(
 // -------------------------------------------------------------
 // HELPER PARSING FUNCTIONS
 // -------------------------------------------------------------
+private val SOLVER_LONG_INTEGER_REGEX = Regex("""^[+-]?\d+$""")
+private val SOLVER_STRICT_DOUBLE_REGEX = Regex("""^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$""")
+private val SOLVER_WHITESPACE_SPLIT_REGEX = Regex("""\s+""")
+private val SOLVER_THOUSANDS_DOT_REGEX = Regex("""^\d{1,3}(,\d{3})+(\.\d+)?$""")
+
 fun parseBnToLong(s: String?): Long? {
     if (s.isNullOrBlank()) return null
     val ascii = toAscii(s.trim())
-    if (!Regex("""^[+-]?\d+$""").matches(ascii)) return null
+    if (!SOLVER_LONG_INTEGER_REGEX.matches(ascii)) return null
     return ascii.toLongOrNull()
 }
 
@@ -2196,7 +2324,7 @@ fun parseStrictListDoubleToken(rawToken: String): Double? {
     val trimmed = rawToken.trim()
     if (trimmed.isEmpty()) return null
     val ascii = toAscii(trimmed)
-    if (!Regex("""^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$""").matches(ascii)) return null
+    if (!SOLVER_STRICT_DOUBLE_REGEX.matches(ascii)) return null
     return ascii.toDoubleOrNull()?.takeIf { it.isFinite() }
 }
 
@@ -2213,7 +2341,7 @@ fun parseStrictBnDoubleList(raw: String): StrictListParseResult<Double> {
     }
     val values = mutableListOf<Double>()
     for (segment in commaSegments) {
-        val tokens = segment.trim().split(Regex("""\s+""")).filter { it.isNotEmpty() }
+        val tokens = segment.trim().split(SOLVER_WHITESPACE_SPLIT_REGEX).filter { it.isNotEmpty() }
         for (token in tokens) {
             val parsed = parseStrictListDoubleToken(token)
             if (parsed == null) {
@@ -2243,7 +2371,7 @@ fun parseStrictBnPositiveLongList(raw: String): StrictListParseResult<Long> {
     }
     val values = mutableListOf<Long>()
     for (segment in commaSegments) {
-        val tokens = segment.trim().split(Regex("""\s+""")).filter { it.isNotEmpty() }
+        val tokens = segment.trim().split(SOLVER_WHITESPACE_SPLIT_REGEX).filter { it.isNotEmpty() }
         for (token in tokens) {
             val parsed = parseBnToLong(token)
             if (parsed == null) {
@@ -2282,8 +2410,7 @@ fun parseBnToDouble(s: String?): Double? {
     if (body.isEmpty()) return null
 
     if (body.contains(",") && body.contains(".")) {
-        val thousandsDotRegex = Regex("""^\d{1,3}(,\d{3})+(\.\d+)?$""")
-        if (thousandsDotRegex.matches(body)) {
+        if (SOLVER_THOUSANDS_DOT_REGEX.matches(body)) {
             val normalized = body.replace(",", "")
             return "$sign$normalized".toDoubleOrNull()?.takeIf { it.isFinite() }
         }

@@ -64,6 +64,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -104,14 +105,20 @@ fun BookHubScreen(
     val searchQuery by viewModel.bookSearchQuery.collectAsStateWithLifecycle()
     val searchFilter by viewModel.bookSearchFilter.collectAsStateWithLifecycle()
 
-    val searchResults = remember(searchQuery, searchFilter) {
-        if (searchQuery.isBlank() && searchFilter == BookSearchFilterType.ALL) {
+    val searchResults by produceState<List<BookSearchResult>>(
+        initialValue = emptyList(),
+        searchQuery,
+        searchFilter
+    ) {
+        value = if (searchQuery.isBlank() && searchFilter == BookSearchFilterType.ALL) {
             emptyList()
         } else {
-            BookCurriculumRepository.searchAllBooks(
-                query = searchQuery,
-                filterType = searchFilter
-            )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                BookCurriculumRepository.searchAllBooks(
+                    query = searchQuery,
+                    filterType = searchFilter
+                )
+            }
         }
     }
 
@@ -237,7 +244,11 @@ fun BookHubScreen(
                     )
                 }
 
-                items(searchResults, key = { it.id }) { res ->
+                items(
+                    items = searchResults,
+                    key = { it.id },
+                    contentType = { "book_search_result" }
+                ) { res ->
                     BookSearchResultCard(
                         result = res,
                         onClick = {

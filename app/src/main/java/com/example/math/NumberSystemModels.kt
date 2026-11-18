@@ -770,12 +770,20 @@ object NumberSystemProvider {
         }
     }
 
+    private fun checkSolverCancellation() {
+        if (Thread.currentThread().isInterrupted) {
+            throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+        }
+    }
+
     fun getFactors(n: Long): List<Long> {
         if (n <= 0L || n == Long.MIN_VALUE) return emptyList()
         val factors = mutableListOf<Long>()
         var i = 1L
+        var iter = 0
         val maxSteps = 200_000L
         while (i <= n / i && i <= maxSteps) {
+            if ((iter++ and 0x3FF) == 0) checkSolverCancellation()
             if (n % i == 0L) {
                 factors.add(i)
                 if (i != n / i) {
@@ -792,14 +800,18 @@ object NumberSystemProvider {
         if (n <= 1L || n == Long.MIN_VALUE) return emptyList()
         val factors = mutableListOf<Long>()
         var temp = n
+        var iter = 0
         while (temp % 2L == 0L) {
+            if ((iter++ and 0x3FF) == 0) checkSolverCancellation()
             factors.add(2L)
             temp /= 2L
         }
         var d = 3L
         val maxD = 500_000L
         while (d <= temp / d && d <= maxD) {
+            if ((iter++ and 0x3FF) == 0) checkSolverCancellation()
             while (temp % d == 0L) {
+                if ((iter++ and 0x3FF) == 0) checkSolverCancellation()
                 factors.add(d)
                 temp /= d
             }
@@ -816,7 +828,9 @@ object NumberSystemProvider {
         if (n <= 3L) return true
         if (n % 2L == 0L || n % 3L == 0L) return false
         var i = 5L
+        var iter = 0
         while (i <= n / i) {
+            if ((iter++ and 0x3FF) == 0) checkSolverCancellation()
             if (n % i == 0L || n % (i + 2L) == 0L) return false
             if (i > Long.MAX_VALUE - 6L) break
             i += 6L

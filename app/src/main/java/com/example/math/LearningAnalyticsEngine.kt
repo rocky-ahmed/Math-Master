@@ -297,14 +297,17 @@ object LearningAnalyticsEngine {
         )
     }
 
+    private val DIFFICULTY_SUFFIX_REGEX = Regex("""\s*\((সহজ|মাঝারি|কঠিন|মিশ্র|Easy|Medium|Hard|Mixed|STANDARD)\)\s*$""")
+    private val QUIZ_SUFFIX_REGEX = Regex("""\s+কুইজ(\s*\([০-৯0-9\-–]+\))?\s*$""")
+
     fun normalizeTopicTitleBn(rawTitle: String, fallbackTopicId: String = ""): String {
         val base = rawTitle.trim().ifBlank { fallbackTopicId.trim() }
         val cleaned = base
             .removePrefix("প্র্যাকটিস: ")
             .removePrefix("মেন্টাল ম্যাথ: ")
             .removePrefix("ভিজ্যুয়াল গণিত: ")
-            .replace(Regex("""\s*\((সহজ|মাঝারি|কঠিন|মিশ্র|Easy|Medium|Hard|Mixed|STANDARD)\)\s*$"""), "")
-            .replace(Regex("""\s+কুইজ(\s*\([০-৯0-9\-–]+\))?\s*$"""), "")
+            .replace(DIFFICULTY_SUFFIX_REGEX, "")
+            .replace(QUIZ_SUFFIX_REGEX, "")
             .trim()
         return cleaned.ifBlank { base }
     }

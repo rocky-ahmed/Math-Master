@@ -15,16 +15,16 @@ import kotlin.math.sqrt
  */
 object MathProblemSolverEngine {
 
-    private val usSymbols = DecimalFormatSymbols(Locale.US)
-    private val df = DecimalFormat("0.####", usSymbols)
-    private val dfCurrency = DecimalFormat("0.##", usSymbols)
+    private val dfLocal: ThreadLocal<DecimalFormat> = ThreadLocal.withInitial {
+        DecimalFormat("0.####", DecimalFormatSymbols(Locale.US))
+    }
 
     private fun formatNum(n: Double): String {
         if (!n.isFinite()) return "অসংজ্ঞায়িত"
         return if (abs(n) <= 9e15 && n == n.toLong().toDouble()) {
             BengaliNumberFormatter.toBn(n.toLong().toString())
         } else {
-            BengaliNumberFormatter.toBn(df.format(n))
+            BengaliNumberFormatter.toBn(dfLocal.get()!!.format(n))
         }
     }
 
@@ -2162,6 +2162,9 @@ object MathProblemSolverEngine {
         var cumulativeBigLcm = java.math.BigInteger.valueOf(validNums[0])
         var lcmOverflowed = false
         for (i in 1 until validNums.size) {
+            if (Thread.currentThread().isInterrupted) {
+                throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+            }
             val nextBig = java.math.BigInteger.valueOf(validNums[i])
             val gBig = cumulativeBigLcm.gcd(nextBig)
             cumulativeBigLcm = cumulativeBigLcm.divide(gBig).multiply(nextBig)
@@ -2177,6 +2180,9 @@ object MathProblemSolverEngine {
         } else {
             var currentLcm = validNums[0]
             for (i in 1 until validNums.size) {
+                if (Thread.currentThread().isInterrupted) {
+                    throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+                }
                 currentLcm = NumberSystemProvider.lcm(currentLcm, validNums[i])
                 if (currentLcm <= 0L) break
             }
@@ -2194,6 +2200,9 @@ object MathProblemSolverEngine {
 
         // Prime factorizations for explanation
         val primeFactors = validNums.map { n ->
+            if (Thread.currentThread().isInterrupted) {
+                throw kotlinx.coroutines.CancellationException("Solver calculation interrupted")
+            }
             n to NumberSystemProvider.getPrimeFactors(n)
         }
 
@@ -3049,7 +3058,7 @@ object MathProblemSolverEngine {
                 )
             }
 
-            var replaced = current.substring(0, startIdx) + df.format(insideVal) + afterBracket
+            var replaced = current.substring(0, startIdx) + dfLocal.get()!!.format(insideVal) + afterBracket
             while (replaced.contains("--") || replaced.contains("+-") || replaced.contains("-+") || replaced.contains("++")) {
                 replaced = replaced.replace("--", "+").replace("+-", "-").replace("-+", "-").replace("++", "+")
             }

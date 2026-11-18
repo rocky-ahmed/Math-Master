@@ -268,18 +268,34 @@ enum class SectionKey(val id: String, val titleBn: String, val defaultIcon: Avai
 data class SectionCustomConfig(
     val iconId: String? = null,
     val iconColorHex: String? = null,
-    val iconSizeDp: Int = 28, // default 28dp (range: 20..44)
+    val iconSizeDp: Int = 0, // 0 = inherit global, else 20..44
     val backgroundHex: String? = null, // Custom card background
     val titleColorHex: String? = null,
     val subtitleColorHex: String? = null,
-    val titleFontSizeSp: Int = 16, // range: 13..24
-    val subtitleFontSizeSp: Int = 12, // range: 10..18
+    val titleFontSizeSp: Int = 0, // 0 = inherit global, else 13..24
+    val subtitleFontSizeSp: Int = 0, // 0 = inherit global, else 10..18
     val cornerRadiusDp: Int = 16, // range: 4..32
-    val borderThicknessDp: Int = 0, // 0 = no border, range: 0..4
+    val borderThicknessDp: Int = 0, // 0 = no border, range: 0..6
     val borderColorHex: String? = null,
     val paddingDp: Int = 16, // internal card padding (range: 8..24)
-    val cardHeightDp: Int = 0 // 0 means dynamic wrap content, or min height
-)
+    val cardHeightDp: Int = 0 // 0 means dynamic wrap content, else 120..240
+) {
+    fun sanitized(): SectionCustomConfig = copy(
+        iconId = iconId?.trim()?.takeIf { it.isNotEmpty() },
+        iconColorHex = ColorUtils.normalizeHexOrNull(iconColorHex),
+        iconSizeDp = if (iconSizeDp <= 0) 0 else iconSizeDp.coerceIn(20, 44),
+        backgroundHex = ColorUtils.normalizeHexOrNull(backgroundHex),
+        titleColorHex = ColorUtils.normalizeHexOrNull(titleColorHex),
+        subtitleColorHex = ColorUtils.normalizeHexOrNull(subtitleColorHex),
+        titleFontSizeSp = if (titleFontSizeSp <= 0) 0 else titleFontSizeSp.coerceIn(13, 24),
+        subtitleFontSizeSp = if (subtitleFontSizeSp <= 0) 0 else subtitleFontSizeSp.coerceIn(10, 18),
+        cornerRadiusDp = cornerRadiusDp.coerceIn(4, 32),
+        borderThicknessDp = borderThicknessDp.coerceIn(0, 6),
+        borderColorHex = ColorUtils.normalizeHexOrNull(borderColorHex),
+        paddingDp = paddingDp.coerceIn(8, 24),
+        cardHeightDp = if (cardHeightDp <= 0) 0 else cardHeightDp.coerceIn(120, 240)
+    )
+}
 
 /**
  * Global customization preferences.
@@ -298,7 +314,7 @@ data class GlobalCustomConfig(
     val titleFontSizeSp: Int = 16, // 13 to 24
     val subtitleFontSizeSp: Int = 12, // 10 to 18
     val contentAlignmentCenter: Boolean = false,
-    val borderThicknessDp: Int = 0, // 0 to 4
+    val borderThicknessDp: Int = 0, // 0 to 6
     val showBorder: Boolean = false,
 
     // Global Color Customization Overrides (Light & Dark)
@@ -311,7 +327,28 @@ data class GlobalCustomConfig(
     val customDarkBackgroundHex: String? = null,
     val customDarkCardSurfaceHex: String? = null,
     val customDarkTextColorHex: String? = null
-)
+) {
+    fun sanitized(): GlobalCustomConfig = copy(
+        gridColumns = gridColumns.coerceIn(1, 4),
+        horizontalGapDp = horizontalGapDp.coerceIn(4, 24),
+        verticalGapDp = verticalGapDp.coerceIn(4, 24),
+        cornerRadiusDp = cornerRadiusDp.coerceIn(4, 32),
+        iconSizeDp = iconSizeDp.coerceIn(20, 44),
+        iconTextSpacingDp = iconTextSpacingDp.coerceIn(8, 28),
+        interfaceScalePercent = interfaceScalePercent.coerceIn(80, 130),
+        titleFontSizeSp = titleFontSizeSp.coerceIn(13, 24),
+        subtitleFontSizeSp = subtitleFontSizeSp.coerceIn(10, 18),
+        borderThicknessDp = borderThicknessDp.coerceIn(0, 6),
+        customAccentHex = ColorUtils.normalizeHexOrNull(customAccentHex),
+        customPrimaryActionHex = ColorUtils.normalizeHexOrNull(customPrimaryActionHex),
+        customLightBackgroundHex = ColorUtils.normalizeHexOrNull(customLightBackgroundHex),
+        customLightCardSurfaceHex = ColorUtils.normalizeHexOrNull(customLightCardSurfaceHex),
+        customLightTextColorHex = ColorUtils.normalizeHexOrNull(customLightTextColorHex),
+        customDarkBackgroundHex = ColorUtils.normalizeHexOrNull(customDarkBackgroundHex),
+        customDarkCardSurfaceHex = ColorUtils.normalizeHexOrNull(customDarkCardSurfaceHex),
+        customDarkTextColorHex = ColorUtils.normalizeHexOrNull(customDarkTextColorHex)
+    )
+}
 
 /**
  * Complete app customization state holding both global settings
@@ -324,4 +361,9 @@ data class AppCustomizationState(
     fun getSectionConfig(key: SectionKey): SectionCustomConfig {
         return sections[key.id] ?: SectionCustomConfig()
     }
+
+    fun sanitized(): AppCustomizationState = copy(
+        global = global.sanitized(),
+        sections = sections.mapValues { (_, cfg) -> cfg.sanitized() }
+    )
 }

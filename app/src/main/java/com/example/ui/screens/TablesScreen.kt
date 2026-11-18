@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -28,15 +29,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,9 +53,9 @@ import com.example.ui.MathViewModel
 import com.example.ui.components.BookmarkIconButton
 import com.example.ui.components.LearnedStatusBadge
 import com.example.ui.components.MathTopAppBar
+import com.example.ui.customization.resolveEffectiveGridColumns
 import com.example.ui.theme.MathSpacing
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun TablesScreen(
     viewModel: MathViewModel,
@@ -63,7 +67,15 @@ fun TablesScreen(
     val progressList by viewModel.progressList.collectAsStateWithLifecycle()
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
 
+    val learnedItemIds = remember(progressList) {
+        progressList.asSequence().filter { it.isLearned }.mapTo(HashSet()) { it.itemId }
+    }
+    val bookmarkedItemIds = remember(bookmarks) {
+        bookmarks.mapTo(HashSet()) { it.id }
+    }
+
     val ranges = TableRange.values()
+    val density = LocalDensity.current
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -72,22 +84,39 @@ fun TablesScreen(
             onBackClick = { viewModel.navigateBack() }
         )
 
-        // 4 Range Tabs
-        PrimaryTabRow(
-            selectedTabIndex = ranges.indexOf(selectedRange),
-            modifier = Modifier.fillMaxWidth().testTag("table_range_tabs")
-        ) {
-            ranges.forEach { range ->
-                val isSelected = selectedRange == range
-                Tab(
-                    selected = isSelected,
-                    onClick = { viewModel.selectRange(range) },
-                    text = {
-                        Text(
-                            text = "${BengaliNumberFormatter.toBn(range.startNum)}-${BengaliNumberFormatter.toBn(range.endNum)}",
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
+        // 4 Range Tabs (switch to scrollable tabs on narrow viewports or large font scales)
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val useScrollableTabs = maxWidth < 360.dp || density.fontScale >= 1.25f
+            val selectedTabIndex = ranges.indexOf(selectedRange).coerceAtLeast(0)
+            val tabsContent: @Composable () -> Unit = {
+                ranges.forEach { range ->
+                    val isSelected = selectedRange == range
+                    Tab(
+                        selected = isSelected,
+                        onClick = { viewModel.selectRange(range) },
+                        text = {
+                            Text(
+                                text = "${BengaliNumberFormatter.toBn(range.startNum)}-${BengaliNumberFormatter.toBn(range.endNum)}",
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    )
+                }
+            }
+            if (useScrollableTabs) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    edgePadding = 8.dp,
+                    modifier = Modifier.fillMaxWidth().testTag("table_range_tabs"),
+                    tabs = tabsContent
+                )
+            } else {
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    modifier = Modifier.fillMaxWidth().testTag("table_range_tabs"),
+                    tabs = tabsContent
                 )
             }
         }
@@ -98,21 +127,39 @@ fun TablesScreen(
             viewModel = viewModel,
             stateKey = "tables:${selectedRange.name}"
         )
+        val density = LocalDensity.current
 
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            state = gridState,
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("tables_grid"),
-            contentPadding = MathSpacing.screenListContentPadding(),
-            horizontalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing),
-            verticalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing)
-        ) {
-            items(tables) { table ->
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val requestedCols = when {
+                maxWidth >= 840.dp -> 4
+                maxWidth >= 600.dp -> 3
+                else -> 2
+            }
+            val columns = resolveEffectiveGridColumns(
+                requestedColumns = requestedCols,
+                availableGridContentWidthDp = (maxWidth - 32.dp).coerceAtLeast(0.dp).value.toInt(),
+                horizontalGapDp = MathSpacing.itemSpacing.value.toInt(),
+                fontScale = density.fontScale
+            )
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                state = gridState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("tables_grid"),
+                contentPadding = MathSpacing.screenListContentPadding(),
+                horizontalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing),
+                verticalArrangement = Arrangement.spacedBy(MathSpacing.itemSpacing)
+            ) {
+            items(
+                items = tables,
+                key = { it.number },
+                contentType = { "table_card" }
+            ) { table ->
                 val itemId = "table_${table.number}"
-                val isLearned = progressList.any { it.itemId == itemId && it.isLearned }
-                val isBookmarked = bookmarks.any { it.id == itemId }
+                val isLearned = learnedItemIds.contains(itemId)
+                val isBookmarked = bookmarkedItemIds.contains(itemId)
 
                 ElevatedCard(
                     modifier = Modifier
@@ -206,6 +253,7 @@ fun TablesScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -323,7 +371,11 @@ fun TableDetailScreen(
             }
 
             // Multiplication Rows 1 to 10
-            items(table.rows) { row ->
+            items(
+                items = table.rows,
+                key = { "${it.bnMultiplier}_${it.bnMultiplicand}" },
+                contentType = { "table_row" }
+            ) { row ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),

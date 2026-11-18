@@ -454,7 +454,11 @@ fun PrimesScreen(
             }
 
             // Render each decade group
-            items(magicCodeInfo.decadeGroups.size) { index ->
+            items(
+                count = magicCodeInfo.decadeGroups.size,
+                key = { idx -> magicCodeInfo.decadeGroups[idx].rangeLabelBn },
+                contentType = { "decade_group" }
+            ) { index ->
                 val decade = magicCodeInfo.decadeGroups[index]
                 ElevatedCard(
                     modifier = Modifier
