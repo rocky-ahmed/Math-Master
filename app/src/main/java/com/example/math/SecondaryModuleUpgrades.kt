@@ -238,7 +238,7 @@ object FormulaInteractiveEngine {
         val v2 = valuesList.getOrElse(1) { 3.0 }
         val v3 = valuesList.getOrElse(2) { 2.0 }
 
-        // Exact Formula-ID Dispatch first
+        // Exact Formula-ID Dispatch first (supports both legacy and lib_* catalog IDs)
         val exactById: Pair<List<String>, String>? = when (entry.id) {
             "nt_1" -> {
                 val nLong = v1.toLong().coerceAtLeast(1L)
@@ -265,14 +265,15 @@ object FormulaInteractiveEngine {
                     "= ${BengaliNumberFormatter.toBn(sumCube)}"
                 ) to BengaliNumberFormatter.toBn(sumCube)
             }
-            "nt_4" -> {
+            "nt_4", "lib_nt_01" -> {
                 val aL = v1.toLong().coerceAtLeast(1L)
                 val bL = v2.toLong().coerceAtLeast(1L)
                 val g = NumberSystemProvider.gcd(aL, bL)
                 val l = NumberSystemProvider.lcm(aL, bL)
+                val prodBn = BengaliNumberFormatter.toBn(java.math.BigInteger.valueOf(aL).multiply(java.math.BigInteger.valueOf(bL)).toString())
                 listOf(
                     "গ.সা.গু(${BengaliNumberFormatter.toBn(aL)}, ${BengaliNumberFormatter.toBn(bL)}) = ${BengaliNumberFormatter.toBn(g)}, ল.সা.গু = ${BengaliNumberFormatter.toBn(l)}",
-                    "গুণফল যাচাই: ${BengaliNumberFormatter.toBn(aL)} × ${BengaliNumberFormatter.toBn(bL)} = ${BengaliNumberFormatter.toBn(aL * bL)} = ${BengaliNumberFormatter.toBn(g)} × ${BengaliNumberFormatter.toBn(l)}"
+                    "গুণফল যাচাই: ${BengaliNumberFormatter.toBn(aL)} × ${BengaliNumberFormatter.toBn(bL)} = $prodBn = ${BengaliNumberFormatter.toBn(g)} × ${BengaliNumberFormatter.toBn(l)}"
                 ) to "গ.সা.গু = ${BengaliNumberFormatter.toBn(g)}, ল.সা.গু = ${BengaliNumberFormatter.toBn(l)}"
             }
             "nt_bdmo_1", "nt_bdmo_2" -> {
@@ -303,7 +304,44 @@ object FormulaInteractiveEngine {
                     "= ${formatNumBn(sum)}"
                 ) to formatNumBn(sum)
             }
-            "prob_1" -> {
+            "lib_seq_01" -> {
+                val am = (v1 + v2) / 2.0
+                if (v1 < 0.0 || v2 < 0.0) {
+                    return FormulaCalculationResult(
+                        isSuccess = false,
+                        formulaTitleBn = entry.titleBn,
+                        expressionBn = entry.formulaExpression,
+                        variableDefinitionsBn = defs,
+                        substitutionStepsBn = emptyList(),
+                        finalAnswerBn = "",
+                        errorMessageBn = "গুণোত্তর মধ্যকের জন্য উভয় সংখ্যা অঋণাত্মক (a ≥ ০, b ≥ ০) হতে হবে।"
+                    )
+                }
+                val gm = sqrt(v1 * v2)
+                listOf(
+                    "সমান্তর মধ্যক AM = (${formatNumBn(v1)} + ${formatNumBn(v2)}) / ২ = ${formatNumBn(am)}",
+                    "গুণোত্তর মধ্যক GM = √(${formatNumBn(v1)} × ${formatNumBn(v2)}) = ${formatNumBn(gm)}"
+                ) to "AM = ${formatNumBn(am)}, GM = ${formatNumBn(gm)}"
+            }
+            "lib_seq_02" -> {
+                if (abs(v2) >= 1.0) {
+                    return FormulaCalculationResult(
+                        isSuccess = false,
+                        formulaTitleBn = entry.titleBn,
+                        expressionBn = entry.formulaExpression,
+                        variableDefinitionsBn = defs,
+                        substitutionStepsBn = emptyList(),
+                        finalAnswerBn = "",
+                        errorMessageBn = "অসীম গুণোত্তর ধারার সমষ্টির জন্য সাধারণ অনুপাত |r| < ১ (অর্থাৎ −১ < r < ১) হতে হবে।"
+                    )
+                }
+                val sInf = v1 / (1.0 - v2)
+                listOf(
+                    "S∞ = a / (1 − r) = ${formatNumBn(v1)} / (১ − ${formatNumBn(v2)})",
+                    "= ${formatNumBn(v1)} / ${formatNumBn(1.0 - v2)} = ${formatNumBn(sInf)}"
+                ) to formatNumBn(sInf)
+            }
+            "prob_1", "lib_prob_01" -> {
                 val denom = v2.coerceAtLeast(1.0)
                 val p = (v1 / denom).coerceIn(0.0, 1.0)
                 listOf(
@@ -327,14 +365,33 @@ object FormulaInteractiveEngine {
 
         return when (entry.subject) {
             FormulaSubject.ALGEBRA -> {
-                val expr = entry.formulaExpression
-                val isDiffSq = expr.contains("a² - b²") || entry.titleBn.contains("বর্গান্তর")
-                val isCube = expr.contains("³") || entry.titleBn.contains("ঘন")
-                val isMinus = expr.contains("(a - b)")
+                val normalizedExpr = entry.formulaExpression
+                    .replace("−", "-")
+                    .replace("–", "-")
+                val lhs = normalizedExpr.substringBefore("=").trim()
+                val isDiffSq = entry.id == "lib_alg_03" ||
+                    lhs.contains("a² - b²") ||
+                    lhs.contains("a^2 - b^2") ||
+                    entry.titleBn.contains("বর্গান্তর") ||
+                    entry.titleBn.contains("বর্গের অন্তর")
+                val isFourAb = entry.id == "lib_alg_04" || lhs.startsWith("4ab")
+                val isSumCubes = entry.id == "lib_alg_07" || lhs.contains("a³ + b³") || lhs.contains("a³ - b³")
+                val isCube = lhs.contains("³") || entry.titleBn.contains("ঘন")
+                val isMinus = entry.id == "lib_alg_02" || lhs.contains("(a - b)")
                 val resultVal: Double
                 val step1: String
                 val step2: String
                 when {
+                    isFourAb -> {
+                        resultVal = v1 * v1 - v2 * v2
+                        step1 = "4ab = (a + b)² - (a - b)² = (${formatNumBn(v1)})² - (${formatNumBn(v2)})²"
+                        step2 = "= ${formatNumBn(v1 * v1)} - ${formatNumBn(v2 * v2)} = ${formatNumBn(resultVal)} (এবং ab = ${formatNumBn(resultVal / 4.0)})"
+                    }
+                    isSumCubes -> {
+                        resultVal = v1.pow(3.0) + v2.pow(3.0)
+                        step1 = "a³ + b³ = (${formatNumBn(v1)} + ${formatNumBn(v2)})(${formatNumBn(v1)}² - ${formatNumBn(v1)}×${formatNumBn(v2)} + ${formatNumBn(v2)}²)"
+                        step2 = "= ${formatNumBn(v1 + v2)} × ${formatNumBn(v1 * v1 - v1 * v2 + v2 * v2)} = ${formatNumBn(resultVal)}"
+                    }
                     isCube && isMinus -> {
                         resultVal = (v1 - v2).pow(3.0)
                         step1 = "(a - b)³ = (${formatNumBn(v1)} - ${formatNumBn(v2)})³"
@@ -512,10 +569,11 @@ object FormulaInteractiveEngine {
     }
 
     private fun formatNumBn(v: Double): String {
-        val str = if (abs(v - v.roundToInt()) < 1e-6) {
-            v.roundToInt().toString()
+        if (!v.isFinite()) return "অসংজ্ঞায়িত"
+        val str = if (abs(v) <= 9e15 && abs(v - kotlin.math.round(v)) < 1e-6) {
+            kotlin.math.round(v).toLong().toString()
         } else {
-            String.format("%.2f", v)
+            String.format(java.util.Locale.US, "%.2f", v)
         }
         return str.map { ch ->
             if (ch in '0'..'9') ('০' + (ch - '0')) else ch
@@ -726,23 +784,27 @@ object SimilarProblemGenerator {
     private const val STEP_SEP = "\u001E"
     private const val FIELD_SEP = "\u001F"
 
+    private fun sanitizeField(value: String): String {
+        return value.replace(FIELD_SEP, " ").replace(STEP_SEP, " ")
+    }
+
     fun serializeSteps(steps: List<SolutionStep>): String {
         return steps.joinToString(STEP_SEP) { s ->
             listOf(
                 s.stepIndex.toString(),
-                s.titleBn.replace(FIELD_SEP, " "),
-                s.expressionOrMathBn.replace(FIELD_SEP, " "),
-                s.explanationBn.replace(FIELD_SEP, " "),
-                (s.whyThisStepBn ?: "").replace(FIELD_SEP, " "),
-                (s.expressionBeforeBn ?: "").replace(FIELD_SEP, " "),
-                (s.expressionAfterBn ?: "").replace(FIELD_SEP, " "),
-                s.simpleExplanationBn.replace(FIELD_SEP, " "),
-                (s.detailedRuleBn ?: "").replace(FIELD_SEP, " "),
-                (s.conceptualAnalogyBn ?: "").replace(FIELD_SEP, " "),
-                (s.commonMistakeBn ?: "").replace(FIELD_SEP, " "),
-                (s.hint1Bn ?: "").replace(FIELD_SEP, " "),
-                (s.hint2Bn ?: "").replace(FIELD_SEP, " "),
-                (s.expectedStepValueBn ?: "").replace(FIELD_SEP, " ")
+                sanitizeField(s.titleBn),
+                sanitizeField(s.expressionOrMathBn),
+                sanitizeField(s.explanationBn),
+                sanitizeField(s.whyThisStepBn ?: ""),
+                sanitizeField(s.expressionBeforeBn ?: ""),
+                sanitizeField(s.expressionAfterBn ?: ""),
+                sanitizeField(s.simpleExplanationBn),
+                sanitizeField(s.detailedRuleBn ?: ""),
+                sanitizeField(s.conceptualAnalogyBn ?: ""),
+                sanitizeField(s.commonMistakeBn ?: ""),
+                sanitizeField(s.hint1Bn ?: ""),
+                sanitizeField(s.hint2Bn ?: ""),
+                sanitizeField(s.expectedStepValueBn ?: "")
             ).joinToString(FIELD_SEP)
         }
     }
@@ -772,7 +834,9 @@ object SimilarProblemGenerator {
     }
 
     fun serializeInputs(inputs: Map<String, String>): String {
-        return inputs.entries.joinToString(STEP_SEP) { "${it.key}$FIELD_SEP${it.value}" }
+        return inputs.entries.joinToString(STEP_SEP) {
+            "${sanitizeField(it.key)}$FIELD_SEP${sanitizeField(it.value)}"
+        }
     }
 
     fun deserializeInputs(serialized: String): Map<String, String> {
@@ -836,7 +900,7 @@ object VisualKnowledgeCheckProvider {
                     questionBn = "সমীকরণ ভিজ্যুয়ালাইজারে 2x + 4 = 10 এর উভয় পক্ষ থেকে ৪ বিয়োগ করলে বাম ও ডান পক্ষে কী থাকে?",
                     optionsBn = listOf("2x = 6", "2x = 14", "x = 6", "2x = 4"),
                     correctIndex = 0,
-                    explanationBn = "সমীকরণের ভারসাম্য বজায় রাখতে উভয় পক্ষ থেকে ৪ বিয়োগ করলে 2x = 10 - 4 = 6 পাওয়া যায়, откуда x = 3।",
+                    explanationBn = "সমীকরণের ভারসাম্য বজায় রাখতে উভয় পক্ষ থেকে ৪ বিয়োগ করলে 2x = 10 - 4 = 6 পাওয়া যায়, যার ফলে x = 3।",
                     relatedQuizTopic = QuizTopic.ALGEBRA,
                     relatedSolverTopic = SolverTopic.LINEAR_EQUATIONS
                 ),

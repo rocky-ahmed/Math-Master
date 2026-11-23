@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import com.example.data.db.MathDao
+import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BookLessonProgressEntity
 import com.example.data.model.BookMistakeEntity
 import com.example.data.model.BookNoteEntity
@@ -19,7 +20,14 @@ import com.example.data.model.StudyTimerFlushOperation
 import com.example.data.model.StudyTimerFlushReceiptEntity
 import com.example.data.model.TopicAnalyticsEntity
 import com.example.data.model.UnifiedMistakeEntity
+import com.example.math.BcsGoalCreditApplyResult
+import com.example.math.BcsGoalCreditDelta
+import com.example.math.BcsGoalCreditFaultStage
+import com.example.math.BcsGoalCreditLedgerTxnResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -27,6 +35,9 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 class MathRepository(private val dao: MathDao) {
+
+    @Volatile
+    internal var bcsGoalCreditFaultInjector: ((BcsGoalCreditFaultStage) -> Unit)? = null
 
     val allBookmarks: Flow<List<BookmarkEntity>> = dao.getAllBookmarks()
     val allQuizScores: Flow<List<QuizScoreEntity>> = dao.getAllQuizScores()
@@ -54,6 +65,7 @@ class MathRepository(private val dao: MathDao) {
     val allBcsTopicProgress: Flow<List<com.example.data.model.BcsTopicProgressEntity>> = dao.getAllBcsTopicProgress()
     val allBcsMistakes: Flow<List<com.example.data.model.BcsMistakeEntity>> = dao.getAllBcsMistakes()
     val allBcsStudyGoals: Flow<List<com.example.data.model.BcsStudyPlanGoalEntity>> = dao.getAllBcsStudyGoals()
+    val allBcsGoalCreditRecords: Flow<List<BcsGoalCreditRecordEntity>> = dao.getAllBcsGoalCreditRecords()
 
     // Ecosystem Upgrade Flows (Room v7)
     val allUnifiedMistakes: Flow<List<UnifiedMistakeEntity>> = dao.getAllUnifiedMistakes()
@@ -84,6 +96,10 @@ class MathRepository(private val dao: MathDao) {
         }
         private val BCS_PREFIX_REGEX = Regex("""^(?:bcs_ma_exam|bcs_mistake_retry|bcs_exam|bcs_prev)_\d+_""")
         private val BCS_REPEAT_SUFFIX_REGEX = Regex("""_rep_\d+$""")
+
+        // Independent WP4.1 serialization locks (strictly disjoint from dailyStudyWriteMutex; never nested).
+        private val bcsStudyGoalMutex = Mutex()
+        private val mistakeResolutionMutex = Mutex()
 
         fun todayDateKey(timestampMs: Long = System.currentTimeMillis()): String {
             return (DATE_FORMAT_THREAD_LOCAL.get() ?: SimpleDateFormat("yyyy-MM-dd", Locale.US))
@@ -157,6 +173,13 @@ class MathRepository(private val dao: MathDao) {
 
     suspend fun toggleLearned(itemId: String, currentlyLearned: Boolean) {
         setItemLearned(itemId, !currentlyLearned)
+    }
+
+    suspend fun toggleLearnedAuthoritative(itemId: String): Boolean {
+        val currentlyLearned = dao.getProgressByItemId(itemId)?.isLearned == true
+        val nextLearned = !currentlyLearned
+        setItemLearned(itemId, nextLearned)
+        return nextLearned
     }
 
     suspend fun recordPractice(itemId: String) {
@@ -303,13 +326,15 @@ class MathRepository(private val dao: MathDao) {
     }
 
     suspend fun deleteExamAttempt(attemptId: String) {
-        val existing = dao.getExamAttemptById(attemptId) ?: return
-        val refTs = existing.completedAt ?: existing.updatedAt
-        val dateKey = if (refTs > 0L) todayDateKey(refTs) else ""
-        dao.deleteExamAttemptSafely(attemptId, dateKey)
+        dailyStudyWriteMutex.lockWith {
+            val existing = dao.getExamAttemptById(attemptId) ?: return@lockWith
+            val refTs = existing.completedAt ?: existing.updatedAt
+            val dateKey = if (refTs > 0L) todayDateKey(refTs) else ""
+            dao.deleteExamAttemptSafely(attemptId, dateKey)
+        }
     }
 
-    // Preserved 2-argument JVM method signature (100% source & binary compatible), delegating to the 4-arg authoritative path.
+    // Preserved 2-argument JVM method signature (100% source & binary compatible), delegating to the authoritative path.
     suspend fun finalizeExamAttempt(
         completedAttempt: ExamAttemptEntity,
         perTopicStats: List<TopicExamStat>
@@ -318,7 +343,8 @@ class MathRepository(private val dao: MathDao) {
             completedAttempt = completedAttempt,
             perTopicStats = perTopicStats,
             bcsTopicUpdates = emptyList(),
-            questionMistakeOutcomes = emptyList()
+            questionMistakeOutcomes = emptyList(),
+            pendingBcsGoalCredit = null
         )
     }
 
@@ -327,14 +353,16 @@ class MathRepository(private val dao: MathDao) {
         completedAttempt: ExamAttemptEntity,
         perTopicStats: List<TopicExamStat>,
         bcsTopicUpdates: List<BcsTopicExamUpdate>,
-        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>
+        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>,
+        pendingBcsGoalCredit: BcsGoalCreditRecordEntity? = null
     ) {
         dailyStudyWriteMutex.lockWith {
             dao.finalizeExamAttemptTransaction(
                 completedAttempt = completedAttempt,
                 perTopicStats = perTopicStats,
                 bcsTopicUpdates = bcsTopicUpdates,
-                questionMistakeOutcomes = questionMistakeOutcomes
+                questionMistakeOutcomes = questionMistakeOutcomes,
+                pendingBcsGoalCredit = pendingBcsGoalCredit
             )
         }
     }
@@ -547,6 +575,20 @@ class MathRepository(private val dao: MathDao) {
         lessonId: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
+        toggleBookLessonCompletedAndReturnState(
+            bookId = bookId,
+            chapterNumber = chapterNumber,
+            lessonId = lessonId,
+            nowMs = nowMs
+        )
+    }
+
+    suspend fun toggleBookLessonCompletedAndReturnState(
+        bookId: String,
+        chapterNumber: Int,
+        lessonId: String,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
         val lessonKey = "$bookId:$chapterNumber:$lessonId"
         val existing = dao.getBookLessonProgressByKey(lessonKey)
         val nextCompleted = !(existing?.isCompleted ?: false)
@@ -562,6 +604,11 @@ class MathRepository(private val dao: MathDao) {
         )
         dao.upsertBookLessonProgress(updated)
         setItemLearned("book_lesson_$lessonKey", nextCompleted)
+        return nextCompleted
+    }
+
+    suspend fun getBookReadingStateByBookId(bookId: String): BookReadingStateEntity? {
+        return dao.getBookReadingStateByBookId(bookId)
     }
 
     suspend fun updateBookReadingState(
@@ -726,11 +773,13 @@ class MathRepository(private val dao: MathDao) {
         resolved: Boolean = true,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        dao.markBookMistakeResolvedTransaction(
-            questionId = questionId,
-            resolved = resolved,
-            nowMs = nowMs
-        )
+        mistakeResolutionMutex.withLock {
+            dao.markBookMistakeResolvedTransaction(
+                questionId = questionId,
+                resolved = resolved,
+                nowMs = nowMs
+            )
+        }
     }
 
     suspend fun deleteBookMistake(questionId: String) {
@@ -885,19 +934,21 @@ class MathRepository(private val dao: MathDao) {
         examProfileId: String = "BCS_50TH_PRELIM_2025",
         nowMs: Long = System.currentTimeMillis()
     ) {
-        dao.recordBcsMistakeTransaction(
-            questionId = questionId,
-            subjectTrack = subjectTrack,
-            topicId = topicId,
-            questionPromptBn = questionPromptBn,
-            wrongAnswerBn = wrongAnswerBn,
-            correctAnswerBn = correctAnswerBn,
-            explanationBn = explanationBn,
-            shortcutTipBn = shortcutTipBn,
-            provenanceBadgeBn = provenanceBadgeBn,
-            examProfileId = examProfileId,
-            nowMs = nowMs
-        )
+        mistakeResolutionMutex.withLock {
+            dao.recordBcsMistakeTransaction(
+                questionId = questionId,
+                subjectTrack = subjectTrack,
+                topicId = topicId,
+                questionPromptBn = questionPromptBn,
+                wrongAnswerBn = wrongAnswerBn,
+                correctAnswerBn = correctAnswerBn,
+                explanationBn = explanationBn,
+                shortcutTipBn = shortcutTipBn,
+                provenanceBadgeBn = provenanceBadgeBn,
+                examProfileId = examProfileId,
+                nowMs = nowMs
+            )
+        }
     }
 
     suspend fun markBcsMistakeResolved(
@@ -905,18 +956,22 @@ class MathRepository(private val dao: MathDao) {
         nowMs: Long = System.currentTimeMillis(),
         examProfileId: String = ""
     ) {
-        dao.markBcsMistakeResolvedTransaction(
-            questionId = questionId,
-            nowMs = nowMs,
-            examProfileId = examProfileId
-        )
+        mistakeResolutionMutex.withLock {
+            dao.markBcsMistakeResolvedTransaction(
+                questionId = questionId,
+                nowMs = nowMs,
+                examProfileId = examProfileId
+            )
+        }
     }
 
     suspend fun deleteBcsMistake(questionId: String, examProfileId: String = "") {
-        dao.deleteBcsMistakeTransaction(
-            questionId = questionId,
-            examProfileId = examProfileId
-        )
+        mistakeResolutionMutex.withLock {
+            dao.deleteBcsMistakeTransaction(
+                questionId = questionId,
+                examProfileId = examProfileId
+            )
+        }
     }
 
     suspend fun recordBcsStudyGoalDelta(
@@ -931,30 +986,192 @@ class MathRepository(private val dao: MathDao) {
         val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
         val dateKey = todayDateKey(nowMs)
         val goalKey = "${safeProfile}_$dateKey"
-        val existing = dao.getBcsStudyGoalByKey(goalKey)
-        val updated = if (existing == null) {
-            com.example.data.model.BcsStudyPlanGoalEntity(
+        bcsStudyGoalMutex.withLock {
+            dao.applyBcsStudyGoalDeltaTransaction(
                 goalKey = goalKey,
                 examProfileId = safeProfile,
                 dateKey = dateKey,
-                lessonsCompleted = max(0, lessonsDelta),
-                questionsSolved = max(0, questionsDelta),
-                revisionsCompleted = max(0, revisionsDelta),
-                studyTimeMinutes = max(0, studyTimeMinutesDelta),
-                mockExamsCompleted = max(0, mockExamsDelta),
-                updatedAt = nowMs
-            )
-        } else {
-            existing.copy(
-                lessonsCompleted = existing.lessonsCompleted + max(0, lessonsDelta),
-                questionsSolved = existing.questionsSolved + max(0, questionsDelta),
-                revisionsCompleted = existing.revisionsCompleted + max(0, revisionsDelta),
-                studyTimeMinutes = existing.studyTimeMinutes + max(0, studyTimeMinutesDelta),
-                mockExamsCompleted = existing.mockExamsCompleted + max(0, mockExamsDelta),
-                updatedAt = nowMs
+                lessonsDelta = lessonsDelta,
+                questionsDelta = questionsDelta,
+                revisionsDelta = revisionsDelta,
+                studyTimeMinutesDelta = studyTimeMinutesDelta,
+                mockExamsDelta = mockExamsDelta,
+                nowMs = nowMs
             )
         }
-        dao.upsertBcsStudyGoal(updated)
+    }
+
+    // BCS Goal Credit Ledger Query Helpers (Room v11 - BCS-GC-02)
+    suspend fun getBcsGoalCreditRecordByAttemptId(attemptId: String): BcsGoalCreditRecordEntity? {
+        return dao.getBcsGoalCreditRecordByAttemptId(attemptId)
+    }
+
+    suspend fun getPendingBcsGoalCreditRecords(): List<BcsGoalCreditRecordEntity> {
+        return dao.getPendingBcsGoalCreditRecords()
+    }
+
+    /**
+     * BCS-GC-02: Authoritative Room-ledger goal-credit API.
+     *
+     * Delegates exclusively to [MathDao.applyBcsCompletionGoalCreditIdempotently] using only
+     * [attemptId] and [creditedAtMs]. Persisted PENDING ledger fields are the sole authority for
+     * profile, date, and delta values. Includes post-fault Room ledger verification so an exception
+     * raised after a committed PENDING -> CREDITED transition resolves as [BcsGoalCreditLedgerTxnResult.AlreadyCredited]
+     * without ever re-applying a goal increment.
+     */
+    suspend fun applyBcsCompletionGoalCreditFromLedger(
+        attemptId: String,
+        creditedAtMs: Long = System.currentTimeMillis()
+    ): BcsGoalCreditLedgerTxnResult {
+        return bcsStudyGoalMutex.withLock {
+            applyBcsCompletionGoalCreditFromLedgerLocked(
+                attemptId = attemptId,
+                creditedAtMs = creditedAtMs,
+                onMutationEntered = null
+            )
+        }
+    }
+
+    /**
+     * BCS-GC-02 (Stage 4B1): Reconciles a caller-verified legacy SharedPreferences receipt by
+     * transitioning an existing PENDING Room ledger row to CREDITED without mutating
+     * bcs_study_goals. Serialized under [bcsStudyGoalMutex]; never fabricates missing rows or
+     * writes SharedPreferences.
+     */
+    suspend fun markPendingBcsGoalCreditCreditedWithoutGoalMutation(
+        attemptId: String,
+        creditedAtMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        return bcsStudyGoalMutex.withLock {
+            dao.markPendingBcsGoalCreditCreditedWithoutGoalMutation(
+                attemptId = attemptId,
+                creditedAtMs = creditedAtMs
+            )
+        }
+    }
+
+    /**
+     * BCS-GC-02 (Stage 4B1): Deletes only a stale PENDING Room ledger record for [attemptId],
+     * serialized under [bcsStudyGoalMutex]. Never deletes CREDITED records, exam attempts, or
+     * bcs_study_goals.
+     */
+    suspend fun deletePendingBcsGoalCreditRecordByAttemptId(
+        attemptId: String
+    ): Int {
+        val cleanAttemptId = attemptId.trim()
+        if (cleanAttemptId.isEmpty()) {
+            return 0
+        }
+        return bcsStudyGoalMutex.withLock {
+            dao.deletePendingBcsGoalCreditRecordByAttemptId(cleanAttemptId)
+        }
+    }
+
+    private suspend fun applyBcsCompletionGoalCreditFromLedgerLocked(
+        attemptId: String,
+        creditedAtMs: Long,
+        onMutationEntered: (() -> Unit)?
+    ): BcsGoalCreditLedgerTxnResult {
+        val cleanAttemptId = attemptId.trim()
+        return try {
+            bcsGoalCreditFaultInjector?.invoke(BcsGoalCreditFaultStage.BEFORE_DB_MUTATION)
+            onMutationEntered?.invoke()
+            val result = dao.applyBcsCompletionGoalCreditIdempotently(
+                attemptId = attemptId,
+                creditedAtMs = creditedAtMs
+            )
+            if (result is BcsGoalCreditLedgerTxnResult.Applied) {
+                bcsGoalCreditFaultInjector?.invoke(BcsGoalCreditFaultStage.AFTER_DB_COMMIT)
+            }
+            result
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (originalFailure: Throwable) {
+            if (cleanAttemptId.isEmpty()) {
+                throw originalFailure
+            }
+            val verified = try {
+                dao.getBcsGoalCreditRecordByAttemptId(cleanAttemptId)
+            } catch (verificationCe: CancellationException) {
+                throw verificationCe
+            } catch (verificationFailure: Throwable) {
+                originalFailure.addSuppressed(verificationFailure)
+                throw originalFailure
+            }
+            if (verified != null && verified.status == BcsGoalCreditRecordEntity.STATUS_CREDITED) {
+                BcsGoalCreditLedgerTxnResult.AlreadyCredited(record = verified)
+            } else {
+                throw originalFailure
+            }
+        }
+    }
+
+    /**
+     * Compatibility adapter for pre-Stage-4 callers (e.g., MathViewModel).
+     *
+     * Caller-supplied delta/profile/date fields are never used to authorize or compute a goal
+     * mutation. All mutations route strictly through the persisted Room PENDING ledger transaction
+     * keyed by [delta.attemptId].
+     */
+    suspend fun applyBcsCompletionGoalCredit(
+        delta: BcsGoalCreditDelta,
+        nowMs: Long = System.currentTimeMillis(),
+        onMutationEntered: (() -> Unit)? = null
+    ): BcsGoalCreditApplyResult {
+        var enteredDbMutation = false
+        return try {
+            bcsStudyGoalMutex.withLock {
+                when (
+                    val ledgerResult = applyBcsCompletionGoalCreditFromLedgerLocked(
+                        attemptId = delta.attemptId,
+                        creditedAtMs = nowMs,
+                        onMutationEntered = {
+                            enteredDbMutation = true
+                            onMutationEntered?.invoke()
+                        }
+                    )
+                ) {
+                    is BcsGoalCreditLedgerTxnResult.Applied -> {
+                        BcsGoalCreditApplyResult.Committed(ledgerResult.updatedGoal)
+                    }
+                    is BcsGoalCreditLedgerTxnResult.AlreadyCredited -> {
+                        val goalKey = "${ledgerResult.record.examProfileId.trim()}_${ledgerResult.record.targetDateKey.trim()}"
+                        val existingGoal = dao.getBcsStudyGoalByKey(goalKey)
+                        if (existingGoal != null) {
+                            BcsGoalCreditApplyResult.Committed(existingGoal)
+                        } else {
+                            BcsGoalCreditApplyResult.AmbiguousOutcome(
+                                IllegalStateException(
+                                    "Ledger record for attempt '${ledgerResult.record.attemptId}' is CREDITED but matching goal '$goalKey' was not found"
+                                )
+                            )
+                        }
+                    }
+                    is BcsGoalCreditLedgerTxnResult.NoPendingRecord -> {
+                        BcsGoalCreditApplyResult.FailedBeforeMutation(
+                            IllegalStateException(
+                                "No PENDING Room ledger record exists for attempt '${ledgerResult.attemptId}'"
+                            )
+                        )
+                    }
+                    is BcsGoalCreditLedgerTxnResult.InvalidLedgerState -> {
+                        BcsGoalCreditApplyResult.FailedBeforeMutation(
+                            IllegalStateException(
+                                "Invalid Room ledger state for attempt '${ledgerResult.attemptId}' (status='${ledgerResult.status}'): ${ledgerResult.reason}"
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            if (!enteredDbMutation) {
+                BcsGoalCreditApplyResult.FailedBeforeMutation(t)
+            } else {
+                BcsGoalCreditApplyResult.AmbiguousOutcome(t)
+            }
+        }
     }
 
     // ==========================================
@@ -1009,39 +1226,18 @@ class MathRepository(private val dao: MathDao) {
         mistakeKey: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val existing = dao.getUnifiedMistakeByKey(mistakeKey) ?: return
-        val nextIntervalDays = when (existing.reviewIntervalDays) {
-            1 -> 3
-            3 -> 7
-            7 -> 14
-            else -> 30
+        mistakeResolutionMutex.withLock {
+            dao.resolveUnifiedMistakeTransaction(mistakeKey, nowMs)
         }
-        val nextStageIndex = when (nextIntervalDays) {
-            3 -> 1
-            7 -> 2
-            else -> 3
-        }
-        dao.upsertUnifiedMistake(
-            existing.copy(
-                resolved = true,
-                reviewIntervalDays = nextIntervalDays,
-                nextReviewAtMillis = nextSpacedReviewEpochMs(nextStageIndex, nowMs),
-                lastFailedAtMillis = nowMs
-            )
-        )
     }
 
     suspend fun unresolveUnifiedMistake(
         mistakeKey: String,
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val existing = dao.getUnifiedMistakeByKey(mistakeKey) ?: return
-        dao.upsertUnifiedMistake(
-            existing.copy(
-                resolved = false,
-                lastFailedAtMillis = nowMs
-            )
-        )
+        mistakeResolutionMutex.withLock {
+            dao.unresolveUnifiedMistakeTransaction(mistakeKey, nowMs)
+        }
     }
 
     suspend fun deleteUnifiedMistake(mistakeKey: String) {

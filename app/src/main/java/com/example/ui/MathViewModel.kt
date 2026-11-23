@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.data.db.MathDatabase
+import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BookLessonProgressEntity
 import com.example.data.model.BookMistakeEntity
 import com.example.data.model.BookNoteEntity
@@ -29,6 +30,14 @@ import com.example.data.repository.ExamQuestionMistakeOutcome
 import com.example.data.repository.MathRepository
 import com.example.math.AnalyticsTimeFilter
 import com.example.math.AnsweredMentalQuestion
+import com.example.math.BcsGoalCreditApplyResult
+import com.example.math.BcsGoalCreditCalculator
+import com.example.math.BcsGoalCreditDelta
+import com.example.math.BcsGoalCreditFaultStage
+import com.example.math.BcsGoalCreditLedgerTxnResult
+import com.example.math.BcsGoalCreditReceiptStore
+import com.example.math.BcsGoalCreditState
+import com.example.math.BcsGoalCreditStatus
 import com.example.math.BcsPreparationRepository
 import com.example.math.BcsSyllabusUnit
 import com.example.math.BcsSyllabusVersion
@@ -471,6 +480,9 @@ class MathViewModel @JvmOverloads constructor(
 
         @Volatile
         internal var globalStudyFlushFaultInjectorForTesting: ((StudyTimerFlushOperation) -> MathRepository.StudyFlushFaultPoint)? = null
+
+        @Volatile
+        internal var disableAutoBcsGoalCreditStartupSweepForTesting: Boolean = false
 
         private val DATE_FORMAT_THREAD_LOCAL: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
             SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -1134,8 +1146,7 @@ class MathViewModel @JvmOverloads constructor(
 
     fun toggleBookmark(bookmark: BookmarkEntity) {
         viewModelScope.launch {
-            val currently = isBookmarked(bookmark.id)
-            repository.toggleBookmark(bookmark, currently)
+            repository.toggleBookmark(bookmark)
         }
     }
 
@@ -1151,9 +1162,8 @@ class MathViewModel @JvmOverloads constructor(
 
     fun toggleLearned(itemId: String) {
         viewModelScope.launch {
-            val currently = isLearned(itemId)
-            repository.toggleLearned(itemId, currently)
-            if (!currently) {
+            val nowLearned = repository.toggleLearnedAuthoritative(itemId)
+            if (nowLearned) {
                 recordDailyActivity(2)
             }
         }
@@ -1164,6 +1174,940 @@ class MathViewModel @JvmOverloads constructor(
     // ==========================================
     private val examPersistenceMutex = Mutex()
     private var activeExamPersistenceJob: Job? = null
+
+    // WP4.1 (F4-02) / BCS-GC-01: Attempt-scoped BCS completion-only daily goal credit lifecycle & durable receipt/origin store
+    private val bcsGoalCreditReceiptStore by lazy { BcsGoalCreditReceiptStore(prefs) }
+    private val _bcsGoalCreditStatus = MutableStateFlow(BcsGoalCreditStatus())
+    val bcsGoalCreditStatus: StateFlow<BcsGoalCreditStatus> = _bcsGoalCreditStatus.asStateFlow()
+    private val bcsGoalCreditStateLock = Any()
+    private val bcsAttemptSeq = AtomicLong(0L)
+    private val bcsGoalCreditStatusByAttempt = mutableMapOf<String, BcsGoalCreditStatus>()
+    private val pendingBcsGoalCreditByAttempt = mutableMapOf<String, BcsGoalCreditDelta>()
+    private val inFlightBcsGoalCreditAttemptIds = mutableSetOf<String>()
+    private val activeBcsGoalCreditJobsByAttempt = mutableMapOf<String, Job>()
+    private val activeBcsGoalCreditReconcileJobsByAttempt = mutableMapOf<String, Job>()
+    private val lastBcsGoalCreditFailureByAttempt = mutableMapOf<String, Throwable>()
+    private var selectedBcsGoalCreditAttemptId: String = ""
+    private val bcsGoalCreditStartupSweepLock = Any()
+    private var bcsGoalCreditStartupSweepStarted = false
+    @Volatile
+    private var bcsGoalCreditStartupRecoveryJob: Job? = null
+
+    internal var wallClockNowMsProviderForTesting: (() -> Long)? = null
+    internal var bcsGoalCreditStartupExamLookupForTesting: (
+        suspend (
+            attemptId: String,
+            defaultLookup: suspend (String) -> ExamAttemptEntity?
+        ) -> ExamAttemptEntity?
+    )? = null
+    internal var bcsGoalCreditCompletedAttemptLedgerLookupForTesting: (
+        suspend (
+            attemptId: String,
+            defaultLookup: suspend (String) -> BcsGoalCreditRecordEntity?
+        ) -> BcsGoalCreditRecordEntity?
+    )? = null
+
+    internal fun getBcsGoalCreditStartupRecoveryJobForTesting(): Job? = bcsGoalCreditStartupRecoveryJob
+
+    internal fun getActiveBcsGoalCreditReconcileJobForTesting(attemptId: String): Job? {
+        return synchronized(bcsGoalCreditStateLock) {
+            activeBcsGoalCreditReconcileJobsByAttempt[attemptId]
+        }
+    }
+
+    internal fun triggerBcsGoalCreditStartupRecoveryForTesting(): Job? =
+        triggerBcsGoalCreditStartupRecovery()
+
+    internal suspend fun runBcsGoalCreditStartupRecoveryOnceForTesting() {
+        recoverPendingBcsGoalCredits()
+    }
+
+    internal suspend fun reconcileCompletedAttemptFromRoomForTesting(entity: ExamAttemptEntity) {
+        reconcileCompletedAttemptFromRoom(entity)
+    }
+
+    private fun currentWallClockMs(): Long =
+        wallClockNowMsProviderForTesting?.invoke() ?: System.currentTimeMillis()
+
+    private fun BcsGoalCreditRecordEntity.toCreditDelta(): BcsGoalCreditDelta = BcsGoalCreditDelta(
+        attemptId = attemptId,
+        examProfileId = examProfileId,
+        questionsDelta = questionsDelta,
+        studyTimeMinutesDelta = studyTimeMinutesDelta,
+        mockExamsDelta = mockExamsDelta,
+        revisionsDelta = revisionsDelta
+    )
+
+    // Preserved for Stage 4A source compatibility with existing unmodified test suites (retired in Stage 4B).
+    internal var bcsGoalCreditExecutorForTesting: (
+        suspend (
+            delta: BcsGoalCreditDelta,
+            onMutationEntered: () -> Unit,
+            defaultExecute: suspend (BcsGoalCreditDelta, () -> Unit) -> BcsGoalCreditApplyResult
+        ) -> BcsGoalCreditApplyResult
+    )? = null
+
+    internal var bcsGoalCreditLedgerExecutorForTesting: (
+        suspend (
+            attemptId: String,
+            creditedAtMs: Long,
+            defaultExecute: suspend (String, Long) -> BcsGoalCreditLedgerTxnResult
+        ) -> BcsGoalCreditLedgerTxnResult
+    )? = null
+
+    internal fun setBcsGoalCreditFaultInjectorForTesting(injector: ((BcsGoalCreditFaultStage) -> Unit)?) {
+        repository.bcsGoalCreditFaultInjector = injector
+    }
+
+    internal fun cancelActiveBcsGoalCreditForTesting(attemptId: String? = null) {
+        val jobsToCancel = synchronized(bcsGoalCreditStateLock) {
+            if (attemptId != null) {
+                listOfNotNull(activeBcsGoalCreditJobsByAttempt[attemptId])
+            } else {
+                activeBcsGoalCreditJobsByAttempt.values.toList()
+            }
+        }
+        jobsToCancel.forEach { it.cancel() }
+    }
+
+    internal fun getActiveBcsGoalCreditJobForTesting(attemptId: String): Job? {
+        return synchronized(bcsGoalCreditStateLock) {
+            activeBcsGoalCreditJobsByAttempt[attemptId]
+        }
+    }
+
+    internal fun hasPendingBcsGoalCreditForTesting(attemptId: String): Boolean {
+        return synchronized(bcsGoalCreditStateLock) {
+            pendingBcsGoalCreditByAttempt[attemptId] != null
+        }
+    }
+
+    internal fun getPendingBcsGoalCreditForTesting(attemptId: String): BcsGoalCreditDelta? {
+        return synchronized(bcsGoalCreditStateLock) {
+            pendingBcsGoalCreditByAttempt[attemptId]
+        }
+    }
+
+    internal fun getLastBcsGoalCreditFailureForTesting(attemptId: String): Throwable? {
+        return synchronized(bcsGoalCreditStateLock) {
+            lastBcsGoalCreditFailureByAttempt[attemptId]
+        }
+    }
+
+    internal fun isBcsGoalCreditInFlightForTesting(attemptId: String): Boolean {
+        return synchronized(bcsGoalCreditStateLock) {
+            inFlightBcsGoalCreditAttemptIds.contains(attemptId)
+        }
+    }
+
+    internal fun getBcsGoalCreditStatusForAttemptForTesting(attemptId: String): BcsGoalCreditStatus? {
+        return synchronized(bcsGoalCreditStateLock) {
+            bcsGoalCreditStatusByAttempt[attemptId]
+        }
+    }
+
+    internal suspend fun executeBcsCompletionGoalCreditForTesting(
+        delta: BcsGoalCreditDelta,
+        isExplicitRetry: Boolean = false
+    ) {
+        executeBcsCompletionGoalCredit(delta = delta, isExplicitRetry = isExplicitRetry)
+    }
+
+    private fun publishSelectedBcsGoalCreditStatusLocked() {
+        val selectedId = selectedBcsGoalCreditAttemptId
+        _bcsGoalCreditStatus.value = if (selectedId.isBlank()) {
+            BcsGoalCreditStatus()
+        } else {
+            bcsGoalCreditStatusByAttempt[selectedId] ?: BcsGoalCreditStatus(attemptId = selectedId)
+        }
+    }
+
+    private fun updateBcsGoalCreditStatusLocked(status: BcsGoalCreditStatus) {
+        if (status.attemptId.isNotBlank()) {
+            bcsGoalCreditStatusByAttempt[status.attemptId] = status
+        }
+        if (status.attemptId == selectedBcsGoalCreditAttemptId) {
+            _bcsGoalCreditStatus.value = status
+        }
+    }
+
+    private fun clearSelectedBcsGoalCreditAttempt() {
+        synchronized(bcsGoalCreditStateLock) {
+            selectedBcsGoalCreditAttemptId = ""
+            publishSelectedBcsGoalCreditStatusLocked()
+        }
+    }
+
+    private fun launchBcsGoalCreditJob(
+        delta: BcsGoalCreditDelta,
+        isExplicitRetry: Boolean,
+        authorizedByPersistedPendingLedger: Boolean = false
+    ): Job {
+        val launchedJob = viewModelScope.launch {
+            executeBcsCompletionGoalCredit(
+                delta = delta,
+                isExplicitRetry = isExplicitRetry,
+                authorizedByPersistedPendingLedger = authorizedByPersistedPendingLedger
+            )
+        }
+        synchronized(bcsGoalCreditStateLock) {
+            val existing = activeBcsGoalCreditJobsByAttempt[delta.attemptId]
+            if (launchedJob.isActive && (existing == null || !existing.isActive)) {
+                activeBcsGoalCreditJobsByAttempt[delta.attemptId] = launchedJob
+            }
+        }
+        launchedJob.invokeOnCompletion {
+            synchronized(bcsGoalCreditStateLock) {
+                if (activeBcsGoalCreditJobsByAttempt[delta.attemptId] === launchedJob) {
+                    activeBcsGoalCreditJobsByAttempt.remove(delta.attemptId)
+                }
+            }
+        }
+        return launchedJob
+    }
+
+    private fun resetBcsGoalCreditForNewAttempt(
+        attemptId: String,
+        examProfileId: String,
+        isWp41BcsLaunch: Boolean
+    ) {
+        if (isWp41BcsLaunch) {
+            bcsGoalCreditReceiptStore.markWp41AttemptLaunched(attemptId)
+        }
+        synchronized(bcsGoalCreditStateLock) {
+            selectedBcsGoalCreditAttemptId = attemptId
+            if (attemptId.isNotBlank()) {
+                val existing = bcsGoalCreditStatusByAttempt[attemptId]
+                val isInFlight = inFlightBcsGoalCreditAttemptIds.contains(attemptId)
+                if (isWp41BcsLaunch || (!isInFlight && existing == null)) {
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    bcsGoalCreditStatusByAttempt[attemptId] = BcsGoalCreditStatus(
+                        attemptId = attemptId,
+                        examProfileId = examProfileId,
+                        state = BcsGoalCreditState.NOT_STARTED
+                    )
+                }
+            }
+            publishSelectedBcsGoalCreditStatusLocked()
+        }
+    }
+
+    private fun reconcileBcsGoalCreditOnOpenCompletedAttempt(entity: ExamAttemptEntity) {
+        val isBcs = entity.examProfileId.isNotBlank() ||
+            entity.examType == ExamPresetType.BCS_PRELIMINARY_MOCK.id
+        val attemptId = entity.attemptId.trim()
+        val shouldScheduleRoomReconcile = synchronized(bcsGoalCreditStateLock) {
+            selectedBcsGoalCreditAttemptId = attemptId
+            if (!isBcs || attemptId.isEmpty()) {
+                if (attemptId.isNotEmpty()) {
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    bcsGoalCreditStatusByAttempt[attemptId] = BcsGoalCreditStatus(
+                        attemptId = attemptId,
+                        state = BcsGoalCreditState.NOT_STARTED
+                    )
+                }
+                publishSelectedBcsGoalCreditStatusLocked()
+                return
+            }
+
+            val existing = bcsGoalCreditStatusByAttempt[attemptId]
+            val isInFlightOrActive = inFlightBcsGoalCreditAttemptIds.contains(attemptId) ||
+                activeBcsGoalCreditJobsByAttempt[attemptId]?.isActive == true
+            val hasValidPendingRetry = existing?.state == BcsGoalCreditState.RETRYABLE_FAILURE &&
+                pendingBcsGoalCreditByAttempt[attemptId]?.attemptId == attemptId
+
+            when {
+                // Known terminal CREDITED state in this ViewModel session: synchronous projection.
+                existing?.state == BcsGoalCreditState.CREDITED -> {
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    publishSelectedBcsGoalCreditStatusLocked()
+                    false
+                }
+                // Actively executing credit or Stage 4B2A startup recovery job: preserve IN_PROGRESS synchronously.
+                isInFlightOrActive -> {
+                    if (existing == null || existing.state != BcsGoalCreditState.IN_PROGRESS) {
+                        bcsGoalCreditStatusByAttempt[attemptId] = BcsGoalCreditStatus(
+                            attemptId = attemptId,
+                            examProfileId = entity.examProfileId,
+                            state = BcsGoalCreditState.IN_PROGRESS
+                        )
+                    }
+                    publishSelectedBcsGoalCreditStatusLocked()
+                    false
+                }
+                // Known verified RETRYABLE_FAILURE with persisted delta in this session: synchronous projection.
+                hasValidPendingRetry -> {
+                    publishSelectedBcsGoalCreditStatusLocked()
+                    false
+                }
+                // Cold-start or unresolved state: publish current per-attempt projection synchronously
+                // and schedule asynchronous Room ledger reconciliation off the main thread.
+                else -> {
+                    if (existing == null) {
+                        bcsGoalCreditStatusByAttempt[attemptId] = BcsGoalCreditStatus(
+                            attemptId = attemptId,
+                            examProfileId = entity.examProfileId,
+                            state = BcsGoalCreditState.NOT_STARTED
+                        )
+                    } else if (existing.state == BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN) {
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    }
+                    publishSelectedBcsGoalCreditStatusLocked()
+                    activeBcsGoalCreditReconcileJobsByAttempt[attemptId]?.isActive != true
+                }
+            }
+        }
+
+        if (!shouldScheduleRoomReconcile) return
+
+        val reconcileJob = viewModelScope.launch(Dispatchers.IO) {
+            reconcileCompletedAttemptFromRoom(entity)
+        }
+        synchronized(bcsGoalCreditStateLock) {
+            val existingJob = activeBcsGoalCreditReconcileJobsByAttempt[attemptId]
+            if (reconcileJob.isActive && (existingJob == null || !existingJob.isActive)) {
+                activeBcsGoalCreditReconcileJobsByAttempt[attemptId] = reconcileJob
+            }
+        }
+        reconcileJob.invokeOnCompletion {
+            synchronized(bcsGoalCreditStateLock) {
+                if (activeBcsGoalCreditReconcileJobsByAttempt[attemptId] === reconcileJob) {
+                    activeBcsGoalCreditReconcileJobsByAttempt.remove(attemptId)
+                }
+            }
+        }
+    }
+
+    /**
+     * BCS-GC-02 (Stage 4B2B): Off-main-thread Room ledger reconciliation for a completed BCS
+     * attempt. Precedence: authoritative Room record (CREDITED / PENDING) -> read-only exact
+     * legacy SharedPreferences receipt fallback -> conservative CREDIT_OUTCOME_UNKNOWN.
+     * Selection-race safe via [updateBcsGoalCreditStatusLocked] and [selectedBcsGoalCreditAttemptId].
+     */
+    private suspend fun reconcileCompletedAttemptFromRoom(entity: ExamAttemptEntity) {
+        val attemptId = entity.attemptId.trim()
+        if (attemptId.isEmpty()) return
+
+        val roomRecord = try {
+            val customLookup = bcsGoalCreditCompletedAttemptLedgerLookupForTesting
+            if (customLookup != null) {
+                customLookup.invoke(attemptId) { id -> repository.getBcsGoalCreditRecordByAttemptId(id) }
+            } else {
+                repository.getBcsGoalCreditRecordByAttemptId(attemptId)
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            android.util.Log.w("MathViewModel", "Cold-start BCS goal credit Room lookup failed for attempt=$attemptId", t)
+            synchronized(bcsGoalCreditStateLock) {
+                lastBcsGoalCreditFailureByAttempt[attemptId] = t
+                val current = bcsGoalCreditStatusByAttempt[attemptId]
+                val isInFlightOrActive = inFlightBcsGoalCreditAttemptIds.contains(attemptId) ||
+                    activeBcsGoalCreditJobsByAttempt[attemptId]?.isActive == true
+                val hasValidPendingRetry = current?.state == BcsGoalCreditState.RETRYABLE_FAILURE &&
+                    pendingBcsGoalCreditByAttempt[attemptId]?.attemptId == attemptId
+                if (current?.state != BcsGoalCreditState.CREDITED && !isInFlightOrActive && !hasValidPendingRetry) {
+                    updateBcsGoalCreditStatusLocked(
+                        BcsGoalCreditStatus(
+                            attemptId = attemptId,
+                            examProfileId = entity.examProfileId,
+                            state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        if (roomRecord != null) {
+            when (roomRecord.status) {
+                BcsGoalCreditRecordEntity.STATUS_CREDITED -> {
+                    val persistedDelta = roomRecord.toCreditDelta()
+                    synchronized(bcsGoalCreditStateLock) {
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                        updateBcsGoalCreditStatusLocked(
+                            BcsGoalCreditStatus(
+                                attemptId = attemptId,
+                                examProfileId = roomRecord.examProfileId,
+                                state = BcsGoalCreditState.CREDITED,
+                                appliedDelta = persistedDelta
+                            )
+                        )
+                    }
+                }
+                BcsGoalCreditRecordEntity.STATUS_PENDING -> {
+                    val persistedDelta = roomRecord.toCreditDelta()
+                    synchronized(bcsGoalCreditStateLock) {
+                        val current = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (current?.state == BcsGoalCreditState.CREDITED) {
+                            pendingBcsGoalCreditByAttempt.remove(attemptId)
+                            return
+                        }
+                        val isInFlightOrActive = inFlightBcsGoalCreditAttemptIds.contains(attemptId) ||
+                            activeBcsGoalCreditJobsByAttempt[attemptId]?.isActive == true
+                        pendingBcsGoalCreditByAttempt[attemptId] = persistedDelta
+                        if (isInFlightOrActive) {
+                            if (current == null || current.state != BcsGoalCreditState.IN_PROGRESS) {
+                                updateBcsGoalCreditStatusLocked(
+                                    BcsGoalCreditStatus(
+                                        attemptId = attemptId,
+                                        examProfileId = roomRecord.examProfileId,
+                                        state = BcsGoalCreditState.IN_PROGRESS
+                                    )
+                                )
+                            }
+                        } else {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = roomRecord.examProfileId,
+                                    state = BcsGoalCreditState.RETRYABLE_FAILURE
+                                )
+                            )
+                        }
+                    }
+                }
+                else -> {
+                    synchronized(bcsGoalCreditStateLock) {
+                        val current = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (current?.state != BcsGoalCreditState.CREDITED) {
+                            pendingBcsGoalCreditByAttempt.remove(attemptId)
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = entity.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        // CASE C: No Room ledger record exists — fall back to read-only exact legacy SharedPreferences receipt.
+        val legacyReceipt = bcsGoalCreditReceiptStore.readReceipt(attemptId)
+        synchronized(bcsGoalCreditStateLock) {
+            val current = bcsGoalCreditStatusByAttempt[attemptId]
+            val isInFlightOrActive = inFlightBcsGoalCreditAttemptIds.contains(attemptId) ||
+                activeBcsGoalCreditJobsByAttempt[attemptId]?.isActive == true
+            if (legacyReceipt != null && legacyReceipt.attemptId == attemptId) {
+                pendingBcsGoalCreditByAttempt.remove(attemptId)
+                lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                updateBcsGoalCreditStatusLocked(
+                    BcsGoalCreditStatus(
+                        attemptId = attemptId,
+                        examProfileId = legacyReceipt.examProfileId,
+                        state = BcsGoalCreditState.CREDITED,
+                        appliedDelta = legacyReceipt.toDelta()
+                    )
+                )
+            } else if (current?.state != BcsGoalCreditState.CREDITED && !isInFlightOrActive) {
+                pendingBcsGoalCreditByAttempt.remove(attemptId)
+                updateBcsGoalCreditStatusLocked(
+                    BcsGoalCreditStatus(
+                        attemptId = attemptId,
+                        examProfileId = entity.examProfileId,
+                        state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                    )
+                )
+            }
+        }
+    }
+
+    fun retryBcsGoalCredit() {
+        val retryDelta = synchronized(bcsGoalCreditStateLock) {
+            val selectedId = selectedBcsGoalCreditAttemptId
+            if (selectedId.isBlank() || inFlightBcsGoalCreditAttemptIds.contains(selectedId)) {
+                return
+            }
+            val cur = bcsGoalCreditStatusByAttempt[selectedId]
+            val pending = pendingBcsGoalCreditByAttempt[selectedId]
+            if (cur == null ||
+                cur.attemptId != selectedId ||
+                cur.state != BcsGoalCreditState.RETRYABLE_FAILURE ||
+                pending == null ||
+                pending.attemptId != selectedId
+            ) {
+                return
+            }
+            pending
+        }
+        launchBcsGoalCreditJob(delta = retryDelta, isExplicitRetry = true)
+    }
+
+    private suspend fun executeBcsCompletionGoalCredit(
+        delta: BcsGoalCreditDelta,
+        isExplicitRetry: Boolean,
+        authorizedByPersistedPendingLedger: Boolean = false
+    ) {
+        val attemptId = delta.attemptId.trim()
+        if (attemptId.isBlank()) return
+
+        val shouldProceed = synchronized(bcsGoalCreditStateLock) {
+            if (inFlightBcsGoalCreditAttemptIds.contains(attemptId)) {
+                return@synchronized false
+            }
+
+            // Read-only legacy SharedPreferences receipt check preserves pre-BCS-GC-02 credited attempts.
+            val existingReceipt = bcsGoalCreditReceiptStore.readReceipt(attemptId)
+            if (existingReceipt != null) {
+                pendingBcsGoalCreditByAttempt.remove(attemptId)
+                lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                updateBcsGoalCreditStatusLocked(
+                    BcsGoalCreditStatus(
+                        attemptId = attemptId,
+                        examProfileId = existingReceipt.examProfileId,
+                        state = BcsGoalCreditState.CREDITED,
+                        appliedDelta = existingReceipt.toDelta()
+                    )
+                )
+                return@synchronized false
+            }
+
+            val curAttemptStatus = bcsGoalCreditStatusByAttempt[attemptId]
+            if (!isExplicitRetry) {
+                if (!authorizedByPersistedPendingLedger && !bcsGoalCreditReceiptStore.isWp41Attempt(attemptId)) {
+                    // Legacy pre-WP4.1 IN_PROGRESS attempt (already received launch-time credit) or unknown origin:
+                    // conservatively avoid duplicate credit without mutating Room.
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    updateBcsGoalCreditStatusLocked(
+                        BcsGoalCreditStatus(
+                            attemptId = attemptId,
+                            examProfileId = delta.examProfileId,
+                            state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                        )
+                    )
+                    return@synchronized false
+                }
+                if (curAttemptStatus != null &&
+                    (curAttemptStatus.isTerminal ||
+                        curAttemptStatus.state == BcsGoalCreditState.IN_PROGRESS ||
+                        curAttemptStatus.state == BcsGoalCreditState.RETRYABLE_FAILURE)
+                ) {
+                    return@synchronized false
+                }
+            } else {
+                val pending = pendingBcsGoalCreditByAttempt[attemptId]
+                if (curAttemptStatus == null ||
+                    curAttemptStatus.attemptId != attemptId ||
+                    curAttemptStatus.state != BcsGoalCreditState.RETRYABLE_FAILURE ||
+                    pending == null ||
+                    pending.attemptId != attemptId
+                ) {
+                    return@synchronized false
+                }
+            }
+
+            inFlightBcsGoalCreditAttemptIds.add(attemptId)
+            pendingBcsGoalCreditByAttempt[attemptId] = delta
+            updateBcsGoalCreditStatusLocked(
+                BcsGoalCreditStatus(
+                    attemptId = attemptId,
+                    examProfileId = delta.examProfileId,
+                    state = BcsGoalCreditState.IN_PROGRESS
+                )
+            )
+            true
+        }
+
+        if (!shouldProceed) return
+
+        try {
+            val creditedAtMs = currentWallClockMs()
+            val defaultLedgerExecute: suspend (String, Long) -> BcsGoalCreditLedgerTxnResult = { id, ts ->
+                repository.applyBcsCompletionGoalCreditFromLedger(
+                    attemptId = id,
+                    creditedAtMs = ts
+                )
+            }
+            val customLedgerExecutor = bcsGoalCreditLedgerExecutorForTesting
+            val result = if (customLedgerExecutor != null) {
+                customLedgerExecutor.invoke(attemptId, creditedAtMs, defaultLedgerExecute)
+            } else {
+                defaultLedgerExecute(attemptId, creditedAtMs)
+            }
+            when (result) {
+                is BcsGoalCreditLedgerTxnResult.Applied -> {
+                    val persistedDelta = result.record.toCreditDelta()
+                    synchronized(bcsGoalCreditStateLock) {
+                        inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                        val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (cur == null || !cur.isTerminal) {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = result.record.examProfileId,
+                                    state = BcsGoalCreditState.CREDITED,
+                                    appliedDelta = persistedDelta
+                                )
+                            )
+                        }
+                    }
+                }
+                is BcsGoalCreditLedgerTxnResult.AlreadyCredited -> {
+                    val persistedDelta = result.record.toCreditDelta()
+                    synchronized(bcsGoalCreditStateLock) {
+                        inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                        val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (cur == null || !cur.isTerminal) {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = result.record.examProfileId,
+                                    state = BcsGoalCreditState.CREDITED,
+                                    appliedDelta = persistedDelta
+                                )
+                            )
+                        }
+                    }
+                }
+                is BcsGoalCreditLedgerTxnResult.NoPendingRecord -> {
+                    synchronized(bcsGoalCreditStateLock) {
+                        inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (cur == null || !cur.isTerminal) {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = delta.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                    failureMessageBn = "দৈনিক লক্ষ্য ক্রেডিটের সংরক্ষিত রেকর্ড পাওয়া যায়নি।"
+                                )
+                            )
+                        }
+                    }
+                }
+                is BcsGoalCreditLedgerTxnResult.InvalidLedgerState -> {
+                    synchronized(bcsGoalCreditStateLock) {
+                        inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (cur == null || !cur.isTerminal) {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = delta.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                    failureMessageBn = "দৈনিক লক্ষ্য ক্রেডিট রেকর্ডটি অসামঞ্জস্যপূর্ণ থাকায় আপডেট করা হয়নি।"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } catch (ce: CancellationException) {
+            // Never swallow CancellationException or convert it into a successful CREDITED result.
+            synchronized(bcsGoalCreditStateLock) {
+                inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                if (cur != null && cur.state == BcsGoalCreditState.IN_PROGRESS) {
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    updateBcsGoalCreditStatusLocked(
+                        BcsGoalCreditStatus(
+                            attemptId = attemptId,
+                            examProfileId = delta.examProfileId,
+                            state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                        )
+                    )
+                }
+            }
+            throw ce
+        } catch (originalFailure: Throwable) {
+            val verifiedRecord = try {
+                repository.getBcsGoalCreditRecordByAttemptId(attemptId)
+            } catch (verificationCe: CancellationException) {
+                synchronized(bcsGoalCreditStateLock) {
+                    inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                    val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                    if (cur != null && cur.state == BcsGoalCreditState.IN_PROGRESS) {
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        updateBcsGoalCreditStatusLocked(
+                            BcsGoalCreditStatus(
+                                attemptId = attemptId,
+                                examProfileId = delta.examProfileId,
+                                state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                            )
+                        )
+                    }
+                }
+                throw verificationCe
+            } catch (verificationFailure: Throwable) {
+                originalFailure.addSuppressed(verificationFailure)
+                android.util.Log.w(
+                    "BcsGoalCredit",
+                    "Post-fault Room ledger verification failed for attemptId=$attemptId",
+                    originalFailure
+                )
+                synchronized(bcsGoalCreditStateLock) {
+                    inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    lastBcsGoalCreditFailureByAttempt[attemptId] = originalFailure
+                    val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                    if (cur == null || !cur.isTerminal) {
+                        updateBcsGoalCreditStatusLocked(
+                            BcsGoalCreditStatus(
+                                attemptId = attemptId,
+                                examProfileId = delta.examProfileId,
+                                state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                failureMessageBn = "দৈনিক লক্ষ্য আপডেটের ফলাফল অনিশ্চিত থাকায় পুনরায় যোগ করা হয়নি।"
+                            )
+                        )
+                    }
+                }
+                return
+            }
+
+            android.util.Log.w(
+                "BcsGoalCredit",
+                "BCS goal credit execution failed for attemptId=$attemptId (verifiedStatus=${verifiedRecord?.status})",
+                originalFailure
+            )
+            synchronized(bcsGoalCreditStateLock) {
+                inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+                lastBcsGoalCreditFailureByAttempt[attemptId] = originalFailure
+                val cur = bcsGoalCreditStatusByAttempt[attemptId]
+                if (cur == null || !cur.isTerminal) {
+                    when {
+                        verifiedRecord != null && verifiedRecord.status == BcsGoalCreditRecordEntity.STATUS_CREDITED -> {
+                            pendingBcsGoalCreditByAttempt.remove(attemptId)
+                            lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = verifiedRecord.examProfileId,
+                                    state = BcsGoalCreditState.CREDITED,
+                                    appliedDelta = verifiedRecord.toCreditDelta()
+                                )
+                            )
+                        }
+                        verifiedRecord != null && verifiedRecord.status == BcsGoalCreditRecordEntity.STATUS_PENDING -> {
+                            val persistedPendingDelta = verifiedRecord.toCreditDelta()
+                            pendingBcsGoalCreditByAttempt[attemptId] = persistedPendingDelta
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = verifiedRecord.examProfileId,
+                                    state = BcsGoalCreditState.RETRYABLE_FAILURE,
+                                    failureMessageBn = "বিসিএস দৈনিক লক্ষ্য সংরক্ষণ করা যায়নি। পুনরায় চেষ্টা করুন।"
+                                )
+                            )
+                        }
+                        else -> {
+                            pendingBcsGoalCreditByAttempt.remove(attemptId)
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = delta.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                    failureMessageBn = "দৈনিক লক্ষ্য আপডেটের ফলাফল অনিশ্চিত থাকায় পুনরায় যোগ করা হয়নি।"
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } finally {
+            synchronized(bcsGoalCreditStateLock) {
+                inFlightBcsGoalCreditAttemptIds.remove(attemptId)
+            }
+        }
+    }
+
+    /**
+     * BCS-GC-02 (Stage 4B2A): Guarded one-time startup recovery launcher for durable Room
+     * PENDING goal-credit ledger records. Runs discovery and validation off the main thread on
+     * [Dispatchers.IO] and is idempotent against duplicate invocation within the same ViewModel.
+     */
+    private fun triggerBcsGoalCreditStartupRecovery(): Job? {
+        synchronized(bcsGoalCreditStartupSweepLock) {
+            if (bcsGoalCreditStartupSweepStarted) {
+                return bcsGoalCreditStartupRecoveryJob
+            }
+            bcsGoalCreditStartupSweepStarted = true
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                recoverPendingBcsGoalCredits()
+            }
+            bcsGoalCreditStartupRecoveryJob = job
+            return job
+        }
+    }
+
+    private suspend fun recoverPendingBcsGoalCredits() {
+        val pendingRecords = try {
+            repository.getPendingBcsGoalCreditRecords()
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            android.util.Log.w("MathViewModel", "Startup BCS goal credit pending ledger query failed", t)
+            return
+        }
+        if (pendingRecords.isEmpty()) return
+
+        val launchedRecoveryJobs = mutableListOf<Job>()
+        for (record in pendingRecords) {
+            val attemptId = record.attemptId.trim()
+            if (attemptId.isEmpty()) {
+                continue
+            }
+
+            val alreadyActiveOrInFlight = synchronized(bcsGoalCreditStateLock) {
+                inFlightBcsGoalCreditAttemptIds.contains(attemptId) ||
+                    activeBcsGoalCreditJobsByAttempt[attemptId]?.isActive == true
+            }
+            if (alreadyActiveOrInFlight) {
+                continue
+            }
+
+            // Step 1: Validate associated ExamAttemptEntity in Room.
+            val examAttempt = try {
+                val customLookup = bcsGoalCreditStartupExamLookupForTesting
+                if (customLookup != null) {
+                    customLookup.invoke(attemptId) { id -> repository.getExamAttemptById(id) }
+                } else {
+                    repository.getExamAttemptById(attemptId)
+                }
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                // CASE D: Ordinary lookup failure — preserve PENDING row for future safe recovery
+                // and continue processing remaining independent pending records.
+                android.util.Log.w("MathViewModel", "Startup BCS goal credit exam lookup failed for attempt=$attemptId", t)
+                synchronized(bcsGoalCreditStateLock) {
+                    lastBcsGoalCreditFailureByAttempt[attemptId] = t
+                    val existing = bcsGoalCreditStatusByAttempt[attemptId]
+                    if (existing == null || existing.state == BcsGoalCreditState.NOT_STARTED) {
+                        pendingBcsGoalCreditByAttempt[attemptId] = record.toCreditDelta()
+                        updateBcsGoalCreditStatusLocked(
+                            BcsGoalCreditStatus(
+                                attemptId = attemptId,
+                                examProfileId = record.examProfileId,
+                                state = BcsGoalCreditState.RETRYABLE_FAILURE
+                            )
+                        )
+                    }
+                }
+                continue
+            }
+
+            // CASE B: Deleted/stale attempt — remove only its PENDING ledger row.
+            if (examAttempt == null) {
+                try {
+                    repository.deletePendingBcsGoalCreditRecordByAttemptId(attemptId)
+                    synchronized(bcsGoalCreditStateLock) {
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    android.util.Log.w("MathViewModel", "Startup cleanup failed for stale PENDING attempt=$attemptId", t)
+                    synchronized(bcsGoalCreditStateLock) {
+                        lastBcsGoalCreditFailureByAttempt[attemptId] = t
+                    }
+                }
+                continue
+            }
+
+            // CASE C: Attempt exists but is not COMPLETED — fail closed, leave PENDING intact.
+            if (examAttempt.status != "COMPLETED") {
+                synchronized(bcsGoalCreditStateLock) {
+                    pendingBcsGoalCreditByAttempt.remove(attemptId)
+                    val existing = bcsGoalCreditStatusByAttempt[attemptId]
+                    if (existing == null || existing.state == BcsGoalCreditState.NOT_STARTED) {
+                        updateBcsGoalCreditStatusLocked(
+                            BcsGoalCreditStatus(
+                                attemptId = attemptId,
+                                examProfileId = record.examProfileId,
+                                state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                            )
+                        )
+                    }
+                }
+                continue
+            }
+
+            // CASE A (Exam COMPLETED): Inspect legacy SharedPreferences receipt for the EXACT attemptId.
+            val legacyReceipt = bcsGoalCreditReceiptStore.readReceipt(attemptId)
+            if (legacyReceipt != null && legacyReceipt.attemptId == attemptId) {
+                try {
+                    val verifiedTimestamp = if (legacyReceipt.creditedAtMs > 0L) {
+                        legacyReceipt.creditedAtMs
+                    } else {
+                        currentWallClockMs()
+                    }
+                    val reconciled = repository.markPendingBcsGoalCreditCreditedWithoutGoalMutation(
+                        attemptId = attemptId,
+                        creditedAtMs = verifiedTimestamp
+                    )
+                    val verifiedRecord = if (reconciled) {
+                        repository.getBcsGoalCreditRecordByAttemptId(attemptId)
+                    } else {
+                        null
+                    }
+                    synchronized(bcsGoalCreditStateLock) {
+                        pendingBcsGoalCreditByAttempt.remove(attemptId)
+                        if (verifiedRecord != null && verifiedRecord.status == BcsGoalCreditRecordEntity.STATUS_CREDITED) {
+                            lastBcsGoalCreditFailureByAttempt.remove(attemptId)
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = verifiedRecord.examProfileId,
+                                    state = BcsGoalCreditState.CREDITED,
+                                    appliedDelta = verifiedRecord.toCreditDelta()
+                                )
+                            )
+                        } else {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = record.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                                )
+                            )
+                        }
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce
+                } catch (t: Throwable) {
+                    android.util.Log.w("MathViewModel", "Startup legacy receipt reconciliation failed for attempt=$attemptId", t)
+                    synchronized(bcsGoalCreditStateLock) {
+                        lastBcsGoalCreditFailureByAttempt[attemptId] = t
+                        val existing = bcsGoalCreditStatusByAttempt[attemptId]
+                        if (existing == null || !existing.isTerminal) {
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = attemptId,
+                                    examProfileId = record.examProfileId,
+                                    state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                                )
+                            )
+                        }
+                    }
+                }
+                continue
+            }
+
+            // No exact legacy receipt: the durable Room PENDING record authorizes ledger recovery.
+            val job = launchBcsGoalCreditJob(
+                delta = record.toCreditDelta(),
+                isExplicitRetry = false,
+                authorizedByPersistedPendingLedger = true
+            )
+            launchedRecoveryJobs.add(job)
+        }
+
+        for (job in launchedRecoveryJobs) {
+            job.join()
+        }
+    }
     fun startQuiz(
         topic: QuizTopic,
         count: Int,
@@ -1258,6 +2202,7 @@ class MathViewModel @JvmOverloads constructor(
             showSubmitConfirmDialog = false
         )
         _quizSession.value = newState
+        resetBcsGoalCreditForNewAttempt(attemptId = attemptId, examProfileId = "", isWp41BcsLaunch = false)
         persistActiveExamStateAsync(newState)
         navigateTo(Screen.QuizPlay)
     }
@@ -1315,8 +2260,16 @@ class MathViewModel @JvmOverloads constructor(
             detailedResult = null,
             showSubmitConfirmDialog = false
         )
-        _quizSession.value = newState
-        persistActiveExamStateAsync(newState)
+        val isBcsPreset = config.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
+        val resolvedProfileId = if (isBcsPreset) _selectedBcsExamProfile.value.id else ""
+        val effectiveNewState = if (isBcsPreset) newState.copy(examProfileId = resolvedProfileId) else newState
+        _quizSession.value = effectiveNewState
+        resetBcsGoalCreditForNewAttempt(
+            attemptId = attemptId,
+            examProfileId = resolvedProfileId,
+            isWp41BcsLaunch = isBcsPreset
+        )
+        persistActiveExamStateAsync(effectiveNewState)
         navigateTo(Screen.QuizPlay)
     }
 
@@ -1505,6 +2458,7 @@ class MathViewModel @JvmOverloads constructor(
         val isBcsSession = current.examProfileId.isNotBlank() || current.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
         val activeBcsProfileId = current.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
         val quizUnifiedKey = "QUIZ_${currentQ.topicTitleBn}_${kotlin.math.abs(currentQ.questionBn.hashCode())}"
+        val canonicalBcsQuestionId = currentQ.id.ifBlank { "bcs_q_${kotlin.math.abs(currentQ.questionBn.hashCode())}" }
         val userSummaryBn = updatedTypedMap[current.currentIndex]?.takeIf { it.isNotBlank() }
             ?: currentQ.optionsBn.getOrNull(recordedOption)
             ?: "ভুল সংখ্যা ইনপুট"
@@ -1512,19 +2466,10 @@ class MathViewModel @JvmOverloads constructor(
 
         viewModelScope.launch {
             if (!isCorrect) {
-                repository.recordUnifiedMistake(
-                    mistakeKey = quizUnifiedKey,
-                    sourceModule = if (isBcsSession) "BCS" else "QUIZ",
-                    subjectId = currentQ.topicTitleBn,
-                    curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
-                    questionPromptBn = currentQ.questionBn,
-                    userAnswerBn = userSummaryBn,
-                    correctAnswerBn = correctAnsBn,
-                    diagnosticExplanationBn = currentQ.explanationBn
-                )
                 if (isBcsSession) {
+                    // F4-03: Write single canonical profile-scoped BCS mistake + unified row (no generic QUIZ_ duplicate)
                     repository.recordBcsMistake(
-                        questionId = currentQ.id.ifBlank { "bcs_q_${kotlin.math.abs(currentQ.questionBn.hashCode())}" },
+                        questionId = canonicalBcsQuestionId,
                         subjectTrack = "MATH_REASONING",
                         topicId = QuizTopic.values().firstOrNull { it.titleBn == currentQ.topicTitleBn }?.id ?: currentQ.topicTitleBn,
                         questionPromptBn = currentQ.questionBn,
@@ -1533,14 +2478,26 @@ class MathViewModel @JvmOverloads constructor(
                         explanationBn = currentQ.explanationBn,
                         examProfileId = activeBcsProfileId
                     )
+                } else {
+                    repository.recordUnifiedMistake(
+                        mistakeKey = quizUnifiedKey,
+                        sourceModule = "QUIZ",
+                        subjectId = currentQ.topicTitleBn,
+                        curriculumTrack = "NCTB",
+                        questionPromptBn = currentQ.questionBn,
+                        userAnswerBn = userSummaryBn,
+                        correctAnswerBn = correctAnsBn,
+                        diagnosticExplanationBn = currentQ.explanationBn
+                    )
                 }
             } else {
-                repository.resolveUnifiedMistake(quizUnifiedKey)
-                if (isBcsSession && currentQ.id.isNotBlank()) {
+                if (isBcsSession) {
                     repository.markBcsMistakeResolved(
-                        questionId = currentQ.id,
+                        questionId = canonicalBcsQuestionId,
                         examProfileId = activeBcsProfileId
                     )
+                } else {
+                    repository.resolveUnifiedMistake(quizUnifiedKey)
                 }
             }
         }
@@ -1679,6 +2636,7 @@ class MathViewModel @JvmOverloads constructor(
         var winningAttemptId: String
         var winningTitle: String
         var winningDetailed: ExamDetailedResult
+        var winningCompletionTimestampMs: Long
 
         while (true) {
             val current = _quizSession.value
@@ -1731,7 +2689,8 @@ class MathViewModel @JvmOverloads constructor(
                 current.elapsedSeconds.coerceAtLeast(10)
             }
 
-            val resolvedAttemptId = current.attemptId.ifBlank { "exam_${System.currentTimeMillis()}" }
+            val completionTimestampMs = currentWallClockMs()
+            val resolvedAttemptId = current.attemptId.ifBlank { "exam_$completionTimestampMs" }
             val resolvedTitle = current.examTitleBn.ifBlank { current.topic.titleBn }
 
             val detailed = ExamScoringEngine.evaluateExam(
@@ -1746,7 +2705,7 @@ class MathViewModel @JvmOverloads constructor(
                 negativeMarksPerWrong = current.examConfig.negativeMarksPerWrong,
                 timeSpentSeconds = elapsedSec,
                 durationLimitSeconds = current.configuredDurationSeconds,
-                completedAt = System.currentTimeMillis()
+                completedAt = completionTimestampMs
             )
 
             val nextState = current.copy(
@@ -1773,6 +2732,7 @@ class MathViewModel @JvmOverloads constructor(
                 winningAttemptId = resolvedAttemptId
                 winningTitle = resolvedTitle
                 winningDetailed = detailed
+                winningCompletionTimestampMs = completionTimestampMs
                 break
             }
         }
@@ -1818,9 +2778,9 @@ class MathViewModel @JvmOverloads constructor(
                 finalScore = winningDetailed.finalScore,
                 percentage = winningDetailed.percentage,
                 accuracyPercent = winningDetailed.accuracyPercent,
-                startedAt = System.currentTimeMillis() - (winningElapsedSec * 1000L),
-                updatedAt = System.currentTimeMillis(),
-                completedAt = winningDetailed.completedAt,
+                startedAt = winningCompletionTimestampMs - (winningElapsedSec * 1000L),
+                updatedAt = winningCompletionTimestampMs,
+                completedAt = winningCompletionTimestampMs,
                 examProfileId = winningCurrent.examProfileId
             )
 
@@ -1851,7 +2811,13 @@ class MathViewModel @JvmOverloads constructor(
             val questionMistakeOutcomes = winningCurrent.questions.mapIndexedNotNull { index, q ->
                 val ans = winningFinalAnswers[index]
                 if (!ExamScoringEngine.isOptionAnswered(ans)) return@mapIndexedNotNull null
-                val quizUnifiedKey = "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
+                val canonicalBcsQId = q.id.ifBlank { "bcs_q_${kotlin.math.abs(q.questionBn.hashCode())}" }
+                val canonicalRawBcsId = MathRepository.extractCanonicalBcsQuestionId(canonicalBcsQId)
+                val unifiedKey = if (isBcsSession) {
+                    "BCS_${activeBcsProfileId}_$canonicalRawBcsId"
+                } else {
+                    "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
+                }
                 val correctAnsBn = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
                 val bcsTopicId = QuizTopic.values().firstOrNull { it.titleBn == q.topicTitleBn }?.id ?: q.topicTitleBn
                 if (ans != q.correctIndex) {
@@ -1864,7 +2830,7 @@ class MathViewModel @JvmOverloads constructor(
                     ExamQuestionMistakeOutcome(
                         isCorrect = false,
                         shouldRecordMistake = true,
-                        unifiedMistakeKey = quizUnifiedKey,
+                        unifiedMistakeKey = unifiedKey,
                         sourceModule = if (isBcsSession) "BCS" else "QUIZ",
                         subjectId = q.topicTitleBn,
                         curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
@@ -1873,11 +2839,7 @@ class MathViewModel @JvmOverloads constructor(
                         correctAnswerBn = correctAnsBn,
                         diagnosticExplanationBn = q.explanationBn,
                         isBcsSession = isBcsSession,
-                        bcsQuestionId = if (isBcsSession) {
-                            q.id.ifBlank { "bcs_q_${kotlin.math.abs(q.questionBn.hashCode())}" }
-                        } else {
-                            ""
-                        },
+                        bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
                         bcsTopicId = bcsTopicId,
                         examProfileId = activeBcsProfileId
                     )
@@ -1885,7 +2847,7 @@ class MathViewModel @JvmOverloads constructor(
                     ExamQuestionMistakeOutcome(
                         isCorrect = true,
                         shouldRecordMistake = false,
-                        unifiedMistakeKey = quizUnifiedKey,
+                        unifiedMistakeKey = unifiedKey,
                         sourceModule = if (isBcsSession) "BCS" else "QUIZ",
                         subjectId = q.topicTitleBn,
                         curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
@@ -1894,11 +2856,70 @@ class MathViewModel @JvmOverloads constructor(
                         correctAnswerBn = correctAnsBn,
                         diagnosticExplanationBn = q.explanationBn,
                         isBcsSession = isBcsSession,
-                        bcsQuestionId = if (isBcsSession) q.id else "",
+                        bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
                         bcsTopicId = bcsTopicId,
                         examProfileId = activeBcsProfileId
                     )
                 }
+            }
+
+            // BCS-GC-02 Stage 4A: Compute and validate the durable PENDING ledger payload BEFORE atomic finalization.
+            val isWp41Eligible = isBcsSession &&
+                winningAttemptId.isNotBlank() &&
+                bcsGoalCreditReceiptStore.isWp41Attempt(winningAttemptId)
+            val authoritativeLedgerProfileId = winningCurrent.examProfileId.trim()
+            val targetDateKey = MathRepository.todayDateKey(winningCompletionTimestampMs)
+            val computedGoalDelta = if (isBcsSession) {
+                BcsGoalCreditCalculator.computeCompletionDelta(
+                    attemptId = winningAttemptId,
+                    examProfileId = authoritativeLedgerProfileId,
+                    correctCount = winningDetailed.correctCount,
+                    wrongCount = winningDetailed.wrongCount,
+                    elapsedSeconds = winningElapsedSec,
+                    immediateFeedback = winningCurrent.examConfig.immediateFeedback,
+                    mode = winningCurrent.mode,
+                    configuredDurationSeconds = winningCurrent.configuredDurationSeconds
+                )
+            } else {
+                null
+            }
+            var ledgerPayloadValidationError: String? = null
+            val pendingLedgerRecord: BcsGoalCreditRecordEntity? = if (isWp41Eligible && computedGoalDelta != null) {
+                when {
+                    !computedGoalDelta.hasAnyCredit -> null
+                    authoritativeLedgerProfileId.isEmpty() -> {
+                        ledgerPayloadValidationError = "Missing authoritative examProfileId for WP4.1 attempt '$winningAttemptId'"
+                        null
+                    }
+                    targetDateKey.isBlank() -> {
+                        ledgerPayloadValidationError = "Blank targetDateKey for WP4.1 attempt '$winningAttemptId'"
+                        null
+                    }
+                    computedGoalDelta.questionsDelta < 0 ||
+                        computedGoalDelta.studyTimeMinutesDelta < 0 ||
+                        computedGoalDelta.mockExamsDelta < 0 ||
+                        computedGoalDelta.revisionsDelta < 0 -> {
+                        ledgerPayloadValidationError = "Negative delta computed for WP4.1 attempt '$winningAttemptId'"
+                        null
+                    }
+                    else -> BcsGoalCreditRecordEntity(
+                        attemptId = winningAttemptId,
+                        examProfileId = authoritativeLedgerProfileId,
+                        targetDateKey = targetDateKey,
+                        questionsDelta = computedGoalDelta.questionsDelta,
+                        studyTimeMinutesDelta = computedGoalDelta.studyTimeMinutesDelta,
+                        mockExamsDelta = computedGoalDelta.mockExamsDelta,
+                        revisionsDelta = computedGoalDelta.revisionsDelta,
+                        status = BcsGoalCreditRecordEntity.STATUS_PENDING,
+                        createdAtMs = winningCompletionTimestampMs,
+                        creditedAtMs = null
+                    )
+                }
+            } else {
+                null
+            }
+            if (ledgerPayloadValidationError != null) {
+                android.util.Log.w("BcsGoalCredit", ledgerPayloadValidationError)
             }
 
             examPersistenceMutex.withLock {
@@ -1906,10 +2927,65 @@ class MathViewModel @JvmOverloads constructor(
                     completedAttempt = completedEntity,
                     perTopicStats = ExamScoringEngine.toTopicExamStats(winningDetailed.topicBreakdown),
                     bcsTopicUpdates = bcsTopicUpdates,
-                    questionMistakeOutcomes = questionMistakeOutcomes
+                    questionMistakeOutcomes = questionMistakeOutcomes,
+                    pendingBcsGoalCredit = pendingLedgerRecord
                 )
             }
             recordDailyActivity(4)
+
+            if (isBcsSession) {
+                when {
+                    pendingLedgerRecord != null -> {
+                        launchBcsGoalCreditJob(
+                            delta = pendingLedgerRecord.toCreditDelta(),
+                            isExplicitRetry = false
+                        )
+                    }
+                    !isWp41Eligible -> {
+                        synchronized(bcsGoalCreditStateLock) {
+                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                            val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
+                            if (cur == null || !cur.isTerminal) {
+                                updateBcsGoalCreditStatusLocked(
+                                    BcsGoalCreditStatus(
+                                        attemptId = winningAttemptId,
+                                        examProfileId = authoritativeLedgerProfileId,
+                                        state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    ledgerPayloadValidationError != null -> {
+                        synchronized(bcsGoalCreditStateLock) {
+                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                            val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
+                            if (cur == null || !cur.isTerminal) {
+                                updateBcsGoalCreditStatusLocked(
+                                    BcsGoalCreditStatus(
+                                        attemptId = winningAttemptId,
+                                        examProfileId = authoritativeLedgerProfileId,
+                                        state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                        failureMessageBn = "দৈনিক লক্ষ্য ক্রেডিট তথ্য যাচাই করা যায়নি।"
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        synchronized(bcsGoalCreditStateLock) {
+                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                            updateBcsGoalCreditStatusLocked(
+                                BcsGoalCreditStatus(
+                                    attemptId = winningAttemptId,
+                                    examProfileId = authoritativeLedgerProfileId,
+                                    state = BcsGoalCreditState.NOT_STARTED
+                                )
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2031,6 +3107,11 @@ class MathViewModel @JvmOverloads constructor(
                 examProfileId = entity.examProfileId
             )
             _quizSession.value = restoredState
+            resetBcsGoalCreditForNewAttempt(
+                attemptId = entity.attemptId,
+                examProfileId = entity.examProfileId,
+                isWp41BcsLaunch = false
+            )
             navigateTo(Screen.QuizPlay)
         }
     }
@@ -2077,6 +3158,7 @@ class MathViewModel @JvmOverloads constructor(
             detailedResult = detailed,
             examProfileId = entity.examProfileId
         )
+        reconcileBcsGoalCreditOnOpenCompletedAttempt(entity)
         navigateTo(Screen.QuizPlay)
     }
 
@@ -2166,6 +3248,8 @@ class MathViewModel @JvmOverloads constructor(
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Quizzes))
         }
         _quizSession.value = QuizSessionState()
+        clearSelectedBcsGoalCreditAttempt()
+        persistAllNavigationAndSelectionState()
     }
 
     fun startNextQuizTopic() {
@@ -2574,6 +3658,7 @@ class MathViewModel @JvmOverloads constructor(
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.PracticeLab))
         }
         _practiceSession.value = PracticeSessionState()
+        persistAllNavigationAndSelectionState()
     }
 
     // ==========================================
@@ -2650,7 +3735,16 @@ class MathViewModel @JvmOverloads constructor(
         val typed = current.typedInput.trim()
         if (typed.isEmpty()) return
         val asciiDigits = BengaliNumberFormatter.toEnglishDigits(typed)
-        val parsed = asciiDigits.toIntOrNull() ?: -999999
+            .replace("−", "-")
+            .replace("–", "-")
+            .trim()
+        val parsed = asciiDigits.toIntOrNull()
+        if (parsed == null) {
+            _mentalMathSession.value = current.copy(
+                feedbackMessageBn = "অনুগ্রহ করে একটি বৈধ পূর্ণসংখ্যা লিখুন।"
+            )
+            return
+        }
         submitMentalMathAnswer(parsed)
     }
 
@@ -2916,6 +4010,7 @@ class MathViewModel @JvmOverloads constructor(
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.MentalMath))
         }
         _mentalMathSession.value = MentalMathSessionState()
+        persistAllNavigationAndSelectionState()
     }
 
     // Step-by-Step Practice Tutor
@@ -3255,116 +4350,145 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun submitNumberSystemAnswer() {
-        val current = _numberSystemPracticeState.value
-        if (current.isSubmitted || current.isCompleted) return
-        val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
+        var winningCurrent: com.example.math.NumberSystemPracticeState
+        var winningQ: com.example.math.NumberSystemQuestion
+        var winningIsCorrect: Boolean
+        var winningRecordedChoice: Int
 
-        val isCorrect: Boolean
-        val recordedChoice: Int
+        while (true) {
+            val current = _numberSystemPracticeState.value
+            if (current.isSubmitted || current.isCompleted) return
+            if (current.userAnswers.containsKey(current.currentIndex)) return
+            val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
 
-        if (current.inputFormat == QuestionInputFormat.KEYPAD && current.selectedOptionIndex == null) {
-            val typed = current.typedInput.trim()
-            if (typed.isEmpty()) return
-            isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerBn) ||
-                SharedMathEngine.isAnswerCorrect(
-                    typed,
-                    currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" }.removeSuffix("টি").trim()
-                )
-            recordedChoice = if (isCorrect) currentQ.correctIndex else -2
-        } else {
-            val selected = current.selectedOptionIndex ?: return
-            isCorrect = selected == currentQ.correctIndex
-            recordedChoice = selected
+            val isCorrect: Boolean
+            val recordedChoice: Int
+
+            if (current.inputFormat == QuestionInputFormat.KEYPAD && current.selectedOptionIndex == null) {
+                val typed = current.typedInput.trim()
+                if (typed.isEmpty()) return
+                isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerBn) ||
+                    SharedMathEngine.isAnswerCorrect(
+                        typed,
+                        currentQ.optionsBn.getOrElse(currentQ.correctIndex) { "" }.removeSuffix("টি").trim()
+                    )
+                recordedChoice = if (isCorrect) currentQ.correctIndex else -2
+            } else {
+                val selected = current.selectedOptionIndex ?: return
+                if (selected !in currentQ.optionsBn.indices) return
+                isCorrect = selected == currentQ.correctIndex
+                recordedChoice = selected
+            }
+
+            val newScore = if (isCorrect) current.score + 1 else current.score
+            val nextStreak = if (isCorrect) current.currentStreak + 1 else 0
+            val nextHighestStreak = maxOf(current.highestStreak, nextStreak)
+            val updatedAnswers = current.userAnswers + (current.currentIndex to recordedChoice)
+
+            val nextState = current.copy(
+                isSubmitted = true,
+                selectedOptionIndex = recordedChoice,
+                score = newScore,
+                userAnswers = updatedAnswers,
+                currentStreak = nextStreak,
+                highestStreak = nextHighestStreak
+            )
+
+            if (_numberSystemPracticeState.compareAndSet(current, nextState)) {
+                winningCurrent = current
+                winningQ = currentQ
+                winningIsCorrect = isCorrect
+                winningRecordedChoice = recordedChoice
+                break
+            }
         }
 
-        val newScore = if (isCorrect) current.score + 1 else current.score
-        val nextStreak = if (isCorrect) current.currentStreak + 1 else 0
-        val nextHighestStreak = maxOf(current.highestStreak, nextStreak)
-        val updatedAnswers = current.userAnswers + (current.currentIndex to recordedChoice)
-
-        _numberSystemPracticeState.value = current.copy(
-            isSubmitted = true,
-            selectedOptionIndex = recordedChoice,
-            score = newScore,
-            userAnswers = updatedAnswers,
-            currentStreak = nextStreak,
-            highestStreak = nextHighestStreak
-        )
-
-        if (isCorrect) {
+        if (winningIsCorrect) {
             recordDailyActivity(1)
             viewModelScope.launch {
-                repository.resolveUnifiedMistake("NUMBER_SYSTEM_${currentQ.id}")
+                repository.resolveUnifiedMistake("NUMBER_SYSTEM_${winningQ.id}")
             }
         } else {
-            val userAnsText = if (current.inputFormat == QuestionInputFormat.KEYPAD && current.typedInput.isNotBlank()) {
-                current.typedInput.trim()
+            val userAnsText = if (winningCurrent.inputFormat == QuestionInputFormat.KEYPAD && winningCurrent.typedInput.isNotBlank()) {
+                winningCurrent.typedInput.trim()
             } else {
-                currentQ.optionsBn.getOrElse(recordedChoice) { "ভুল উত্তর" }
+                winningQ.optionsBn.getOrElse(winningRecordedChoice) { "ভুল উত্তর" }
             }
-            val expectedAnsText = currentQ.optionsBn.getOrElse(currentQ.correctIndex) { currentQ.correctAnswerBn }
+            val expectedAnsText = winningQ.optionsBn.getOrElse(winningQ.correctIndex) { winningQ.correctAnswerBn }
             viewModelScope.launch {
                 repository.recordUnifiedMistake(
-                    mistakeKey = "NUMBER_SYSTEM_${currentQ.id}",
+                    mistakeKey = "NUMBER_SYSTEM_${winningQ.id}",
                     sourceModule = "NUMBER_SYSTEM",
-                    subjectId = currentQ.topic.id,
-                    curriculumTrack = if (currentQ.curriculumTracks.contains(com.example.math.CurriculumTrack.BCS)) "BCS" else "NCTB",
-                    questionPromptBn = currentQ.questionBn,
+                    subjectId = winningQ.topic.id,
+                    curriculumTrack = if (winningQ.curriculumTracks.contains(com.example.math.CurriculumTrack.BCS)) "BCS" else "NCTB",
+                    questionPromptBn = winningQ.questionBn,
                     userAnswerBn = userAnsText,
                     correctAnswerBn = expectedAnsText,
-                    diagnosticExplanationBn = currentQ.explanationBn
+                    diagnosticExplanationBn = winningQ.explanationBn
                 )
             }
         }
     }
 
     fun nextNumberSystemQuestion() {
-        val current = _numberSystemPracticeState.value
-        if (current.currentIndex + 1 < current.questions.size) {
-            _numberSystemPracticeState.value = current.copy(
-                currentIndex = current.currentIndex + 1,
-                selectedOptionIndex = null,
-                typedInput = "",
-                isSubmitted = false
-            )
-        } else {
-            val total = current.questions.size
-            val percentage = if (total > 0) (current.score * 100) / total else 0
-            val topicTitle = "বাস্তব সংখ্যা ও বিভাজ্যতা (${current.difficulty.titleBn})"
-            val elapsedSec = ((System.currentTimeMillis() - current.sessionStartEpochMs) / 1000L).coerceAtLeast(1L)
-            val bestStreak = current.highestStreak.coerceAtLeast(if (current.score > 0) 1 else 0)
+        var winningCurrent: com.example.math.NumberSystemPracticeState
 
-            viewModelScope.launch {
-                repository.recordQuizScore(
-                    QuizScoreEntity(
-                        topicId = "NUMBER_SYSTEM",
-                        topicTitleBn = topicTitle,
-                        score = current.score,
-                        totalQuestions = total,
-                        percentage = percentage
-                    )
+        while (true) {
+            val current = _numberSystemPracticeState.value
+            if (current.questions.isEmpty() || current.isCompleted || !current.isSubmitted) return
+            if (!current.userAnswers.containsKey(current.currentIndex)) return
+
+            if (current.currentIndex + 1 < current.questions.size) {
+                val nextState = current.copy(
+                    currentIndex = current.currentIndex + 1,
+                    selectedOptionIndex = null,
+                    typedInput = "",
+                    isSubmitted = false
                 )
-                repository.recordSessionAndAnalytics(
-                    moduleType = "NUMBER_SYSTEM",
-                    categoryId = current.topic.id,
-                    categoryTitleBn = topicTitle,
-                    difficulty = current.difficulty.id,
-                    mode = "practice",
-                    inputFormat = current.inputFormat.id,
-                    score = current.score * 10,
-                    correctCount = current.score,
-                    wrongCount = (total - current.score).coerceAtLeast(0),
-                    totalQuestions = total,
-                    accuracyPercent = percentage,
-                    durationSeconds = elapsedSec,
-                    highestStreak = bestStreak
-                )
-                recordDailyActivity(3)
+                if (_numberSystemPracticeState.compareAndSet(current, nextState)) {
+                    return
+                }
+            } else {
+                val nextState = current.copy(isCompleted = true)
+                if (_numberSystemPracticeState.compareAndSet(current, nextState)) {
+                    winningCurrent = current
+                    break
+                }
             }
+        }
 
-            _numberSystemPracticeState.value = current.copy(
-                isCompleted = true
+        val total = winningCurrent.questions.size
+        val percentage = if (total > 0) (winningCurrent.score * 100) / total else 0
+        val topicTitle = "বাস্তব সংখ্যা ও বিভাজ্যতা (${winningCurrent.difficulty.titleBn})"
+        val elapsedSec = ((System.currentTimeMillis() - winningCurrent.sessionStartEpochMs) / 1000L).coerceAtLeast(1L)
+        val bestStreak = winningCurrent.highestStreak.coerceAtLeast(if (winningCurrent.score > 0) 1 else 0)
+
+        viewModelScope.launch {
+            repository.recordQuizScore(
+                QuizScoreEntity(
+                    topicId = "NUMBER_SYSTEM",
+                    topicTitleBn = topicTitle,
+                    score = winningCurrent.score,
+                    totalQuestions = total,
+                    percentage = percentage
+                )
             )
+            repository.recordSessionAndAnalytics(
+                moduleType = "NUMBER_SYSTEM",
+                categoryId = winningCurrent.topic.id,
+                categoryTitleBn = topicTitle,
+                difficulty = winningCurrent.difficulty.id,
+                mode = "practice",
+                inputFormat = winningCurrent.inputFormat.id,
+                score = winningCurrent.score * 10,
+                correctCount = winningCurrent.score,
+                wrongCount = (total - winningCurrent.score).coerceAtLeast(0),
+                totalQuestions = total,
+                accuracyPercent = percentage,
+                durationSeconds = elapsedSec,
+                highestStreak = bestStreak
+            )
+            recordDailyActivity(3)
         }
     }
 
@@ -3924,7 +5048,7 @@ class MathViewModel @JvmOverloads constructor(
         val negPenalty = customNegativeMarking ?: mode.negativeMarking
         val now = clock.elapsedRealtime()
         val deadline = if (durationSec > 0) now + durationSec * 1000L else 0L
-        val attemptId = "bcs_mode_${mode.id.lowercase()}_${System.currentTimeMillis()}"
+        val attemptId = "bcs_mode_${mode.id.lowercase()}_${System.currentTimeMillis()}_${bcsAttemptSeq.incrementAndGet()}"
         val titleBn = "${mode.titleBn} (${activeProfile.shortBadgeBn})"
 
         val config = ExamConfig(
@@ -3970,15 +5094,12 @@ class MathViewModel @JvmOverloads constructor(
             examProfileId = activeProfile.id
         )
         _quizSession.value = newState
+        resetBcsGoalCreditForNewAttempt(
+            attemptId = attemptId,
+            examProfileId = activeProfile.id,
+            isWp41BcsLaunch = true
+        )
         persistActiveExamStateAsync(newState)
-        viewModelScope.launch {
-            repository.recordBcsStudyGoalDelta(
-                examProfileId = activeProfile.id,
-                mockExamsDelta = 1,
-                questionsDelta = questions.size,
-                studyTimeMinutesDelta = (mode.durationMinutes / 2).coerceAtLeast(5)
-            )
-        }
         navigateTo(Screen.QuizPlay)
     }
 
@@ -3999,7 +5120,7 @@ class MathViewModel @JvmOverloads constructor(
         val durationSec = (durationMinutes * 60).coerceAtLeast(60)
         val now = clock.elapsedRealtime()
         val deadline = now + durationSec * 1000L
-        val attemptId = "bcs_mock_${System.currentTimeMillis()}"
+        val attemptId = "bcs_mock_${System.currentTimeMillis()}_${bcsAttemptSeq.incrementAndGet()}"
         val titleBn = when {
             unit != null -> "বিসিএস অনুশীলন (${syllabusVersion.shortBadgeBn}): ${unit.titleBn}"
             syllabusVersion == BcsSyllabusVersion.BCS_50TH_CURRENT -> "৫০তম বিসিএস প্রিলিমিনারি গাণিতিক যুক্তি মক টেস্ট (২০ নম্বর)"
@@ -4017,6 +5138,7 @@ class MathViewModel @JvmOverloads constructor(
             immediateFeedback = false
         )
 
+        val activeProfileId = _selectedBcsExamProfile.value.id
         val newState = QuizSessionState(
             attemptId = attemptId,
             examTitleBn = titleBn,
@@ -4045,18 +5167,15 @@ class MathViewModel @JvmOverloads constructor(
             elapsedSeconds = 0,
             startElapsedRealtimeMs = now,
             deadlineElapsedRealtimeMs = deadline,
-            examProfileId = _selectedBcsExamProfile.value.id
+            examProfileId = activeProfileId
         )
         _quizSession.value = newState
+        resetBcsGoalCreditForNewAttempt(
+            attemptId = attemptId,
+            examProfileId = activeProfileId,
+            isWp41BcsLaunch = true
+        )
         persistActiveExamStateAsync(newState)
-        viewModelScope.launch {
-            repository.recordBcsStudyGoalDelta(
-                examProfileId = _selectedBcsExamProfile.value.id,
-                mockExamsDelta = 1,
-                questionsDelta = questions.size,
-                studyTimeMinutesDelta = (durationMinutes / 2).coerceAtLeast(5)
-            )
-        }
         navigateTo(Screen.QuizPlay)
     }
 
@@ -4089,6 +5208,9 @@ class MathViewModel @JvmOverloads constructor(
 
     init {
         restoreSavedNavigationAndSelectionState()
+        if (!disableAutoBcsGoalCreditStartupSweepForTesting) {
+            triggerBcsGoalCreditStartupRecovery()
+        }
     }
 
     fun setBookSearchQuery(query: String) {
@@ -4153,14 +5275,39 @@ class MathViewModel @JvmOverloads constructor(
         chapterNumber: Int? = null
     ) {
         _selectedBookId.value = bookId
-        val savedReadingState = bookReadingStates.value.firstOrNull { it.bookId == bookId.id }
+        val cachedReadingState = bookReadingStates.value.firstOrNull { it.bookId == bookId.id }
+        if (printedPage == null && chapterNumber == null && cachedReadingState == null) {
+            // Avoid clobbering persisted lastReadPrintedPage with page 1 when StateFlow has no active collector yet.
+            _selectedBookPrintedPage.value = 1
+            _selectedBookChapterNumber.value = 1
+            navigateTo(Screen.BookPdfReader)
+            viewModelScope.launch {
+                val dbState = repository.getBookReadingStateByBookId(bookId.id)
+                val resolvedPage = (dbState?.lastReadPrintedPage ?: 1).coerceIn(1, bookId.maxPrintedPage)
+                val resolvedChapter = BookCurriculumRepository.getChapterForPrintedPage(bookId, resolvedPage).chapterNumber
+                if (_selectedBookId.value == bookId) {
+                    _selectedBookPrintedPage.value = resolvedPage
+                    _selectedBookChapterNumber.value = resolvedChapter
+                    syncTopNavigationSnapshot()
+                }
+                repository.updateBookReadingState(
+                    bookId = bookId.id,
+                    printedPage = resolvedPage,
+                    pdfPage = bookId.printedToPdfPage(resolvedPage),
+                    chapterNumber = resolvedChapter,
+                    incrementPagesRead = true,
+                    activeEditionId = bookId.editionMetadata.editionId
+                )
+            }
+            return
+        }
         val targetPrintedPage = when {
             printedPage != null -> printedPage.coerceIn(1, bookId.maxPrintedPage)
             chapterNumber != null -> {
                 val ch = BookCurriculumRepository.getChapter(bookId, chapterNumber)
                 ch?.printedPageStart ?: 1
             }
-            savedReadingState != null -> savedReadingState.lastReadPrintedPage.coerceIn(1, bookId.maxPrintedPage)
+            cachedReadingState != null -> cachedReadingState.lastReadPrintedPage.coerceIn(1, bookId.maxPrintedPage)
             else -> 1
         }
         val inferredChapter = chapterNumber
@@ -4254,9 +5401,7 @@ class MathViewModel @JvmOverloads constructor(
         lessonId: String
     ) {
         viewModelScope.launch {
-            val existing = bookLessonProgress.value.firstOrNull { it.bookId == bookId.id && it.lessonId == lessonId }
-            val nextCompleted = !(existing?.isCompleted ?: false)
-            repository.toggleBookLessonCompleted(
+            val nextCompleted = repository.toggleBookLessonCompletedAndReturnState(
                 bookId = bookId.id,
                 chapterNumber = chapterNumber,
                 lessonId = lessonId
@@ -4524,7 +5669,6 @@ class MathViewModel @JvmOverloads constructor(
             } else {
                 recordDailyActivity(1)
                 repository.markBookMistakeResolved("mistake_${winningQ.id}", resolved = true)
-                repository.resolveUnifiedMistake("BOOK_${winningQ.id}")
             }
         }
     }

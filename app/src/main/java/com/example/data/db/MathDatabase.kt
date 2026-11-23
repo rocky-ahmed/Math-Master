@@ -17,6 +17,7 @@ import com.example.data.model.ExamAttemptEntity
 import com.example.data.model.PracticeHistoryEntity
 import com.example.data.model.ProgressEntity
 import com.example.data.model.QuizScoreEntity
+import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BcsMistakeEntity
 import com.example.data.model.BcsStudyPlanGoalEntity
 import com.example.data.model.BcsTopicProgressEntity
@@ -50,9 +51,10 @@ import com.example.data.model.UnifiedMistakeEntity
         BcsStudyPlanGoalEntity::class,
         UnifiedMistakeEntity::class,
         FormulaMasteryEntity::class,
-        StudyTimerFlushReceiptEntity::class
+        StudyTimerFlushReceiptEntity::class,
+        BcsGoalCreditRecordEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class MathDatabase : RoomDatabase() {
@@ -489,6 +491,30 @@ abstract class MathDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `bcs_goal_credit_records` (
+                        `attemptId` TEXT NOT NULL,
+                        `examProfileId` TEXT NOT NULL,
+                        `targetDateKey` TEXT NOT NULL,
+                        `questionsDelta` INTEGER NOT NULL,
+                        `studyTimeMinutesDelta` INTEGER NOT NULL,
+                        `mockExamsDelta` INTEGER NOT NULL,
+                        `revisionsDelta` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `createdAtMs` INTEGER NOT NULL,
+                        `creditedAtMs` INTEGER,
+                        PRIMARY KEY(`attemptId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_bcs_goal_credit_records_status_createdAtMs` ON `bcs_goal_credit_records` (`status`, `createdAtMs`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_bcs_goal_credit_records_examProfileId_targetDateKey` ON `bcs_goal_credit_records` (`examProfileId`, `targetDateKey`)")
+            }
+        }
+
         fun getDatabase(context: Context): MathDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -505,7 +531,8 @@ abstract class MathDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9,
-                        MIGRATION_9_10
+                        MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .build()
                 INSTANCE = instance

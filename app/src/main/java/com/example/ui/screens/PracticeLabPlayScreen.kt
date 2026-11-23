@@ -580,7 +580,7 @@ fun PracticeLabPlayScreen(
                                     value = session.customInputText,
                                     onValueChange = { viewModel.setPracticeCustomInput(it) },
                                     label = { Text(if (session.inputFormat == QuestionInputFormat.KEYPAD) "সংখ্যা বা ভগ্নাংশে উত্তর লিখুন" else "অথবা সরাসরি উত্তর টাইপ করুন") },
-                                    placeholder = { Text("যেমন: ${currentQ.correctAnswerBn}") },
+                                    placeholder = { Text("যেমন: ৪২ বা ৩/৪ বা ২.৫") },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(
                                         keyboardType = KeyboardType.Text,

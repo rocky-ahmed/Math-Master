@@ -1074,7 +1074,10 @@ object PracticeLabGenerator {
             }
             PracticeDifficulty.MEDIUM -> {
                 val d1 = Random.nextInt(2, 8)
-                val d2 = Random.nextInt(1, 7)
+                var d2 = Random.nextInt(1, 7)
+                if ((d1 + d2) % 9 == 0) {
+                    d2 = if (d2 < 6) d2 + 1 else d2 - 1
+                }
                 val partialSum = d1 + d2
                 val nextMult9 = ((partialSum / 9) + 1) * 9
                 val missingDigit = nextMult9 - partialSum

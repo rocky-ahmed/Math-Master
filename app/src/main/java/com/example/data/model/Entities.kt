@@ -499,6 +499,37 @@ data class StudyTimerFlushOperation(
     val createdAtEpochMs: Long = System.currentTimeMillis()
 )
 
+/**
+ * Room v11 durable BCS daily study-goal credit ledger (BCS-GC-02).
+ *
+ * Keyed uniquely by [attemptId] to support atomic transactional outbox enqueue
+ * (status = "PENDING") and atomic idempotent credit application (status = "CREDITED").
+ */
+@Entity(
+    tableName = "bcs_goal_credit_records",
+    indices = [
+        Index(value = ["status", "createdAtMs"]),
+        Index(value = ["examProfileId", "targetDateKey"])
+    ]
+)
+data class BcsGoalCreditRecordEntity(
+    @PrimaryKey val attemptId: String,
+    val examProfileId: String,
+    val targetDateKey: String,
+    val questionsDelta: Int,
+    val studyTimeMinutesDelta: Int,
+    val mockExamsDelta: Int,
+    val revisionsDelta: Int = 0,
+    val status: String = STATUS_PENDING, // "PENDING" or "CREDITED"
+    val createdAtMs: Long = System.currentTimeMillis(),
+    val creditedAtMs: Long? = null
+) {
+    companion object {
+        const val STATUS_PENDING = "PENDING"
+        const val STATUS_CREDITED = "CREDITED"
+    }
+}
+
 
 
 

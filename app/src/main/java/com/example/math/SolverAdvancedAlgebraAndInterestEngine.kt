@@ -22,7 +22,9 @@ import kotlin.math.sqrt
 object SolverAdvancedAlgebraAndInterestEngine {
 
     private val usSymbols = DecimalFormatSymbols(Locale.US)
-    private val df = DecimalFormat("0.####", usSymbols)
+    private val dfLocal: ThreadLocal<DecimalFormat> = ThreadLocal.withInitial {
+        DecimalFormat("0.####", usSymbols)
+    }
 
     private fun formatNum(n: Double): String {
         if (!n.isFinite()) return "অসংজ্ঞায়িত"
@@ -31,7 +33,8 @@ object SolverAdvancedAlgebraAndInterestEngine {
         return if (n == asLong.toDouble() && abs(n) < 9e15) {
             BengaliNumberFormatter.toBn(asLong.toString())
         } else {
-            BengaliNumberFormatter.toBn(df.format(n))
+            val formatter = dfLocal.get() ?: DecimalFormat("0.####", usSymbols)
+            BengaliNumberFormatter.toBn(formatter.format(n))
         }
     }
 

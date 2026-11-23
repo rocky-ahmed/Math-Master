@@ -354,8 +354,10 @@ class Phase3DatabaseTransactionAndHistoryTest {
         assertEquals(2, dao.getAllDailyStudyActivity().first().size)
         assertEquals(15, dao.getBcsTopicProgressById("algebra")?.questionsAttempted)
         assertEquals(2, dao.getAllBcsMistakes().first().size)
-        // Exam outcome records both the quiz unified key and the BCS profile-scoped unified key (1 seeded + 2 new = 3).
-        assertEquals(3, dao.getAllUnifiedMistakes().first().size)
+        // WP4.1 F4-03: BCS exam outcome records strictly the canonical BCS profile-scoped unified key (1 seeded + 1 canonical BCS = 2) with zero generic QUIZ_ duplicate.
+        assertEquals(2, dao.getAllUnifiedMistakes().first().size)
+        assertNotNull(dao.getUnifiedMistakeByKey("BCS_BCS_50TH_PRELIM_2025_new_bcs_q_abort"))
+        assertEquals(null, dao.getUnifiedMistakeByKey("QUIZ_NEW_MISTAKE_1"))
 
         // Verify preserved 2-argument JVM overload delegates atomically too.
         val twoArgExam = newExam.copy(attemptId = "two_arg_overload_exam", completedAt = nowMs + 5000L)

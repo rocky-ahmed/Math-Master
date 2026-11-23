@@ -390,25 +390,6 @@ class CustomizationPreferences(context: Context) {
     }
 
     fun loadCustomizationState(): AppCustomizationState {
-        val globalJson = prefs.getString(KEY_GLOBAL, null)
-        val hasMigratedToGrid = prefs.getBoolean("has_migrated_default_grid_v2", false)
-        val globalConfig = if (!globalJson.isNullOrBlank()) {
-            try {
-                var loaded = (globalAdapter.fromJson(globalJson) ?: GlobalCustomConfig()).sanitized()
-                if (!hasMigratedToGrid && loaded.layoutType == CustomLayoutType.COMFORTABLE_LIST) {
-                    loaded = loaded.copy(layoutType = CustomLayoutType.GRID).sanitized()
-                    prefs.edit().putBoolean("has_migrated_default_grid_v2", true).apply()
-                    saveCustomizationState(AppCustomizationState(global = loaded, sections = emptyMap()))
-                }
-                loaded
-            } catch (_: Exception) {
-                GlobalCustomConfig()
-            }
-        } else {
-            prefs.edit().putBoolean("has_migrated_default_grid_v2", true).apply()
-            GlobalCustomConfig()
-        }
-
         val sectionsJson = prefs.getString(KEY_SECTIONS, null)
         val sectionMap = if (!sectionsJson.isNullOrBlank()) {
             try {
@@ -419,6 +400,27 @@ class CustomizationPreferences(context: Context) {
             }
         } else {
             emptyMap()
+        }
+
+        val globalJson = prefs.getString(KEY_GLOBAL, null)
+        val hasMigratedToGrid = prefs.getBoolean("has_migrated_default_grid_v2", false)
+        val globalConfig = if (!globalJson.isNullOrBlank()) {
+            try {
+                var loaded = (globalAdapter.fromJson(globalJson) ?: GlobalCustomConfig()).sanitized()
+                if (!hasMigratedToGrid && loaded.layoutType == CustomLayoutType.COMFORTABLE_LIST) {
+                    loaded = loaded.copy(layoutType = CustomLayoutType.GRID).sanitized()
+                    prefs.edit()
+                        .putBoolean("has_migrated_default_grid_v2", true)
+                        .putString(KEY_GLOBAL, globalAdapter.toJson(loaded))
+                        .apply()
+                }
+                loaded
+            } catch (_: Exception) {
+                GlobalCustomConfig()
+            }
+        } else {
+            prefs.edit().putBoolean("has_migrated_default_grid_v2", true).apply()
+            GlobalCustomConfig()
         }
 
         return AppCustomizationState(

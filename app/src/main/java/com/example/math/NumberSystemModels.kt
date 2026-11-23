@@ -737,15 +737,16 @@ object NumberSystemProvider {
     }
 
     fun gcd(a: Long, b: Long): Long {
+        if (a == 0L && b == 0L) return 0L
+        if (a == Long.MIN_VALUE || b == Long.MIN_VALUE) {
+            val bigGcd = java.math.BigInteger.valueOf(a).gcd(java.math.BigInteger.valueOf(b))
+            return if (bigGcd.bitLength() > 63) Long.MAX_VALUE else bigGcd.toLong()
+        }
         val absA = kotlin.math.abs(a)
         val absB = kotlin.math.abs(b)
-        if (absA == 0L && absB == 0L) return 0L
         if (absA == 0L) return absB
         if (absB == 0L) return absA
-        if (a == Long.MIN_VALUE && (b == 0L || b == Long.MIN_VALUE)) {
-            return Long.MAX_VALUE
-        }
-        val bigGcd = java.math.BigInteger.valueOf(a).gcd(java.math.BigInteger.valueOf(b))
+        val bigGcd = java.math.BigInteger.valueOf(absA).gcd(java.math.BigInteger.valueOf(absB))
         return if (bigGcd.bitLength() > 63) Long.MAX_VALUE else bigGcd.toLong()
     }
 

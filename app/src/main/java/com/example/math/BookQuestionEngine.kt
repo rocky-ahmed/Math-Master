@@ -477,12 +477,21 @@ object BookQuestionEngine {
         }
 
         val numVal = answerStr.toIntOrNull() ?: 10
-        val options = listOf(
-            BengaliNumberFormatter.toBengaliDigits(numVal),
-            BengaliNumberFormatter.toBengaliDigits(numVal + 2),
-            BengaliNumberFormatter.toBengaliDigits((numVal - 3).coerceAtLeast(1)),
-            BengaliNumberFormatter.toBengaliDigits(numVal * 2)
+        val distinctNums = linkedSetOf(numVal)
+        val candidates = listOf(
+            numVal + 2,
+            (numVal - 3).coerceAtLeast(1),
+            numVal * 2,
+            numVal + 1,
+            numVal + 3,
+            numVal + 4,
+            numVal + 5
         )
+        for (c in candidates) {
+            if (distinctNums.size >= 4) break
+            distinctNums.add(c)
+        }
+        val options = distinctNums.map { BengaliNumberFormatter.toBengaliDigits(it) }
 
         return BookPracticeQuestion(
             id = "${bookId.id}_c${ch}_num_1",
@@ -551,12 +560,12 @@ object BookQuestionEngine {
             "সংক্ষিপ্ত উত্তর দাও: ‘${chapter.titleBn}’ অধ্যায়টি পাঠ্যবইয়ের কত পৃষ্ঠা থেকে শুরু হয়েছে?"
         }
         val answer = ex?.finalAnswerBn ?: BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)
-        val options = listOf(
-            answer,
-            "১",
-            "০",
-            "নির্ণয় করা সম্ভব নয়"
-        )
+        val distinctOptions = linkedSetOf(answer)
+        for (fallback in listOf("১", "০", "২", "১০", "নির্ণয় করা সম্ভব নয়")) {
+            if (distinctOptions.size >= 4) break
+            distinctOptions.add(fallback)
+        }
+        val options = distinctOptions.toList()
         return BookPracticeQuestion(
             id = "${bookId.id}_c${chapter.chapterNumber}_sa_1",
             bookId = bookId,

@@ -86,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ExamAttemptEntity
+import com.example.math.BcsGoalCreditState
 import com.example.math.ExamConfig
 import com.example.math.ExamDetailedResult
 import com.example.math.ExamHistoryFilter
@@ -1584,6 +1585,7 @@ private fun QuizCompletedContent(
     val wrongCount = detailed?.wrongCount ?: session.incorrectQuestions.size
     val unansweredCount = detailed?.unansweredCount ?: 0
     val completedListState = rememberManagedLazyListState(viewModel, "quiz_play:completed")
+    val bcsGoalCreditStatus by viewModel.bcsGoalCreditStatus.collectAsStateWithLifecycle()
 
     LazyColumn(
         state = completedListState,
@@ -1592,6 +1594,53 @@ private fun QuizCompletedContent(
         contentPadding = MathSpacing.screenListContentPadding(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (bcsGoalCreditStatus.attemptId.isNotBlank() &&
+            bcsGoalCreditStatus.attemptId == session.attemptId &&
+            bcsGoalCreditStatus.state == BcsGoalCreditState.RETRYABLE_FAILURE
+        ) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("bcs_goal_credit_retry_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = bcsGoalCreditStatus.failureMessageBn
+                                ?: "দৈনিক বিসিএস লক্ষ্য আপডেট সংরক্ষণে সমস্যা হয়েছে। আবার চেষ্টা করুন।",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Button(
+                            onClick = { viewModel.retryBcsGoalCredit() },
+                            modifier = Modifier.testTag("btn_retry_bcs_goal_credit"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "পুনরায় চেষ্টা করুন",
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("আবার চেষ্টা করুন")
+                        }
+                    }
+                }
+            }
+        }
         item {
             ElevatedCard(
                 modifier = Modifier

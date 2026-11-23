@@ -1244,11 +1244,11 @@ internal fun computeLabExplanationLines(
             val g = gcd(a, b).coerceAtLeast(1)
             val simpA = a / g
             val simpB = b / g
-            val pct = String.format("%.2f", (a.toDouble() / b.coerceAtLeast(1)) * 100.0)
+            val pct = String.format(java.util.Locale.US, "%.2f", (a.toDouble() / b.coerceAtLeast(1)) * 100.0)
             val compDiv = if (a != b) "${a + b}/${a - b}" else "অসংজ্ঞায়িত (a = b)"
             listOf(
                 "ভগ্নাংশ $a/$b এর লঘিষ্ঠ রূপ = $simpA/$simpB (অনুপাত = $simpA : $simpB)",
-                "দশমিক ও শতকরা রূপ = ${String.format("%.3f", a.toDouble() / b.coerceAtLeast(1))} = $pct%",
+                "দশমিক ও শতকরা রূপ = ${String.format(java.util.Locale.US, "%.3f", a.toDouble() / b.coerceAtLeast(1))} = $pct%",
                 "যোজন-বিয়োজন রূপ (a + b)/(a - b) = $compDiv এবং সমতুল ভগ্নাংশ = ${simpA * 2}/${simpB * 2}"
             )
         }
@@ -1265,8 +1265,8 @@ internal fun computeLabExplanationLines(
         BookInteractiveLabType.GEOMETRY_INTERACTIVE_LAB -> {
             val hyp = sqrt((a * a + b * b).toDouble())
             listOf(
-                "সমকোণী ত্রিভুজের ভূমি = $a, লম্ব = $b হলে অতিভুজ = √(${a}² + ${b}²) = ${String.format("%.2f", hyp)}",
-                "ত্রিভুজটির ক্ষেত্রফল = ½ × $a × $b = ${String.format("%.1f", 0.5 * a * b)} বর্গ একক এবং পরিসীমা = ${String.format("%.2f", a + b + hyp)} একক",
+                "সমকোণী ত্রিভুজের ভূমি = $a, লম্ব = $b হলে অতিভুজ = √(${a}² + ${b}²) = ${String.format(java.util.Locale.US, "%.2f", hyp)}",
+                "ত্রিভুজটির ক্ষেত্রফল = ½ × $a × $b = ${String.format(java.util.Locale.US, "%.1f", 0.5 * a * b)} বর্গ একক এবং পরিসীমা = ${String.format(java.util.Locale.US, "%.2f", a + b + hyp)} একক",
                 "প্রদত্ত কোণ $angleDeg° এর পূরক কোণ = ${90 - angleDeg}° এবং সম্পূরক কোণ = ${180 - angleDeg}°"
             )
         }
@@ -1296,7 +1296,7 @@ internal fun computeLabExplanationLines(
             val cSq = a * a + b * b
             val cVal = sqrt(cSq.toDouble())
             listOf(
-                "সমকোণী ত্রিভুজের বাহুদ্বয়ের বর্গক্ষেত্র: a² + b² = ${a * a} + ${b * b} = $cSq = c² (অতিভুজ c = ${String.format("%.2f", cVal)})",
+                "সমকোণী ত্রিভুজের বাহুদ্বয়ের বর্গক্ষেত্র: a² + b² = ${a * a} + ${b * b} = $cSq = c² (অতিভুজ c = ${String.format(java.util.Locale.US, "%.2f", cVal)})",
                 "বৃত্তস্থ ও কেন্দ্রস্থ কোণ উপপাদ্য: বৃত্তস্থ ∠BAC = $angleDeg° হলে কেন্দ্রস্থ ∠BOC = 2 × $angleDeg° = ${2 * angleDeg}°",
                 "অর্ধবৃত্তস্থ কোণ সর্বদা ১ সমকোণ (90°) এবং অতিভুজের মধ্যবিন্দু পরিবৃত্তের কেন্দ্র"
             )
@@ -1306,9 +1306,9 @@ internal fun computeLabExplanationLines(
             val height = a * tan(rad)
             val hyp = a / cos(rad).coerceAtLeast(0.001)
             listOf(
-                "θ = $angleDeg° হলে sin θ = ${String.format("%.3f", sin(rad))}, cos θ = ${String.format("%.3f", cos(rad))}, tan θ = ${String.format("%.3f", tan(rad))}",
+                "θ = $angleDeg° হলে sin θ = ${String.format(java.util.Locale.US, "%.3f", sin(rad))}, cos θ = ${String.format(java.util.Locale.US, "%.3f", cos(rad))}, tan θ = ${String.format(java.util.Locale.US, "%.3f", tan(rad))}",
                 "ত্রিকোণমিতিক অভেদ যাচাই: sin²($angleDeg°) + cos²($angleDeg°) = 1.000",
-                "ভূমি দূরত্ব $a মিটার এবং উন্নতি কোণ $angleDeg° হলে উচ্চতা h = ${String.format("%.2f", height)} মিটার ও অতিভুজ = ${String.format("%.2f", hyp)} মিটার"
+                "ভূমি দূরত্ব $a মিটার এবং উন্নতি কোণ $angleDeg° হলে উচ্চতা h = ${String.format(java.util.Locale.US, "%.2f", height)} মিটার ও অতিভুজ = ${String.format(java.util.Locale.US, "%.2f", hyp)} মিটার"
             )
         }
         BookInteractiveLabType.PATTERN_AND_SEQUENCE_LAB -> {
@@ -1323,8 +1323,8 @@ internal fun computeLabExplanationLines(
         }
         BookInteractiveLabType.MENSURATION_CALCULATOR -> listOf(
             "সমবৃত্তভূমিক বেলনের ব্যাসার্ধ r = $a সেমি ও উচ্চতা h = $b সেমি",
-            "বক্রতলের ক্ষেত্রফল 2πrh = ${String.format("%.2f", 2 * 3.1416 * a * b)} বর্গ সেমি এবং সমগ্রতল 2πr(r+h) = ${String.format("%.2f", 2 * 3.1416 * a * (a + b))} বর্গ সেমি",
-            "বেলনের আয়তন πr²h = ${String.format("%.2f", 3.1416 * a * a * b)} ঘন সেমি এবং $a সেমি ধারবিশিষ্ট ঘনকের আয়তন = ${a * a * a} ঘন সেমি"
+            "বক্রতলের ক্ষেত্রফল 2πrh = ${String.format(java.util.Locale.US, "%.2f", 2 * 3.1416 * a * b)} বর্গ সেমি এবং সমগ্রতল 2πr(r+h) = ${String.format(java.util.Locale.US, "%.2f", 2 * 3.1416 * a * (a + b))} বর্গ সেমি",
+            "বেলনের আয়তন πr²h = ${String.format(java.util.Locale.US, "%.2f", 3.1416 * a * a * b)} ঘন সেমি এবং $a সেমি ধারবিশিষ্ট ঘনকের আয়তন = ${a * a * a} ঘন সেমি"
         )
         BookInteractiveLabType.DATA_AND_STATISTICS_LAB -> listOf(
             "বিন্যস্ত উপাত্ত সেট (৫টি পদ): $a, ${a + b}, ${a + 2 * b}, ${a + 3 * b}, ${a + 4 * b}",

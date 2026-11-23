@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BcsMistakeEntity
 import com.example.data.model.BcsStudyPlanGoalEntity
 import com.example.data.model.BcsTopicProgressEntity
@@ -31,6 +32,7 @@ import com.example.data.repository.BcsTopicExamUpdate
 import com.example.data.repository.ExamQuestionMistakeOutcome
 import com.example.data.repository.MathRepository
 import com.example.data.repository.TopicExamStat
+import com.example.math.BcsGoalCreditLedgerTxnResult
 import kotlinx.coroutines.flow.Flow
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -82,6 +84,9 @@ interface MathDao {
 
     @Query("SELECT COUNT(*) FROM user_progress WHERE isLearned = 1 AND itemId LIKE 'table\\_%' ESCAPE '\\'")
     fun getLearnedTablesCount(): Flow<Int>
+
+    @Query("SELECT * FROM user_progress WHERE itemId = :itemId LIMIT 1")
+    suspend fun getProgressByItemId(itemId: String): ProgressEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProgress(progress: ProgressEntity)
@@ -192,6 +197,8 @@ interface MathDao {
     suspend fun deleteExamAttemptSafely(attemptId: String, dateKeyForRefTs: String) {
         val existing = getExamAttemptById(attemptId) ?: return
         deleteExamAttemptById(attemptId)
+        // BCS-GC-02: Remove only a PENDING ledger row inside the same transaction; CREDITED rows are preserved.
+        deletePendingBcsGoalCreditRecordByAttemptId(attemptId)
 
         // Only remove paired completion records and adjust daily counters if the attempt was actually COMPLETED
         if (existing.status != "COMPLETED") return
@@ -393,6 +400,32 @@ interface MathDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertBcsStudyGoal(goal: BcsStudyPlanGoalEntity)
+
+    // BCS Goal Credit Ledger (Room v11 - BCS-GC-02)
+    @Query("SELECT * FROM bcs_goal_credit_records WHERE attemptId = :attemptId LIMIT 1")
+    suspend fun getBcsGoalCreditRecordByAttemptId(attemptId: String): BcsGoalCreditRecordEntity?
+
+    @Query("SELECT * FROM bcs_goal_credit_records WHERE status = 'PENDING' ORDER BY createdAtMs ASC")
+    suspend fun getPendingBcsGoalCreditRecords(): List<BcsGoalCreditRecordEntity>
+
+    @Query("SELECT * FROM bcs_goal_credit_records ORDER BY createdAtMs DESC")
+    fun getAllBcsGoalCreditRecords(): Flow<List<BcsGoalCreditRecordEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertBcsGoalCreditRecordStrict(record: BcsGoalCreditRecordEntity): Long
+
+    @Query(
+        "UPDATE bcs_goal_credit_records " +
+            "SET status = 'CREDITED', creditedAtMs = :creditedAtMs " +
+            "WHERE attemptId = :attemptId AND status = 'PENDING'"
+    )
+    suspend fun transitionBcsGoalCreditPendingToCredited(
+        attemptId: String,
+        creditedAtMs: Long
+    ): Int
+
+    @Query("DELETE FROM bcs_goal_credit_records WHERE attemptId = :attemptId AND status = 'PENDING'")
+    suspend fun deletePendingBcsGoalCreditRecordByAttemptId(attemptId: String): Int
 
     // Unified Mistake Notebook (Room v7)
     @Query("SELECT * FROM unified_mistake_notebook ORDER BY lastFailedAtMillis DESC")
@@ -645,19 +678,29 @@ interface MathDao {
     ) {
         val rawId = questionId.removePrefix("mistake_").removePrefix("mistake_")
         val revItemId = "mistake_$rawId"
+        val unifiedKey = "BOOK_$rawId"
         val existing = getBookMistakeById(questionId)
             ?: getBookMistakeById(revItemId)
             ?: getBookMistakeById(rawId)
-        if (existing != null) {
-            upsertBookMistake(
-                existing.copy(
-                    isResolved = resolved,
-                    lastMistakeAt = nowMs
-                )
-            )
-        }
-        val unifiedKey = "BOOK_$rawId"
+        val existingUnified = getUnifiedMistakeByKey(unifiedKey)
+
         if (resolved) {
+            val bookWasUnresolved = existing != null && !existing.isResolved
+            val unifiedWasUnresolved = existingUnified != null && !existingUnified.resolved
+
+            // Idempotent no-op if already resolved or no mistake record exists
+            if (!bookWasUnresolved && !unifiedWasUnresolved) {
+                return
+            }
+
+            if (bookWasUnresolved && existing != null) {
+                upsertBookMistake(
+                    existing.copy(
+                        isResolved = true
+                    )
+                )
+            }
+
             val existingRev = getBookSpacedRevisionById(revItemId)
             if (existingRev != null) {
                 val nextStage = (existingRev.intervalStage + 1).coerceAtMost(4)
@@ -669,14 +712,22 @@ interface MathDao {
                     )
                 )
             }
-            resolveUnifiedMistakeInsideTransaction(unifiedKey, nowMs)
+
+            if (unifiedWasUnresolved && existingUnified != null) {
+                upsertUnifiedMistake(buildResolvedUnifiedMistake(existingUnified, nowMs))
+            }
         } else {
-            val existingUnified = getUnifiedMistakeByKey(unifiedKey)
-            if (existingUnified != null) {
+            if (existing != null && existing.isResolved) {
+                upsertBookMistake(
+                    existing.copy(
+                        isResolved = false
+                    )
+                )
+            }
+            if (existingUnified != null && existingUnified.resolved) {
                 upsertUnifiedMistake(
                     existingUnified.copy(
-                        resolved = false,
-                        lastFailedAtMillis = nowMs
+                        resolved = false
                     )
                 )
             }
@@ -771,28 +822,335 @@ interface MathDao {
     ) {
         val rawQId = MathRepository.extractCanonicalBcsQuestionId(questionId)
         val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-        val scopedKey = if (examProfileId.isNotBlank() && examProfileId != "BCS_50TH_PRELIM_2025") {
-            "$examProfileId::$rawQId"
+        val isDefaultProfile = safeProfile == "BCS_50TH_PRELIM_2025"
+        val scopedKey = if (!isDefaultProfile) {
+            "$safeProfile::$rawQId"
         } else {
             rawQId
         }
-        val existing = getBcsMistakeById(questionId)
-            ?: getBcsMistakeById(scopedKey)
-            ?: (if (examProfileId.isBlank() || examProfileId == "BCS_50TH_PRELIM_2025") getBcsMistakeById(rawQId) else null)
-        if (existing != null) {
+        val existing = getBcsMistakeById(scopedKey)
+            ?: getBcsMistakeById(questionId)?.takeIf { it.belongsToProfile(safeProfile) }
+            ?: (if (isDefaultProfile) getBcsMistakeById(rawQId) else null)
+        if (existing != null && !existing.isResolved) {
             val nextStage = (existing.intervalStage + 1).coerceAtMost(4)
             upsertBcsMistake(
                 existing.copy(
                     isResolved = true,
                     retrySuccessCount = existing.retrySuccessCount + 1,
                     intervalStage = nextStage,
-                    nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, nowMs),
-                    lastMistakeAt = nowMs
+                    nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, nowMs)
                 )
             )
         }
         resolveUnifiedMistakeInsideTransaction("BCS_${safeProfile}_$rawQId", nowMs)
-        resolveUnifiedMistakeInsideTransaction("BCS_$rawQId", nowMs)
+        if (isDefaultProfile) {
+            resolveUnifiedMistakeInsideTransaction("BCS_$rawQId", nowMs)
+        }
+    }
+
+    @Transaction
+    suspend fun applyBcsStudyGoalDeltaTransaction(
+        goalKey: String,
+        examProfileId: String,
+        dateKey: String,
+        lessonsDelta: Int,
+        questionsDelta: Int,
+        revisionsDelta: Int,
+        studyTimeMinutesDelta: Int,
+        mockExamsDelta: Int,
+        nowMs: Long
+    ): BcsStudyPlanGoalEntity {
+        val existing = getBcsStudyGoalByKey(goalKey)
+        val updated = if (existing == null) {
+            BcsStudyPlanGoalEntity(
+                goalKey = goalKey,
+                examProfileId = examProfileId,
+                dateKey = dateKey,
+                lessonsCompleted = max(0, lessonsDelta),
+                questionsSolved = max(0, questionsDelta),
+                revisionsCompleted = max(0, revisionsDelta),
+                studyTimeMinutes = max(0, studyTimeMinutesDelta),
+                mockExamsCompleted = max(0, mockExamsDelta),
+                updatedAt = nowMs
+            )
+        } else {
+            existing.copy(
+                lessonsCompleted = existing.lessonsCompleted + max(0, lessonsDelta),
+                questionsSolved = existing.questionsSolved + max(0, questionsDelta),
+                revisionsCompleted = existing.revisionsCompleted + max(0, revisionsDelta),
+                studyTimeMinutes = existing.studyTimeMinutes + max(0, studyTimeMinutesDelta),
+                mockExamsCompleted = existing.mockExamsCompleted + max(0, mockExamsDelta),
+                updatedAt = nowMs
+            )
+        }
+        upsertBcsStudyGoal(updated)
+        return updated
+    }
+
+    /**
+     * BCS-GC-02: Atomically transitions a persisted PENDING ledger record to CREDITED and increments
+     * the corresponding bcs_study_goals row strictly from the persisted ledger payload.
+     */
+    @Transaction
+    suspend fun applyBcsCompletionGoalCreditIdempotently(
+        attemptId: String,
+        creditedAtMs: Long
+    ): BcsGoalCreditLedgerTxnResult {
+        val cleanAttemptId = attemptId.trim()
+        if (cleanAttemptId.isEmpty()) {
+            return BcsGoalCreditLedgerTxnResult.NoPendingRecord(attemptId = attemptId)
+        }
+
+        val existing = getBcsGoalCreditRecordByAttemptId(cleanAttemptId)
+            ?: return BcsGoalCreditLedgerTxnResult.NoPendingRecord(attemptId = cleanAttemptId)
+
+        return when (existing.status) {
+            BcsGoalCreditRecordEntity.STATUS_CREDITED -> {
+                BcsGoalCreditLedgerTxnResult.AlreadyCredited(record = existing)
+            }
+            BcsGoalCreditRecordEntity.STATUS_PENDING -> {
+                val safeProfileId = existing.examProfileId.trim()
+                val safeDateKey = existing.targetDateKey.trim()
+                if (safeProfileId.isEmpty()) {
+                    return BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                        attemptId = cleanAttemptId,
+                        status = existing.status,
+                        reason = "Blank examProfileId in PENDING ledger record"
+                    )
+                }
+                if (safeDateKey.isEmpty()) {
+                    return BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                        attemptId = cleanAttemptId,
+                        status = existing.status,
+                        reason = "Blank targetDateKey in PENDING ledger record"
+                    )
+                }
+                if (existing.questionsDelta < 0 ||
+                    existing.studyTimeMinutesDelta < 0 ||
+                    existing.mockExamsDelta < 0 ||
+                    existing.revisionsDelta < 0
+                ) {
+                    return BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                        attemptId = cleanAttemptId,
+                        status = existing.status,
+                        reason = "Negative delta in PENDING ledger record"
+                    )
+                }
+                val hasAnyCredit = existing.questionsDelta > 0 ||
+                    existing.studyTimeMinutesDelta > 0 ||
+                    existing.mockExamsDelta > 0 ||
+                    existing.revisionsDelta > 0
+                if (!hasAnyCredit) {
+                    return BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                        attemptId = cleanAttemptId,
+                        status = existing.status,
+                        reason = "Zero total delta in PENDING ledger record"
+                    )
+                }
+
+                val updatedRows = transitionBcsGoalCreditPendingToCredited(
+                    attemptId = cleanAttemptId,
+                    creditedAtMs = creditedAtMs
+                )
+                if (updatedRows != 1) {
+                    val latest = getBcsGoalCreditRecordByAttemptId(cleanAttemptId)
+                    return when {
+                        latest == null -> BcsGoalCreditLedgerTxnResult.NoPendingRecord(attemptId = cleanAttemptId)
+                        latest.status == BcsGoalCreditRecordEntity.STATUS_CREDITED ->
+                            BcsGoalCreditLedgerTxnResult.AlreadyCredited(record = latest)
+                        else -> BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                            attemptId = cleanAttemptId,
+                            status = latest.status,
+                            reason = "Conditional PENDING -> CREDITED transition affected $updatedRows rows"
+                        )
+                    }
+                }
+
+                val goalKey = "${safeProfileId}_$safeDateKey"
+                val existingGoal = getBcsStudyGoalByKey(goalKey)
+                val updatedGoal = if (existingGoal == null) {
+                    BcsStudyPlanGoalEntity(
+                        goalKey = goalKey,
+                        examProfileId = safeProfileId,
+                        dateKey = safeDateKey,
+                        lessonsCompleted = 0,
+                        questionsSolved = existing.questionsDelta,
+                        revisionsCompleted = existing.revisionsDelta,
+                        studyTimeMinutes = existing.studyTimeMinutesDelta,
+                        mockExamsCompleted = existing.mockExamsDelta,
+                        updatedAt = creditedAtMs
+                    )
+                } else {
+                    existingGoal.copy(
+                        questionsSolved = existingGoal.questionsSolved + existing.questionsDelta,
+                        revisionsCompleted = existingGoal.revisionsCompleted + existing.revisionsDelta,
+                        studyTimeMinutes = existingGoal.studyTimeMinutes + existing.studyTimeMinutesDelta,
+                        mockExamsCompleted = existingGoal.mockExamsCompleted + existing.mockExamsDelta,
+                        updatedAt = creditedAtMs
+                    )
+                }
+                upsertBcsStudyGoal(updatedGoal)
+
+                val creditedRecord = existing.copy(
+                    status = BcsGoalCreditRecordEntity.STATUS_CREDITED,
+                    creditedAtMs = creditedAtMs
+                )
+                BcsGoalCreditLedgerTxnResult.Applied(
+                    record = creditedRecord,
+                    updatedGoal = updatedGoal
+                )
+            }
+            else -> {
+                BcsGoalCreditLedgerTxnResult.InvalidLedgerState(
+                    attemptId = cleanAttemptId,
+                    status = existing.status,
+                    reason = "Unexpected ledger status '${existing.status}'"
+                )
+            }
+        }
+    }
+
+    /**
+     * BCS-GC-02 (Stage 4B1): Transitions an existing PENDING ledger record to CREDITED without
+     * mutating bcs_study_goals. Intended strictly for reconciling a caller-verified legacy
+     * SharedPreferences credit receipt for the same attemptId.
+     */
+    @Transaction
+    suspend fun markPendingBcsGoalCreditCreditedWithoutGoalMutation(
+        attemptId: String,
+        creditedAtMs: Long
+    ): Boolean {
+        val cleanAttemptId = attemptId.trim()
+        if (cleanAttemptId.isEmpty()) {
+            return false
+        }
+
+        val existing = getBcsGoalCreditRecordByAttemptId(cleanAttemptId) ?: return false
+        if (existing.attemptId != cleanAttemptId) {
+            return false
+        }
+
+        return when (existing.status) {
+            BcsGoalCreditRecordEntity.STATUS_CREDITED -> true
+            BcsGoalCreditRecordEntity.STATUS_PENDING -> {
+                val updatedRows = transitionBcsGoalCreditPendingToCredited(
+                    attemptId = cleanAttemptId,
+                    creditedAtMs = creditedAtMs
+                )
+                if (updatedRows == 1) {
+                    true
+                } else {
+                    val latest = getBcsGoalCreditRecordByAttemptId(cleanAttemptId)
+                    latest != null && latest.status == BcsGoalCreditRecordEntity.STATUS_CREDITED
+                }
+            }
+            else -> false
+        }
+    }
+
+    @Transaction
+    suspend fun resolveUnifiedMistakeTransaction(
+        mistakeKey: String,
+        nowMs: Long
+    ) {
+        if (mistakeKey.startsWith("BOOK_")) {
+            val rawId = mistakeKey.removePrefix("BOOK_")
+            markBookMistakeResolvedTransaction(
+                questionId = "mistake_$rawId",
+                resolved = true,
+                nowMs = nowMs
+            )
+            return
+        }
+        if (mistakeKey.startsWith("BCS_")) {
+            val remainder = mistakeKey.removePrefix("BCS_")
+            val matchedProfile = com.example.math.BcsExamProfile.entries
+                .sortedByDescending { it.id.length }
+                .firstOrNull { remainder.startsWith("${it.id}_") }
+            if (matchedProfile != null) {
+                val rawQId = remainder.removePrefix("${matchedProfile.id}_")
+                if (rawQId.isNotBlank()) {
+                    markBcsMistakeResolvedTransaction(
+                        questionId = rawQId,
+                        nowMs = nowMs,
+                        examProfileId = matchedProfile.id
+                    )
+                    return
+                }
+            } else if (remainder.isNotBlank()) {
+                markBcsMistakeResolvedTransaction(
+                    questionId = remainder,
+                    nowMs = nowMs,
+                    examProfileId = "BCS_50TH_PRELIM_2025"
+                )
+                return
+            }
+        }
+        resolveUnifiedMistakeInsideTransaction(mistakeKey, nowMs)
+    }
+
+    @Transaction
+    suspend fun unresolveUnifiedMistakeTransaction(
+        mistakeKey: String,
+        nowMs: Long
+    ) {
+        if (mistakeKey.startsWith("BOOK_")) {
+            val rawId = mistakeKey.removePrefix("BOOK_")
+            markBookMistakeResolvedTransaction(
+                questionId = "mistake_$rawId",
+                resolved = false,
+                nowMs = nowMs
+            )
+            return
+        }
+        if (mistakeKey.startsWith("BCS_")) {
+            val remainder = mistakeKey.removePrefix("BCS_")
+            val matchedProfile = com.example.math.BcsExamProfile.entries
+                .sortedByDescending { it.id.length }
+                .firstOrNull { remainder.startsWith("${it.id}_") }
+            val safeProfile = matchedProfile?.id ?: "BCS_50TH_PRELIM_2025"
+            val rawQId = if (matchedProfile != null) {
+                remainder.removePrefix("${matchedProfile.id}_")
+            } else {
+                remainder
+            }
+            if (rawQId.isNotBlank()) {
+                val canonicalQId = MathRepository.extractCanonicalBcsQuestionId(rawQId)
+                val isDefaultProfile = safeProfile == "BCS_50TH_PRELIM_2025"
+                val scopedKey = if (!isDefaultProfile) "$safeProfile::$canonicalQId" else canonicalQId
+                val existingBcs = getBcsMistakeById(scopedKey)
+                    ?: getBcsMistakeById(rawQId)?.takeIf { it.belongsToProfile(safeProfile) }
+                    ?: (if (isDefaultProfile) getBcsMistakeById(canonicalQId) else null)
+                if (existingBcs != null && existingBcs.isResolved) {
+                    upsertBcsMistake(
+                        existingBcs.copy(
+                            isResolved = false,
+                            nextReviewEpochMs = nowMs
+                        )
+                    )
+                }
+                val keysToUnresolve = buildList {
+                    add(mistakeKey)
+                    add("BCS_${safeProfile}_$canonicalQId")
+                    if (isDefaultProfile) add("BCS_$canonicalQId")
+                }.distinct()
+                for (key in keysToUnresolve) {
+                    val unifiedRow = getUnifiedMistakeByKey(key)
+                    if (unifiedRow != null && unifiedRow.resolved) {
+                        upsertUnifiedMistake(unifiedRow.copy(resolved = false))
+                    }
+                }
+                return
+            }
+        }
+        val existing = getUnifiedMistakeByKey(mistakeKey) ?: return
+        if (existing.resolved) {
+            upsertUnifiedMistake(
+                existing.copy(
+                    resolved = false
+                )
+            )
+        }
     }
 
     @Transaction
@@ -815,7 +1173,8 @@ interface MathDao {
         completedAttempt: ExamAttemptEntity,
         perTopicStats: List<TopicExamStat>,
         bcsTopicUpdates: List<BcsTopicExamUpdate>,
-        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>
+        questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>,
+        pendingBcsGoalCredit: BcsGoalCreditRecordEntity? = null
     ) {
         val now = completedAttempt.completedAt ?: System.currentTimeMillis()
         val finalAttempt = if (completedAttempt.completedAt != null) {
@@ -823,7 +1182,47 @@ interface MathDao {
         } else {
             completedAttempt.copy(completedAt = now)
         }
+        if (pendingBcsGoalCredit != null) {
+            require(finalAttempt.attemptId.isNotBlank() && pendingBcsGoalCredit.attemptId == finalAttempt.attemptId) {
+                "Pending BCS goal credit attemptId '${pendingBcsGoalCredit.attemptId}' does not match finalized attempt '${finalAttempt.attemptId}'"
+            }
+            require(pendingBcsGoalCredit.examProfileId.isNotBlank()) {
+                "Pending BCS goal credit examProfileId must not be blank"
+            }
+            if (finalAttempt.examProfileId.isNotBlank()) {
+                require(pendingBcsGoalCredit.examProfileId == finalAttempt.examProfileId) {
+                    "Pending BCS goal credit examProfileId '${pendingBcsGoalCredit.examProfileId}' does not match finalized attempt profile '${finalAttempt.examProfileId}'"
+                }
+            }
+            require(pendingBcsGoalCredit.targetDateKey.isNotBlank()) {
+                "Pending BCS goal credit targetDateKey must not be blank"
+            }
+            require(pendingBcsGoalCredit.status == BcsGoalCreditRecordEntity.STATUS_PENDING) {
+                "Pending BCS goal credit record must have status PENDING, got '${pendingBcsGoalCredit.status}'"
+            }
+            require(pendingBcsGoalCredit.creditedAtMs == null) {
+                "Pending BCS goal credit record must not specify creditedAtMs"
+            }
+            require(
+                pendingBcsGoalCredit.questionsDelta >= 0 &&
+                    pendingBcsGoalCredit.studyTimeMinutesDelta >= 0 &&
+                    pendingBcsGoalCredit.mockExamsDelta >= 0 &&
+                    pendingBcsGoalCredit.revisionsDelta >= 0
+            ) {
+                "Pending BCS goal credit deltas must be non-negative"
+            }
+            val hasAnyCredit = pendingBcsGoalCredit.questionsDelta > 0 ||
+                pendingBcsGoalCredit.studyTimeMinutesDelta > 0 ||
+                pendingBcsGoalCredit.mockExamsDelta > 0 ||
+                pendingBcsGoalCredit.revisionsDelta > 0
+            require(hasAnyCredit) {
+                "Pending BCS goal credit record must contain positive credit"
+            }
+        }
         upsertExamAttempt(finalAttempt)
+        if (pendingBcsGoalCredit != null) {
+            insertBcsGoalCreditRecordStrict(pendingBcsGoalCredit)
+        }
 
         val roundedPct = finalAttempt.percentage.roundToInt().coerceIn(0, 100)
         insertQuizScore(
@@ -1002,20 +1401,25 @@ interface MathDao {
             val unifiedKeysToQuery = LinkedHashSet<String>(questionMistakeOutcomes.size * 2)
             val bcsKeysToQuery = LinkedHashSet<String>(questionMistakeOutcomes.size * 2)
             questionMistakeOutcomes.forEach { o ->
-                unifiedKeysToQuery.add(o.unifiedMistakeKey)
-                if (o.isBcsSession && o.bcsQuestionId.isNotBlank()) {
-                    val rawQId = MathRepository.extractCanonicalBcsQuestionId(o.bcsQuestionId)
+                if (o.isBcsSession) {
+                    val qId = o.bcsQuestionId.ifBlank { "bcs_q_${kotlin.math.abs(o.questionPromptBn.hashCode())}" }
+                    val rawQId = MathRepository.extractCanonicalBcsQuestionId(qId)
                     val safeProfile = o.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-                    val resolvedBcsKey = if (safeProfile == "BCS_50TH_PRELIM_2025") rawQId else "$safeProfile::$rawQId"
+                    val isDefaultProfile = safeProfile == "BCS_50TH_PRELIM_2025"
+                    val resolvedBcsKey = if (isDefaultProfile) rawQId else "$safeProfile::$rawQId"
                     bcsKeysToQuery.add(resolvedBcsKey)
+                    unifiedKeysToQuery.add("BCS_${safeProfile}_$rawQId")
                     if (o.isCorrect) {
-                        bcsKeysToQuery.add(o.bcsQuestionId)
-                        bcsKeysToQuery.add(rawQId)
-                        unifiedKeysToQuery.add("BCS_${safeProfile}_$rawQId")
-                        unifiedKeysToQuery.add("BCS_$rawQId")
-                    } else if (o.shouldRecordMistake) {
-                        unifiedKeysToQuery.add("BCS_${safeProfile}_$rawQId")
+                        if (o.bcsQuestionId.isNotBlank()) {
+                            bcsKeysToQuery.add(o.bcsQuestionId)
+                        }
+                        if (isDefaultProfile) {
+                            bcsKeysToQuery.add(rawQId)
+                            unifiedKeysToQuery.add("BCS_$rawQId")
+                        }
                     }
+                } else {
+                    unifiedKeysToQuery.add(o.unifiedMistakeKey)
                 }
             }
 
@@ -1035,19 +1439,6 @@ interface MathDao {
 
             questionMistakeOutcomes.forEach { o ->
                 if (!o.isCorrect && o.shouldRecordMistake) {
-                    val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
-                    unifiedToUpsert[o.unifiedMistakeKey] = buildRecordedUnifiedMistake(
-                        existing = prevUnified,
-                        mistakeKey = o.unifiedMistakeKey,
-                        sourceModule = o.sourceModule,
-                        subjectId = o.subjectId,
-                        curriculumTrack = o.curriculumTrack,
-                        questionPromptBn = o.questionPromptBn,
-                        userAnswerBn = o.userAnswerBn,
-                        correctAnswerBn = o.correctAnswerBn,
-                        diagnosticExplanationBn = o.diagnosticExplanationBn,
-                        nowMs = now
-                    )
                     if (o.isBcsSession) {
                         val qId = o.bcsQuestionId.ifBlank { "bcs_q_${kotlin.math.abs(o.questionPromptBn.hashCode())}" }
                         val rawQId = MathRepository.extractCanonicalBcsQuestionId(qId)
@@ -1100,44 +1491,62 @@ interface MathDao {
                             diagnosticExplanationBn = o.diagnosticExplanationBn,
                             nowMs = now
                         )
+                    } else {
+                        val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
+                        unifiedToUpsert[o.unifiedMistakeKey] = buildRecordedUnifiedMistake(
+                            existing = prevUnified,
+                            mistakeKey = o.unifiedMistakeKey,
+                            sourceModule = o.sourceModule,
+                            subjectId = o.subjectId,
+                            curriculumTrack = o.curriculumTrack,
+                            questionPromptBn = o.questionPromptBn,
+                            userAnswerBn = o.userAnswerBn,
+                            correctAnswerBn = o.correctAnswerBn,
+                            diagnosticExplanationBn = o.diagnosticExplanationBn,
+                            nowMs = now
+                        )
                     }
                 } else if (o.isCorrect) {
-                    val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
-                    if (prevUnified != null) {
-                        unifiedToUpsert[o.unifiedMistakeKey] = buildResolvedUnifiedMistake(prevUnified, now)
-                    }
-                    if (o.isBcsSession && o.bcsQuestionId.isNotBlank()) {
-                        val rawQId = MathRepository.extractCanonicalBcsQuestionId(o.bcsQuestionId)
+                    if (o.isBcsSession) {
+                        val qId = o.bcsQuestionId.ifBlank { "bcs_q_${kotlin.math.abs(o.questionPromptBn.hashCode())}" }
+                        val rawQId = MathRepository.extractCanonicalBcsQuestionId(qId)
                         val safeProfile = o.examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-                        val scopedKey = if (o.examProfileId.isNotBlank() && o.examProfileId != "BCS_50TH_PRELIM_2025") {
-                            "${o.examProfileId}::$rawQId"
+                        val isDefaultProfile = safeProfile == "BCS_50TH_PRELIM_2025"
+                        val scopedKey = if (!isDefaultProfile) {
+                            "$safeProfile::$rawQId"
                         } else {
                             rawQId
                         }
-                        val prevBcs = bcsToUpsert[o.bcsQuestionId] ?: existingBcs[o.bcsQuestionId]
-                            ?: bcsToUpsert[scopedKey] ?: existingBcs[scopedKey]
-                            ?: if (o.examProfileId.isBlank() || o.examProfileId == "BCS_50TH_PRELIM_2025") {
+                        val prevBcs = bcsToUpsert[scopedKey] ?: existingBcs[scopedKey]
+                            ?: (bcsToUpsert[o.bcsQuestionId] ?: existingBcs[o.bcsQuestionId])?.takeIf { it.belongsToProfile(safeProfile) }
+                            ?: if (isDefaultProfile) {
                                 bcsToUpsert[rawQId] ?: existingBcs[rawQId]
                             } else {
                                 null
                             }
-                        if (prevBcs != null) {
+                        if (prevBcs != null && !prevBcs.isResolved) {
                             val nextStage = (prevBcs.intervalStage + 1).coerceAtMost(4)
                             bcsToUpsert[prevBcs.questionId] = prevBcs.copy(
                                 isResolved = true,
                                 retrySuccessCount = prevBcs.retrySuccessCount + 1,
                                 intervalStage = nextStage,
-                                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, now),
-                                lastMistakeAt = now
+                                nextReviewEpochMs = MathRepository.nextSpacedReviewEpochMs(nextStage, now)
                             )
                         }
                         val u1 = "BCS_${safeProfile}_$rawQId"
-                        val u2 = "BCS_$rawQId"
-                        (unifiedToUpsert[u1] ?: existingUnified[u1])?.let {
+                        (unifiedToUpsert[u1] ?: existingUnified[u1])?.takeIf { !it.resolved }?.let {
                             unifiedToUpsert[u1] = buildResolvedUnifiedMistake(it, now)
                         }
-                        (unifiedToUpsert[u2] ?: existingUnified[u2])?.let {
-                            unifiedToUpsert[u2] = buildResolvedUnifiedMistake(it, now)
+                        if (isDefaultProfile) {
+                            val u2 = "BCS_$rawQId"
+                            (unifiedToUpsert[u2] ?: existingUnified[u2])?.takeIf { !it.resolved }?.let {
+                                unifiedToUpsert[u2] = buildResolvedUnifiedMistake(it, now)
+                            }
+                        }
+                    } else {
+                        val prevUnified = unifiedToUpsert[o.unifiedMistakeKey] ?: existingUnified[o.unifiedMistakeKey]
+                        if (prevUnified != null && !prevUnified.resolved) {
+                            unifiedToUpsert[o.unifiedMistakeKey] = buildResolvedUnifiedMistake(prevUnified, now)
                         }
                     }
                 }
@@ -1221,6 +1630,7 @@ interface MathDao {
 
     private suspend fun resolveUnifiedMistakeInsideTransaction(mistakeKey: String, nowMs: Long) {
         val existing = getUnifiedMistakeByKey(mistakeKey) ?: return
+        if (existing.resolved) return
         upsertUnifiedMistake(buildResolvedUnifiedMistake(existing, nowMs))
     }
 
@@ -1268,6 +1678,9 @@ interface MathDao {
     }
 
     private fun buildResolvedUnifiedMistake(existing: UnifiedMistakeEntity, nowMs: Long): UnifiedMistakeEntity {
+        if (existing.resolved) {
+            return existing
+        }
         val nextIntervalDays = when (existing.reviewIntervalDays) {
             1 -> 3
             3 -> 7
@@ -1283,7 +1696,7 @@ interface MathDao {
             resolved = true,
             reviewIntervalDays = nextIntervalDays,
             nextReviewAtMillis = MathRepository.nextSpacedReviewEpochMs(nextStageIndex, nowMs),
-            lastFailedAtMillis = nowMs
+            lastFailedAtMillis = existing.lastFailedAtMillis
         )
     }
 }

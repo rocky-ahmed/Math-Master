@@ -490,7 +490,7 @@ object MathProblemSolverEngine {
 
                 val diff = newVal - oldVal
                 val isIncrease = diff >= 0
-                val pctChange = (abs(diff) / oldVal) * 100.0
+                val pctChange = (abs(diff) / abs(oldVal)) * 100.0
                 if (!diff.isFinite() || !pctChange.isFinite()) {
                     return errorResult(
                         SolverTopic.PERCENTAGE,
@@ -509,12 +509,13 @@ object MathProblemSolverEngine {
                     )
                 )
 
+                val denomDisplayBn = if (oldVal < 0) "|${formatNum(oldVal)}|" else formatNum(oldVal)
                 steps.add(
                     SolutionStep(
                         stepIndex = stepCount++,
                         titleBn = "প্রারম্ভিক মানের সাপেক্ষে শতকরা হার",
-                        expressionOrMathBn = "(${formatNum(abs(diff))} / ${formatNum(oldVal)}) × ১০০% = ${formatNum(pctChange)}%",
-                        explanationBn = "পরিবর্তনের পরিমাণকে আদি মান দিয়ে ভাগ করে ১০০ দ্বারা গুণ করা হলো।"
+                        expressionOrMathBn = "(${formatNum(abs(diff))} / $denomDisplayBn) × ১০০% = ${formatNum(pctChange)}%",
+                        explanationBn = "পরিবর্তনের পরিমাণকে আদি মানের পরম মান দিয়ে ভাগ করে ১০০ দ্বারা গুণ করা হলো।"
                     )
                 )
 
@@ -2031,8 +2032,7 @@ object MathProblemSolverEngine {
     }
 
     private fun getDivisibilityExplanation(num: Long, div: Int): Pair<String, String> {
-        val absNum = if (num == Long.MIN_VALUE) Long.MAX_VALUE else kotlin.math.abs(num)
-        val s = absNum.toString()
+        val s = java.math.BigInteger.valueOf(num).abs().toString()
         val digits = s.map { it.digitToInt() }
 
         return when (div) {
@@ -2305,6 +2305,11 @@ object MathProblemSolverEngine {
                     )
                 )
 
+                val squareVerification = if (number < 0) {
+                    "যাচাই: (${formatNum(number)}) × (${formatNum(number)}) = ${formatNum(sq)} এবং √${formatNum(sq)} = |${formatNum(number)}| = ${formatNum(abs(number))}"
+                } else {
+                    "যাচাই: √${formatNum(sq)} = ${formatNum(number)}"
+                }
                 return SolverPedagogyEnricher.enrich(
                     SolverResult(
                         topic = SolverTopic.SQUARES_CUBES_ROOTS,
@@ -2313,7 +2318,7 @@ object MathProblemSolverEngine {
                         formulaUsedBn = "N² = N × N",
                         steps = steps,
                         finalAnswerBn = formatNum(sq),
-                        verificationBn = "যাচাই: √${formatNum(sq)} = ${formatNum(number)}"
+                        verificationBn = squareVerification
                     )
                 )
             }
@@ -2412,15 +2417,27 @@ object MathProblemSolverEngine {
             }
             SquareCubeOp.CUBE_ROOT -> {
                 val cbrtVal = cbrt(number)
+                val roundedRoot = round(cbrtVal)
+                val isPerfectCube = number == floor(number) &&
+                    abs(roundedRoot * roundedRoot * roundedRoot - number) < 1e-9
                 steps.add(
                     SolutionStep(
                         stepIndex = stepCount++,
                         titleBn = "ঘনমূল নির্ণয়",
-                        expressionOrMathBn = "³√${formatNum(number)} = ${formatNum(cbrtVal)}",
-                        explanationBn = "এমন একটি সংখ্যা নির্ণয় যা তিনবার গুণ করলে মূল সংখ্যাটি পাওয়া যায়।"
+                        expressionOrMathBn = if (isPerfectCube) {
+                            "³√${formatNum(number)} = ${formatNum(roundedRoot)}"
+                        } else {
+                            "³√${formatNum(number)} ≈ ${formatNum(cbrtVal)}"
+                        },
+                        explanationBn = if (isPerfectCube) {
+                            "এমন একটি সংখ্যা নির্ণয় যা তিনবার গুণ করলে মূল সংখ্যাটি পাওয়া যায়।"
+                        } else {
+                            "সংখ্যাটি পূর্ণঘন নয়; তাই এর ঘনমূল একটি অমূলদ সংখ্যা (আসন্ন মান নেওয়া হলো)।"
+                        }
                     )
                 )
 
+                val displayRoot = if (isPerfectCube) formatNum(roundedRoot) else formatNum(cbrtVal)
                 return SolverPedagogyEnricher.enrich(
                     SolverResult(
                         topic = SolverTopic.SQUARES_CUBES_ROOTS,
@@ -2428,8 +2445,13 @@ object MathProblemSolverEngine {
                         originalProblemBn = "³√${formatNum(number)} (ঘনমূল নির্ণয়)",
                         formulaUsedBn = "³√N = R যেখানে R³ = N",
                         steps = steps,
-                        finalAnswerBn = formatNum(cbrtVal),
-                        verificationBn = "যাচাই: (${formatNum(cbrtVal)})³ = ${formatNum(number)}"
+                        finalAnswerBn = displayRoot,
+                        verificationBn = if (isPerfectCube) {
+                            "যাচাই: ($displayRoot)³ = ${formatNum(number)}"
+                        } else {
+                            "যাচাই: ($displayRoot)³ ≈ ${formatNum(number)}"
+                        },
+                        isExactResult = isPerfectCube
                     )
                 )
             }
@@ -3058,7 +3080,11 @@ object MathProblemSolverEngine {
                 )
             }
 
-            var replaced = current.substring(0, startIdx) + dfLocal.get()!!.format(insideVal) + afterBracket
+            if (!insideVal.isFinite()) {
+                throw ArithmeticException("গণনার ফলাফল সমর্থিত সীমার বাইরে।")
+            }
+            val preciseInside = java.math.BigDecimal.valueOf(insideVal).toPlainString()
+            var replaced = current.substring(0, startIdx) + preciseInside + afterBracket
             while (replaced.contains("--") || replaced.contains("+-") || replaced.contains("-+") || replaced.contains("++")) {
                 replaced = replaced.replace("--", "+").replace("+-", "-").replace("-+", "-").replace("++", "+")
             }
@@ -3104,15 +3130,19 @@ object MathProblemSolverEngine {
             (v / 100.0).toString()
         }
 
-        // Tokenize into numbers and operators (+, -, *, /, ^)
+        // Tokenize into numbers and operators (+, -, *, /, ^), preserving scientific notation exponents (e.g., 1.0E-4)
         val tokens = mutableListOf<String>()
         var buffer = StringBuilder()
         var i = 0
         while (i < clean.length) {
             val c = clean[i]
             if (c in "+-*/^") {
-                if ((c == '-' || c == '+') && (i == 0 || clean[i - 1] in "+-*/^")) {
-                    // Unary operator (+ or -)
+                val isSciExpSign = (c == '-' || c == '+') &&
+                    i > 0 &&
+                    (clean[i - 1] == 'E' || clean[i - 1] == 'e') &&
+                    buffer.isNotEmpty()
+                if (isSciExpSign || ((c == '-' || c == '+') && (i == 0 || clean[i - 1] in "+-*/^"))) {
+                    // Scientific notation exponent sign or unary operator (+ or -)
                     buffer.append(c)
                 } else {
                     if (buffer.isNotEmpty()) {
@@ -3130,10 +3160,10 @@ object MathProblemSolverEngine {
 
         if (tokens.isEmpty()) return 0.0
 
-        // Handle Exponents (^)
+        // Handle Exponents (^) — right-associative (2^3^2 = 2^(3^2) = 512)
         var curTokens = tokens.toMutableList()
-        var idx = 0
-        while (idx < curTokens.size) {
+        var idx = curTokens.lastIndex
+        while (idx >= 0) {
             if (curTokens[idx] == "^") {
                 if (idx - 1 < 0 || idx + 1 >= curTokens.size) {
                     throw IllegalArgumentException("Malformed expression around ^")
@@ -3143,9 +3173,9 @@ object MathProblemSolverEngine {
                 val res = left.pow(right)
                 curTokens.subList(idx - 1, idx + 2).clear()
                 curTokens.add(idx - 1, res.toString())
-                idx = 0
+                idx = curTokens.lastIndex
             } else {
-                idx++
+                idx--
             }
         }
 
