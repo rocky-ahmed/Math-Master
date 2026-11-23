@@ -594,7 +594,7 @@ class StudyTimerCrashSafePersistenceUnitTest {
         }
         helper.close()
 
-        // 3. Reopen with Room v10 -> MIGRATION_9_10 runs cleanly, preserves existing data, supports receipts
+        // 3. Reopen with current Room v11 -> MIGRATION_9_10 + MIGRATION_10_11 run cleanly, preserve existing data, and support receipts
         val room1 = Room.databaseBuilder(app, MathDatabase::class.java, dbName)
             .addMigrations(
                 MathDatabase.MIGRATION_1_2,
@@ -605,13 +605,14 @@ class StudyTimerCrashSafePersistenceUnitTest {
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
                 MathDatabase.MIGRATION_8_9,
-                MathDatabase.MIGRATION_9_10
+                MathDatabase.MIGRATION_9_10,
+                MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
 
         val sqlite1 = room1.openHelper.writableDatabase
-        assertEquals(10, sqlite1.version)
+        assertEquals(11, sqlite1.version)
         sqlite1.query("PRAGMA integrity_check").use { c ->
             assertTrue(c.moveToFirst())
             assertEquals("ok", c.getString(0).lowercase())
@@ -643,7 +644,8 @@ class StudyTimerCrashSafePersistenceUnitTest {
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
                 MathDatabase.MIGRATION_8_9,
-                MathDatabase.MIGRATION_9_10
+                MathDatabase.MIGRATION_9_10,
+                MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()

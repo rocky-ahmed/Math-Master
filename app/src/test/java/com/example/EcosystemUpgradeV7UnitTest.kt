@@ -159,7 +159,7 @@ class EcosystemUpgradeV7UnitTest {
         v6Db.close()
         v6Helper.close()
 
-        // Step 2: Open with Room v9 using ONLY non-destructive migrations (MIGRATION_1_2..MIGRATION_8_9)
+        // Step 2: Open with current Room v11 using ONLY non-destructive migrations (MIGRATION_1_2..MIGRATION_10_11)
         val roomV7 = Room.databaseBuilder(context, MathDatabase::class.java, dbName)
             .addMigrations(
                 MathDatabase.MIGRATION_1_2,
@@ -170,7 +170,8 @@ class EcosystemUpgradeV7UnitTest {
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
                 MathDatabase.MIGRATION_8_9,
-                MathDatabase.MIGRATION_9_10
+                MathDatabase.MIGRATION_9_10,
+                MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
@@ -216,8 +217,18 @@ class EcosystemUpgradeV7UnitTest {
         assertEquals(15, studyGoals[0].questionsSolved)
         assertEquals(25, studyGoals[0].studyTimeMinutes)
 
-        // Verify Room v9 secondary indexes exist in SQLite pragma index_list
+        // Verify Room v11 schema version, v10/v11 tables, and Room v9 secondary indexes exist in SQLite
         val rawDb = roomV7.openHelper.readableDatabase
+        assertEquals(11, rawDb.version)
+        val migratedTables = mutableSetOf<String>()
+        rawDb.query("SELECT name FROM sqlite_master WHERE type='table'").use { cursor ->
+            while (cursor.moveToNext()) {
+                migratedTables.add(cursor.getString(0))
+            }
+        }
+        assertTrue("study_timer_flush_receipts must exist after v6->v11 migration", migratedTables.contains("study_timer_flush_receipts"))
+        assertTrue("bcs_goal_credit_records must exist after v6->v11 migration", migratedTables.contains("bcs_goal_credit_records"))
+
         val bmIndexes = mutableSetOf<String>()
         rawDb.query("PRAGMA index_list(`bookmarks`)").use { cursor ->
             val nameIdx = cursor.getColumnIndex("name")
@@ -778,7 +789,7 @@ class EcosystemUpgradeV7UnitTest {
             helper.close()
         }
 
-        // Open with Room v10 (running MIGRATION_9_10 automatically) and verify all seeded rows survived intact
+        // Open with current Room v11 (running MIGRATION_9_10 + MIGRATION_10_11 automatically) and verify all seeded rows survived intact
         val roomDb = Room.databaseBuilder(context, MathDatabase::class.java, dbName)
             .addMigrations(
                 MathDatabase.MIGRATION_1_2,
@@ -789,13 +800,27 @@ class EcosystemUpgradeV7UnitTest {
                 MathDatabase.MIGRATION_6_7,
                 MathDatabase.MIGRATION_7_8,
                 MathDatabase.MIGRATION_8_9,
-                MathDatabase.MIGRATION_9_10
+                MathDatabase.MIGRATION_9_10,
+                MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
 
         val dao = roomDb.mathDao()
-        assertEquals(10, roomDb.openHelper.writableDatabase.version)
+        val migratedSqlite = roomDb.openHelper.writableDatabase
+        assertEquals(11, migratedSqlite.version)
+        migratedSqlite.query("PRAGMA integrity_check").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("ok", c.getString(0).lowercase())
+        }
+        val v11Tables = mutableSetOf<String>()
+        migratedSqlite.query("SELECT name FROM sqlite_master WHERE type='table'").use { c ->
+            while (c.moveToNext()) {
+                v11Tables.add(c.getString(0))
+            }
+        }
+        assertTrue("study_timer_flush_receipts must exist in v11 schema", v11Tables.contains("study_timer_flush_receipts"))
+        assertTrue("bcs_goal_credit_records must exist in v11 schema", v11Tables.contains("bcs_goal_credit_records"))
         assertEquals(1, dao.getAllBookmarks().first().size)
         assertEquals("সূত্র ১", dao.getAllBookmarks().first()[0].titleBn)
         assertEquals(1, dao.getAllQuizScores().first().size)
@@ -1233,10 +1258,13 @@ class EcosystemUpgradeV7UnitTest {
                 "unified_mistake_notebook",
                 "formula_mastery_state"
             )
+            assertEquals(11, sqlDb.version)
             assertEquals(20, expected20ApplicationTables.size)
             expected20ApplicationTables.forEach { tableName ->
-                assertTrue("Room v9 schema must contain table '$tableName'", tables.contains(tableName))
+                assertTrue("Room v11 schema must contain table '$tableName'", tables.contains(tableName))
             }
+            assertTrue("Room v11 schema must contain table 'study_timer_flush_receipts'", tables.contains("study_timer_flush_receipts"))
+            assertTrue("Room v11 schema must contain table 'bcs_goal_credit_records'", tables.contains("bcs_goal_credit_records"))
         } finally {
             db.close()
         }

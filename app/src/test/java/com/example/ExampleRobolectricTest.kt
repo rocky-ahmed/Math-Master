@@ -1102,7 +1102,8 @@ class ExampleRobolectricTest {
                 com.example.data.db.MathDatabase.MIGRATION_6_7,
                 com.example.data.db.MathDatabase.MIGRATION_7_8,
                 com.example.data.db.MathDatabase.MIGRATION_8_9,
-                com.example.data.db.MathDatabase.MIGRATION_9_10
+                com.example.data.db.MathDatabase.MIGRATION_9_10,
+                com.example.data.db.MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
@@ -1459,7 +1460,8 @@ class ExampleRobolectricTest {
                 com.example.data.db.MathDatabase.MIGRATION_6_7,
                 com.example.data.db.MathDatabase.MIGRATION_7_8,
                 com.example.data.db.MathDatabase.MIGRATION_8_9,
-                com.example.data.db.MathDatabase.MIGRATION_9_10
+                com.example.data.db.MathDatabase.MIGRATION_9_10,
+                com.example.data.db.MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
@@ -2192,7 +2194,8 @@ class ExampleRobolectricTest {
                 com.example.data.db.MathDatabase.MIGRATION_6_7,
                 com.example.data.db.MathDatabase.MIGRATION_7_8,
                 com.example.data.db.MathDatabase.MIGRATION_8_9,
-                com.example.data.db.MathDatabase.MIGRATION_9_10
+                com.example.data.db.MathDatabase.MIGRATION_9_10,
+                com.example.data.db.MathDatabase.MIGRATION_10_11
             )
             .allowMainThreadQueries()
             .build()
@@ -2781,9 +2784,9 @@ class ExampleRobolectricTest {
         val db = com.example.data.db.MathDatabase.getInstance(app)
         val dao = db.mathDao()
 
-        // Verify Room v10 live database version preserves all 20 existing @Entity tables + study_timer_flush_receipts (BUG-86)
+        // Verify Room v11 live database version preserves all 21 existing @Entity tables + bcs_goal_credit_records (BCS-GC-02)
         val sqliteDb = db.openHelper.writableDatabase
-        assertEquals("Room database version must be 10", 10, sqliteDb.version)
+        assertEquals("Room database version must be 11", 11, sqliteDb.version)
         val expectedEntityTables = setOf(
             "bookmarks", "quiz_scores", "user_progress", "practice_history",
             "topic_analytics", "recent_formulas", "exam_attempts", "solver_history",
@@ -2791,7 +2794,7 @@ class ExampleRobolectricTest {
             "book_notes", "book_mistakes", "book_spaced_revision", "bcs_user_profile",
             "bcs_topic_progress", "bcs_mistake_notebook", "bcs_study_goals",
             "unified_mistake_notebook", "formula_mastery_state",
-            "study_timer_flush_receipts"
+            "study_timer_flush_receipts", "bcs_goal_credit_records"
         )
         val actualTables = mutableSetOf<String>()
         sqliteDb.query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%' AND name NOT LIKE 'room_%'").use { cursor ->
@@ -2799,7 +2802,7 @@ class ExampleRobolectricTest {
                 actualTables.add(cursor.getString(0))
             }
         }
-        assertEquals("MathDatabase v10 must contain all 20 existing @Entity tables plus study_timer_flush_receipts", expectedEntityTables, actualTables)
+        assertEquals("MathDatabase v11 must contain all 21 existing @Entity tables plus bcs_goal_credit_records", expectedEntityTables, actualTables)
 
         suspend fun awaitRoomCondition(predicate: suspend () -> Boolean) {
             repeat(40) {

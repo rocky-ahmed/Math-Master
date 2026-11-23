@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.MathDatabase
+import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BcsMistakeEntity
 import com.example.data.model.BookMistakeEntity
 import com.example.data.model.BookSpacedRevisionEntity
@@ -37,6 +38,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -66,11 +68,15 @@ class Phase4Wp41IntegrityRegressionTest {
 
     private lateinit var app: Application
     private lateinit var db: MathDatabase
+    private lateinit var receiptStore: BcsGoalCreditReceiptStore
 
     @Before
     fun setUp() {
+        MathViewModel.disableAutoBcsGoalCreditStartupSweepForTesting = false
         app = ApplicationProvider.getApplicationContext()
-        app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        val prefs = app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        receiptStore = BcsGoalCreditReceiptStore(prefs)
         db = MathDatabase.getInstance(app)
         runBlocking(Dispatchers.IO) {
             db.clearAllTables()
@@ -80,6 +86,7 @@ class Phase4Wp41IntegrityRegressionTest {
 
     @After
     fun tearDown() {
+        MathViewModel.disableAutoBcsGoalCreditStartupSweepForTesting = false
         app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()
         runBlocking(Dispatchers.IO) {
             db.clearAllTables()
@@ -95,6 +102,32 @@ class Phase4Wp41IntegrityRegressionTest {
             Thread.sleep(15)
             Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             iter++
+        }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
+
+    private fun awaitConditionWithMainLooper(timeoutMs: Long = 10_000L, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (!condition()) {
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            if (condition()) break
+            if (System.nanoTime() > deadline) {
+                throw AssertionError("Timed out after ${timeoutMs}ms waiting for condition")
+            }
+            Thread.yield()
+        }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
+
+    private fun awaitJobWithMainLooper(job: Job, timeoutMs: Long = 10_000L) {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (!job.isCompleted) {
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            if (job.isCompleted) break
+            if (System.nanoTime() > deadline) {
+                throw AssertionError("Timed out after ${timeoutMs}ms waiting for Job completion")
+            }
+            Thread.yield()
         }
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
     }
@@ -263,17 +296,18 @@ class Phase4Wp41IntegrityRegressionTest {
             assertEquals(0, db.mathDao().getAllBcsStudyGoals().first().size)
         }
 
-        // 3. Finish BCS mock exam with ZERO answered questions -> ZERO goal credit.
+        // 3. Finish BCS mock exam with ZERO answered questions -> ZERO goal credit and ZERO ledger row.
         fakeClock.advanceSeconds(45)
         vm.finishQuizSession()
-        waitUntilMain {
+        awaitConditionWithMainLooper {
             runBlocking(Dispatchers.IO) {
                 db.mathDao().getExamAttemptById(mockAttemptId)?.status == "COMPLETED"
             }
         }
-        Thread.sleep(80)
         assertEquals(BcsGoalCreditState.NOT_STARTED, vm.bcsGoalCreditStatus.value.state)
+        assertNull(receiptStore.readReceipt(mockAttemptId))
         runBlocking(Dispatchers.IO) {
+            assertNull(db.mathDao().getBcsGoalCreditRecordByAttemptId(mockAttemptId))
             assertEquals(0, db.mathDao().getAllBcsStudyGoals().first().size)
         }
     }
@@ -296,16 +330,34 @@ class Phase4Wp41IntegrityRegressionTest {
         fakeClock.advanceSeconds(95)
         vm.finishQuizSession()
 
-        waitUntilMain { vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED }
+        awaitConditionWithMainLooper {
+            vm.bcsGoalCreditStatus.value.attemptId == mockAttemptId &&
+                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                !vm.isBcsGoalCreditInFlightForTesting(mockAttemptId)
+        }
         val statusA = vm.bcsGoalCreditStatus.value
         assertEquals(mockAttemptId, statusA.attemptId)
         assertEquals(3, statusA.appliedDelta?.questionsDelta)
         assertEquals(2, statusA.appliedDelta?.studyTimeMinutesDelta)
         assertEquals(1, statusA.appliedDelta?.mockExamsDelta)
         assertEquals(0, statusA.appliedDelta?.revisionsDelta)
+        assertNull(
+            "BCS-GC-02 must NOT write a new SharedPreferences receipt for timed mock attempt",
+            receiptStore.readReceipt(mockAttemptId)
+        )
 
         val todayGoalKey = "${BcsExamProfile.BCS_50TH_PRELIM.id}_$todayKey"
         runBlocking(Dispatchers.IO) {
+            val mockLedger = db.mathDao().getBcsGoalCreditRecordByAttemptId(mockAttemptId)
+            assertNotNull("Timed mock Room ledger record must be persisted", mockLedger)
+            assertEquals(mockAttemptId, mockLedger!!.attemptId)
+            assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, mockLedger.status)
+            assertNotNull("Timed mock creditedAtMs must be persisted", mockLedger.creditedAtMs)
+            assertEquals(3, mockLedger.questionsDelta)
+            assertEquals(2, mockLedger.studyTimeMinutesDelta)
+            assertEquals(1, mockLedger.mockExamsDelta)
+            assertEquals(0, mockLedger.revisionsDelta)
+
             val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)
             assertNotNull(goal)
             assertEquals(3, goal!!.questionsSolved)
@@ -327,13 +379,18 @@ class Phase4Wp41IntegrityRegressionTest {
         fakeClock.advanceSeconds(25)
         vm.finishQuizSession()
 
-        waitUntilMain {
+        awaitConditionWithMainLooper {
             vm.bcsGoalCreditStatus.value.attemptId == topicAttemptId &&
-                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED
+                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                !vm.isBcsGoalCreditInFlightForTesting(topicAttemptId)
         }
         assertEquals(0, vm.bcsGoalCreditStatus.value.appliedDelta?.mockExamsDelta)
         assertEquals(2, vm.bcsGoalCreditStatus.value.appliedDelta?.questionsDelta)
         assertEquals(1, vm.bcsGoalCreditStatus.value.appliedDelta?.studyTimeMinutesDelta)
+        assertNull(
+            "BCS-GC-02 must NOT write a new SharedPreferences receipt for topic practice attempt",
+            receiptStore.readReceipt(topicAttemptId)
+        )
 
         // C. Untimed MISTAKE_PRACTICE: answer 1 question, advance clock 35s -> rounded 1 min, mockExamsDelta = 0, revisionsDelta = 1.
         vm.startBcsModeExam(mode = BcsPracticeMode.MISTAKE_PRACTICE)
@@ -345,14 +402,39 @@ class Phase4Wp41IntegrityRegressionTest {
         fakeClock.advanceSeconds(35)
         vm.finishQuizSession()
 
-        waitUntilMain {
+        awaitConditionWithMainLooper {
             vm.bcsGoalCreditStatus.value.attemptId == mistakeAttemptId &&
-                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED
+                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                !vm.isBcsGoalCreditInFlightForTesting(mistakeAttemptId)
         }
         assertEquals(0, vm.bcsGoalCreditStatus.value.appliedDelta?.mockExamsDelta)
         assertEquals(1, vm.bcsGoalCreditStatus.value.appliedDelta?.revisionsDelta)
+        assertNull(
+            "BCS-GC-02 must NOT write a new SharedPreferences receipt for mistake practice attempt",
+            receiptStore.readReceipt(mistakeAttemptId)
+        )
 
         runBlocking(Dispatchers.IO) {
+            val topicLedger = db.mathDao().getBcsGoalCreditRecordByAttemptId(topicAttemptId)
+            assertNotNull("Topic practice Room ledger record must be persisted", topicLedger)
+            assertEquals(topicAttemptId, topicLedger!!.attemptId)
+            assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, topicLedger.status)
+            assertNotNull(topicLedger.creditedAtMs)
+            assertEquals(2, topicLedger.questionsDelta)
+            assertEquals(1, topicLedger.studyTimeMinutesDelta)
+            assertEquals(0, topicLedger.mockExamsDelta)
+            assertEquals(0, topicLedger.revisionsDelta)
+
+            val mistakeLedger = db.mathDao().getBcsGoalCreditRecordByAttemptId(mistakeAttemptId)
+            assertNotNull("Mistake practice Room ledger record must be persisted", mistakeLedger)
+            assertEquals(mistakeAttemptId, mistakeLedger!!.attemptId)
+            assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, mistakeLedger.status)
+            assertNotNull(mistakeLedger.creditedAtMs)
+            assertEquals(1, mistakeLedger.questionsDelta)
+            assertEquals(1, mistakeLedger.studyTimeMinutesDelta)
+            assertEquals(0, mistakeLedger.mockExamsDelta)
+            assertEquals(1, mistakeLedger.revisionsDelta)
+
             val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
             assertEquals(6, goal.questionsSolved)
             assertEquals(4, goal.studyTimeMinutes)
@@ -366,67 +448,208 @@ class Phase4Wp41IntegrityRegressionTest {
         val fakeClock = FakeMonotonicClock(200_000L)
         val vm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
         val todayKey = MathRepository.todayDateKey()
-
-        // Inject pre-mutation fault.
-        vm.setBcsGoalCreditFaultInjectorForTesting { stage ->
-            if (stage == BcsGoalCreditFaultStage.BEFORE_DB_MUTATION) {
-                throw IllegalStateException("Injected failure strictly before Room mutation")
-            }
-        }
-
-        vm.startBcsMockExam(questionCount = 4, durationMinutes = 10)
-        val attemptId = vm.quizSession.value.attemptId
-        val qs = vm.quizSession.value.questions
-        vm.selectQuizOption(qs[0].correctIndex)
-        vm.jumpToQuizQuestion(1)
-        vm.selectQuizOption(qs[1].correctIndex)
-        fakeClock.advanceSeconds(60)
-        vm.finishQuizSession()
-
-        waitUntilMain { vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.RETRYABLE_FAILURE }
-        assertEquals(attemptId, vm.bcsGoalCreditStatus.value.attemptId)
         val todayGoalKey = "${BcsExamProfile.BCS_50TH_PRELIM.id}_$todayKey"
-        runBlocking(Dispatchers.IO) {
-            assertNull("Pre-mutation failure must perform zero Room DB mutation", db.mathDao().getBcsStudyGoalByKey(todayGoalKey))
-        }
 
-        // Verify a recreated ViewModel opening this completed attempt without a receipt CANNOT safely retry.
-        val recreatedVm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
-        val savedCompleted = runBlocking(Dispatchers.IO) { db.mathDao().getExamAttemptById(attemptId)!! }
-        recreatedVm.openCompletedExamResult(savedCompleted)
-        assertEquals(BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN, recreatedVm.bcsGoalCreditStatus.value.state)
-        recreatedVm.retryBcsGoalCredit()
-        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-        Thread.sleep(60)
-        assertEquals(BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN, recreatedVm.bcsGoalCreditStatus.value.state)
-        runBlocking(Dispatchers.IO) {
-            assertNull(db.mathDao().getBcsStudyGoalByKey(todayGoalKey))
-        }
+        try {
+            // -----------------------------------------------------------------
+            // Path 1: Same-ViewModel explicit retry after BEFORE_DB_MUTATION
+            // -----------------------------------------------------------------
+            vm.setBcsGoalCreditFaultInjectorForTesting { stage ->
+                if (stage == BcsGoalCreditFaultStage.BEFORE_DB_MUTATION) {
+                    throw IllegalStateException("Injected failure strictly before Room mutation (Path 1)")
+                }
+            }
 
-        // Clear fault and trigger explicit retry in the ORIGINAL ViewModel -> succeeds once.
-        vm.setBcsGoalCreditFaultInjectorForTesting(null)
-        vm.retryBcsGoalCredit()
-        waitUntilMain { vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED }
+            vm.startBcsMockExam(questionCount = 4, durationMinutes = 10)
+            val attempt1Id = vm.quizSession.value.attemptId
+            val qs1 = vm.quizSession.value.questions
+            vm.selectQuizOption(qs1[0].correctIndex)
+            vm.jumpToQuizQuestion(1)
+            vm.selectQuizOption(qs1[1].correctIndex)
+            fakeClock.advanceSeconds(60)
+            vm.finishQuizSession()
 
-        runBlocking(Dispatchers.IO) {
-            val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
-            assertEquals(2, goal.questionsSolved)
-            assertEquals(1, goal.studyTimeMinutes)
-            assertEquals(1, goal.mockExamsCompleted)
-        }
+            awaitConditionWithMainLooper {
+                vm.bcsGoalCreditStatus.value.attemptId == attempt1Id &&
+                    vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.RETRYABLE_FAILURE &&
+                    !vm.isBcsGoalCreditInFlightForTesting(attempt1Id)
+            }
+            assertNull(receiptStore.readReceipt(attempt1Id))
+            runBlocking(Dispatchers.IO) {
+                val completed1 = db.mathDao().getExamAttemptById(attempt1Id)
+                assertNotNull(completed1)
+                assertEquals("COMPLETED", completed1!!.status)
 
-        // Further retry calls and opening the credited attempt in a fresh ViewModel are strict no-ops (zero double credit).
-        vm.retryBcsGoalCredit()
-        val thirdVm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
-        thirdVm.openCompletedExamResult(savedCompleted)
-        assertEquals(BcsGoalCreditState.CREDITED, thirdVm.bcsGoalCreditStatus.value.state)
-        thirdVm.retryBcsGoalCredit()
-        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-        Thread.sleep(60)
-        runBlocking(Dispatchers.IO) {
-            val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
-            assertEquals(2, goal.questionsSolved)
-            assertEquals(1, goal.mockExamsCompleted)
+                val pendingLedger1 = db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt1Id)
+                assertNotNull("Attempt 1 PENDING ledger record must survive BEFORE_DB_MUTATION fault", pendingLedger1)
+                assertEquals(attempt1Id, pendingLedger1!!.attemptId)
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_PENDING, pendingLedger1.status)
+                assertNull("PENDING ledger must have null creditedAtMs before mutation", pendingLedger1.creditedAtMs)
+                assertEquals(2, pendingLedger1.questionsDelta)
+                assertEquals(1, pendingLedger1.studyTimeMinutesDelta)
+                assertEquals(1, pendingLedger1.mockExamsDelta)
+                assertEquals(0, pendingLedger1.revisionsDelta)
+
+                assertNull(
+                    "Pre-mutation failure must perform zero Room DB goal mutation",
+                    db.mathDao().getBcsStudyGoalByKey(todayGoalKey)
+                )
+            }
+
+            // Clear fault and trigger explicit retry in the SAME ViewModel -> succeeds strictly once.
+            vm.setBcsGoalCreditFaultInjectorForTesting(null)
+            vm.retryBcsGoalCredit()
+            awaitConditionWithMainLooper {
+                vm.bcsGoalCreditStatus.value.attemptId == attempt1Id &&
+                    vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                    !vm.isBcsGoalCreditInFlightForTesting(attempt1Id)
+            }
+
+            assertNull(receiptStore.readReceipt(attempt1Id))
+            val attempt1CreditedAtMs = runBlocking(Dispatchers.IO) {
+                val creditedLedger1 = db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt1Id)!!
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, creditedLedger1.status)
+                assertNotNull(creditedLedger1.creditedAtMs)
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(2, goal.questionsSolved)
+                assertEquals(1, goal.studyTimeMinutes)
+                assertEquals(1, goal.mockExamsCompleted)
+                creditedLedger1.creditedAtMs!!
+            }
+
+            // Duplicate same-ViewModel retry is a strict no-op.
+            vm.retryBcsGoalCredit()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            runBlocking(Dispatchers.IO) {
+                assertEquals(attempt1CreditedAtMs, db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt1Id)!!.creditedAtMs)
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(2, goal.questionsSolved)
+                assertEquals(1, goal.studyTimeMinutes)
+                assertEquals(1, goal.mockExamsCompleted)
+            }
+
+            // -----------------------------------------------------------------
+            // Path 2: Process/ViewModel recreation recovers durable Room PENDING
+            // via Stage 4B2A startup sweep exactly once (BCS-GC-02)
+            // -----------------------------------------------------------------
+            vm.setBcsGoalCreditFaultInjectorForTesting { stage ->
+                if (stage == BcsGoalCreditFaultStage.BEFORE_DB_MUTATION) {
+                    throw IllegalStateException("Injected failure strictly before Room mutation (Path 2)")
+                }
+            }
+
+            vm.startBcsMockExam(questionCount = 4, durationMinutes = 10)
+            val attempt2Id = vm.quizSession.value.attemptId
+            val qs2 = vm.quizSession.value.questions
+            for (i in 0 until 3) {
+                vm.jumpToQuizQuestion(i)
+                vm.selectQuizOption(qs2[i].correctIndex)
+            }
+            fakeClock.advanceSeconds(95)
+            vm.finishQuizSession()
+
+            awaitConditionWithMainLooper {
+                vm.bcsGoalCreditStatus.value.attemptId == attempt2Id &&
+                    vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.RETRYABLE_FAILURE &&
+                    !vm.isBcsGoalCreditInFlightForTesting(attempt2Id)
+            }
+            assertNull(receiptStore.readReceipt(attempt2Id))
+
+            val savedCompleted2 = runBlocking(Dispatchers.IO) {
+                val completed2 = db.mathDao().getExamAttemptById(attempt2Id)
+                assertNotNull(completed2)
+                assertEquals("COMPLETED", completed2!!.status)
+
+                val pendingLedger2 = db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt2Id)
+                assertNotNull("Attempt 2 PENDING ledger record must be durably persisted", pendingLedger2)
+                assertEquals(attempt2Id, pendingLedger2!!.attemptId)
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_PENDING, pendingLedger2.status)
+                assertNull("Attempt 2 creditedAtMs must remain null after BEFORE_DB_MUTATION fault", pendingLedger2.creditedAtMs)
+                assertEquals(3, pendingLedger2.questionsDelta)
+                assertEquals(2, pendingLedger2.studyTimeMinutesDelta)
+                assertEquals(1, pendingLedger2.mockExamsDelta)
+                assertEquals(0, pendingLedger2.revisionsDelta)
+
+                // Goal totals must still reflect ONLY Attempt 1 (no increment for Attempt 2 yet).
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(2, goal.questionsSolved)
+                assertEquals(1, goal.studyTimeMinutes)
+                assertEquals(1, goal.mockExamsCompleted)
+                completed2
+            }
+
+            // Clear fault before simulating process/ViewModel recreation.
+            vm.setBcsGoalCreditFaultInjectorForTesting(null)
+
+            // Recreate ViewModel -> Stage 4B2A startup sweep automatically recovers the durable PENDING record.
+            val recreatedVm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
+            recreatedVm.getBcsGoalCreditStartupRecoveryJobForTesting()?.let { awaitJobWithMainLooper(it) }
+            awaitConditionWithMainLooper {
+                runBlocking(Dispatchers.IO) {
+                    db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt2Id)?.status ==
+                        BcsGoalCreditRecordEntity.STATUS_CREDITED
+                }
+            }
+
+            assertNull(
+                "BCS-GC-02 startup recovery must NOT write a new SharedPreferences receipt",
+                receiptStore.readReceipt(attempt2Id)
+            )
+            val attempt2CreditedAtMs = runBlocking(Dispatchers.IO) {
+                val creditedLedger2 = db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt2Id)!!
+                assertEquals(attempt2Id, creditedLedger2.attemptId)
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, creditedLedger2.status)
+                assertNotNull("Recovered ledger must persist non-null creditedAtMs", creditedLedger2.creditedAtMs)
+                assertEquals(3, creditedLedger2.questionsDelta)
+                assertEquals(2, creditedLedger2.studyTimeMinutesDelta)
+                assertEquals(1, creditedLedger2.mockExamsDelta)
+                assertEquals(0, creditedLedger2.revisionsDelta)
+
+                // Goal totals now reflect Attempt 1 (2q, 1m, 1 mock) + Attempt 2 (3q, 2m, 1 mock) strictly once.
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(5, goal.questionsSolved)
+                assertEquals(3, goal.studyTimeMinutes)
+                assertEquals(2, goal.mockExamsCompleted)
+                creditedLedger2.creditedAtMs!!
+            }
+
+            // Reopening the completed attempt in the recreated ViewModel reconciles cleanly to CREDITED.
+            recreatedVm.openCompletedExamResult(savedCompleted2)
+            awaitConditionWithMainLooper {
+                recreatedVm.bcsGoalCreditStatus.value.attemptId == attempt2Id &&
+                    recreatedVm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED
+            }
+            assertEquals(3, recreatedVm.bcsGoalCreditStatus.value.appliedDelta?.questionsDelta)
+            assertEquals(2, recreatedVm.bcsGoalCreditStatus.value.appliedDelta?.studyTimeMinutesDelta)
+            assertEquals(1, recreatedVm.bcsGoalCreditStatus.value.appliedDelta?.mockExamsDelta)
+
+            // Duplicate retry, duplicate recovery sweep, and reopening in a third fresh ViewModel perform ZERO second credit.
+            recreatedVm.retryBcsGoalCredit()
+            recreatedVm.triggerBcsGoalCreditStartupRecoveryForTesting()?.let { awaitJobWithMainLooper(it) }
+
+            val thirdVm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
+            thirdVm.getBcsGoalCreditStartupRecoveryJobForTesting()?.let { awaitJobWithMainLooper(it) }
+            thirdVm.openCompletedExamResult(savedCompleted2)
+            awaitConditionWithMainLooper {
+                thirdVm.bcsGoalCreditStatus.value.attemptId == attempt2Id &&
+                    thirdVm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED
+            }
+            thirdVm.retryBcsGoalCredit()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+            assertNull(receiptStore.readReceipt(attempt2Id))
+            runBlocking(Dispatchers.IO) {
+                val ledgerAfterReopen = db.mathDao().getBcsGoalCreditRecordByAttemptId(attempt2Id)!!
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, ledgerAfterReopen.status)
+                assertEquals(attempt2CreditedAtMs, ledgerAfterReopen.creditedAtMs)
+
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals("No second credit may occur after reopen or duplicate recovery", 5, goal.questionsSolved)
+                assertEquals(3, goal.studyTimeMinutes)
+                assertEquals(2, goal.mockExamsCompleted)
+            }
+        } finally {
+            vm.setBcsGoalCreditFaultInjectorForTesting(null)
         }
     }
 
@@ -436,37 +659,89 @@ class Phase4Wp41IntegrityRegressionTest {
         val vm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
         val todayGoalKey = "${BcsExamProfile.BCS_50TH_PRELIM.id}_${MathRepository.todayDateKey()}"
 
-        vm.setBcsGoalCreditFaultInjectorForTesting { stage ->
-            if (stage == BcsGoalCreditFaultStage.AFTER_DB_COMMIT) {
-                throw IllegalStateException("Injected post-commit failure")
+        try {
+            vm.setBcsGoalCreditFaultInjectorForTesting { stage ->
+                if (stage == BcsGoalCreditFaultStage.AFTER_DB_COMMIT) {
+                    throw IllegalStateException("Injected post-commit failure")
+                }
             }
-        }
 
-        vm.startBcsMockExam(questionCount = 3, durationMinutes = 10)
-        val qs = vm.quizSession.value.questions
-        vm.selectQuizOption(qs[0].correctIndex)
-        fakeClock.advanceSeconds(60)
-        vm.finishQuizSession()
+            vm.startBcsMockExam(questionCount = 3, durationMinutes = 10)
+            val attemptId = vm.quizSession.value.attemptId
+            val qs = vm.quizSession.value.questions
+            vm.selectQuizOption(qs[0].correctIndex)
+            fakeClock.advanceSeconds(60)
+            vm.finishQuizSession()
 
-        waitUntilMain { vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN }
+            // Under BCS-GC-02, post-fault Room ledger verification proves the commit succeeded -> CREDITED.
+            awaitConditionWithMainLooper {
+                vm.bcsGoalCreditStatus.value.attemptId == attemptId &&
+                    vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                    !vm.isBcsGoalCreditInFlightForTesting(attemptId)
+            }
+            assertEquals(1, vm.bcsGoalCreditStatus.value.appliedDelta?.questionsDelta)
+            assertEquals(1, vm.bcsGoalCreditStatus.value.appliedDelta?.studyTimeMinutesDelta)
+            assertEquals(1, vm.bcsGoalCreditStatus.value.appliedDelta?.mockExamsDelta)
+            assertNull(
+                "BCS-GC-02 must NOT write a new SharedPreferences receipt after post-commit verification",
+                receiptStore.readReceipt(attemptId)
+            )
 
-        // DB was mutated exactly once before the post-commit failure.
-        runBlocking(Dispatchers.IO) {
-            val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
-            assertEquals(1, goal.questionsSolved)
-            assertEquals(1, goal.mockExamsCompleted)
-        }
+            // Actual Room ledger record is CREDITED with non-null creditedAtMs, and DB goal mutated strictly once.
+            val (savedCompleted, originalCreditedAtMs) = runBlocking(Dispatchers.IO) {
+                val ledger = db.mathDao().getBcsGoalCreditRecordByAttemptId(attemptId)
+                assertNotNull("Room ledger record must exist after AFTER_DB_COMMIT fault", ledger)
+                assertEquals(attemptId, ledger!!.attemptId)
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, ledger.status)
+                assertNotNull("creditedAtMs must be persisted on committed Room ledger row", ledger.creditedAtMs)
+                assertEquals(1, ledger.questionsDelta)
+                assertEquals(1, ledger.studyTimeMinutesDelta)
+                assertEquals(1, ledger.mockExamsDelta)
+                assertEquals(0, ledger.revisionsDelta)
 
-        // Clearing fault and invoking retry MUST be a strict no-op (zero duplicate credit).
-        vm.setBcsGoalCreditFaultInjectorForTesting(null)
-        vm.retryBcsGoalCredit()
-        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-        Thread.sleep(80)
-        assertEquals(BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN, vm.bcsGoalCreditStatus.value.state)
-        runBlocking(Dispatchers.IO) {
-            val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
-            assertEquals(1, goal.questionsSolved)
-            assertEquals(1, goal.mockExamsCompleted)
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(1, goal.questionsSolved)
+                assertEquals(1, goal.studyTimeMinutes)
+                assertEquals(1, goal.mockExamsCompleted)
+                db.mathDao().getExamAttemptById(attemptId)!! to ledger.creditedAtMs!!
+            }
+
+            // Clearing fault and invoking retry or startup recovery MUST be a strict no-op (zero duplicate credit).
+            vm.setBcsGoalCreditFaultInjectorForTesting(null)
+            vm.retryBcsGoalCredit()
+            vm.triggerBcsGoalCreditStartupRecoveryForTesting()?.let { awaitJobWithMainLooper(it) }
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            assertEquals(BcsGoalCreditState.CREDITED, vm.bcsGoalCreditStatus.value.state)
+
+            // Reopening the completed attempt on both the original and a fresh cold-start ViewModel resolves to CREDITED.
+            vm.openCompletedExamResult(savedCompleted)
+            assertEquals(attemptId, vm.bcsGoalCreditStatus.value.attemptId)
+            assertEquals(BcsGoalCreditState.CREDITED, vm.bcsGoalCreditStatus.value.state)
+
+            val reopenedVm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
+            reopenedVm.getBcsGoalCreditStartupRecoveryJobForTesting()?.let { awaitJobWithMainLooper(it) }
+            reopenedVm.openCompletedExamResult(savedCompleted)
+            awaitConditionWithMainLooper {
+                reopenedVm.bcsGoalCreditStatus.value.attemptId == attemptId &&
+                    reopenedVm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED
+            }
+            assertEquals(1, reopenedVm.bcsGoalCreditStatus.value.appliedDelta?.questionsDelta)
+            assertEquals(1, reopenedVm.bcsGoalCreditStatus.value.appliedDelta?.studyTimeMinutesDelta)
+            assertEquals(1, reopenedVm.bcsGoalCreditStatus.value.appliedDelta?.mockExamsDelta)
+            assertNull(receiptStore.readReceipt(attemptId))
+
+            runBlocking(Dispatchers.IO) {
+                val ledgerAfter = db.mathDao().getBcsGoalCreditRecordByAttemptId(attemptId)!!
+                assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, ledgerAfter.status)
+                assertEquals("creditedAtMs must be preserved across retries and reopens", originalCreditedAtMs, ledgerAfter.creditedAtMs)
+
+                val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
+                assertEquals(1, goal.questionsSolved)
+                assertEquals(1, goal.studyTimeMinutes)
+                assertEquals(1, goal.mockExamsCompleted)
+            }
+        } finally {
+            vm.setBcsGoalCreditFaultInjectorForTesting(null)
         }
     }
 
@@ -537,15 +812,16 @@ class Phase4Wp41IntegrityRegressionTest {
         fakeClock.advanceSeconds(30)
         vm.finishQuizSession()
 
-        waitUntilMain {
+        awaitConditionWithMainLooper {
             runBlocking(Dispatchers.IO) {
                 db.mathDao().getExamAttemptById(legacyAttempt.attemptId)?.status == "COMPLETED"
             } && vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
         }
-        Thread.sleep(60)
+        assertNull(receiptStore.readReceipt(legacyAttempt.attemptId))
 
-        // Goal totals MUST remain strictly at the pre-existing values (no double credit).
+        // Goal totals MUST remain strictly at the pre-existing values (no double credit) and zero ledger row enqueued.
         runBlocking(Dispatchers.IO) {
+            assertNull(db.mathDao().getBcsGoalCreditRecordByAttemptId(legacyAttempt.attemptId))
             val goal = db.mathDao().getBcsStudyGoalByKey(todayGoalKey)!!
             assertEquals(1, goal.questionsSolved)
             assertEquals(5, goal.studyTimeMinutes)
@@ -597,14 +873,26 @@ class Phase4Wp41IntegrityRegressionTest {
         val fakeClock = FakeMonotonicClock(500_000L)
         val vm = MathViewModel(app, clock = fakeClock, savedStateHandle = SavedStateHandle())
         vm.startBcsMockExam(questionCount = 2, durationMinutes = 5)
+        val cancelAttemptId = vm.quizSession.value.attemptId
         vm.selectQuizOption(vm.quizSession.value.questions[0].correctIndex)
         fakeClock.advanceSeconds(60)
         vm.finishQuizSession()
-        waitUntilMain { vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED }
+        awaitConditionWithMainLooper {
+            vm.bcsGoalCreditStatus.value.attemptId == cancelAttemptId &&
+                vm.bcsGoalCreditStatus.value.state == BcsGoalCreditState.CREDITED &&
+                !vm.isBcsGoalCreditInFlightForTesting(cancelAttemptId)
+        }
 
         vm.cancelActiveBcsGoalCreditForTesting()
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(BcsGoalCreditState.CREDITED, vm.bcsGoalCreditStatus.value.state)
+        assertNull(receiptStore.readReceipt(cancelAttemptId))
+        runBlocking(Dispatchers.IO) {
+            val ledger = db.mathDao().getBcsGoalCreditRecordByAttemptId(cancelAttemptId)
+            assertNotNull(ledger)
+            assertEquals(BcsGoalCreditRecordEntity.STATUS_CREDITED, ledger!!.status)
+            assertNotNull(ledger.creditedAtMs)
+        }
     }
 
     // =========================================================================
