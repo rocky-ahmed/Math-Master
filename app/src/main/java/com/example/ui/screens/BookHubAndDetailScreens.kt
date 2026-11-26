@@ -383,6 +383,11 @@ private fun BookCoverCard(
         BookId.CLASS_9_10 -> listOf(Color(0xFFE11D48), Color(0xFF9F1239))
     }
 
+    val appContext = LocalContext.current.applicationContext
+    val isPdfAvailable = remember(appContext, book) {
+        isOfflinePdfAssetAvailable(appContext, book)
+    }
+
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -408,8 +413,13 @@ private fun BookCoverCard(
                             shape = RoundedCornerShape(8.dp),
                             color = Color.White.copy(alpha = 0.2f)
                         ) {
+                            val pageSummary = if (isPdfAvailable) {
+                                "${BengaliNumberFormatter.toBengaliDigits(book.totalPdfPages)} পৃষ্ঠা"
+                            } else {
+                                "${BengaliNumberFormatter.toBengaliDigits(book.maxPrintedPage)} ডিজিটাল পৃষ্ঠা"
+                            }
                             Text(
-                                text = "${book.shortLabelBn} • ${BengaliNumberFormatter.toBengaliDigits(book.totalChapters)}টি অধ্যায় • ${BengaliNumberFormatter.toBengaliDigits(book.totalPdfPages)} পৃষ্ঠা",
+                                text = "${book.shortLabelBn} • ${BengaliNumberFormatter.toBengaliDigits(book.totalChapters)}টি অধ্যায় • $pageSummary",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelMedium,
@@ -507,9 +517,17 @@ private fun BookCoverCard(
                             .testTag("btn_pdf_book_${book.id}"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(
+                            imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = if (isPdfAvailable) {
+                                "মূল পিডিএফ পাঠ্যবই খুলুন"
+                            } else {
+                                "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                            },
+                            modifier = Modifier.size(16.dp)
+                        )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("মূল বই")
+                        Text(if (isPdfAvailable) "মূল বই" else "ডিজিটাল বই")
                     }
                     OutlinedButton(
                         onClick = onStartPractice,
@@ -530,6 +548,11 @@ private fun BookSearchResultCard(
     onClick: () -> Unit,
     onOpenPage: () -> Unit
 ) {
+    val appContext = LocalContext.current.applicationContext
+    val isPdfAvailable = remember(appContext, result.bookId) {
+        isOfflinePdfAssetAvailable(appContext, result.bookId)
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -559,10 +582,26 @@ private fun BookSearchResultCard(
                     onClick = onOpenPage,
                     label = {
                         Text(
-                            "পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(result.printedPage)}",
+                            if (isPdfAvailable) {
+                                "পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(result.printedPage)}"
+                            } else {
+                                "ডিজিটাল পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(result.printedPage)}"
+                            },
                             style = MaterialTheme.typography.labelSmall
                         )
-                    }
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = if (isPdfAvailable) {
+                                "মূল পিডিএফ পৃষ্ঠা খুলুন"
+                            } else {
+                                "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                            },
+                            modifier = Modifier.size(16.dp)
+                        )
+                    },
+                    modifier = Modifier.testTag("book_search_result_page_${result.id}")
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -712,7 +751,11 @@ fun BookDetailScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
-                                    contentDescription = null,
+                                    contentDescription = if (isPdfAvailable) {
+                                        "মূল পিডিএফ পাঠ্যবই খুলুন"
+                                    } else {
+                                        "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                                    },
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -906,10 +949,27 @@ fun BookDetailScreen(
                                         chapterNumber = chapter.chapterNumber
                                     )
                                 },
-                                label = { Text("বই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}") },
+                                label = {
+                                    Text(
+                                        if (isPdfAvailable) {
+                                            "বই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}"
+                                        } else {
+                                            "ডিজিটাল পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}"
+                                        }
+                                    )
+                                },
                                 leadingIcon = {
-                                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
-                                }
+                                    Icon(
+                                        imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                                        contentDescription = if (isPdfAvailable) {
+                                            "মূল পিডিএফ পৃষ্ঠা খুলুন"
+                                        } else {
+                                            "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                                        },
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                modifier = Modifier.testTag("chapter_page_chip_${bookId.id}_${chapter.chapterNumber}")
                             )
                             AssistChip(
                                 onClick = {
@@ -943,6 +1003,11 @@ fun BookChapterOverviewScreen(
     val lessonProgress by viewModel.bookLessonProgress.collectAsStateWithLifecycle()
     val bookmarkedIds by viewModel.bookmarkedIds.collectAsStateWithLifecycle()
 
+    val appContext = LocalContext.current.applicationContext
+    val isPdfAvailable = remember(appContext, bookId) {
+        isOfflinePdfAssetAvailable(appContext, bookId)
+    }
+
     val chapter = remember(bookId, chapterNumber) {
         BookCurriculumRepository.getChapter(bookId, chapterNumber)
             ?: BookCurriculumRepository.getChapters(bookId).first()
@@ -969,7 +1034,11 @@ fun BookChapterOverviewScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${bookId.shortLabelBn} • পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageEnd)}",
+                            text = if (isPdfAvailable) {
+                                "${bookId.shortLabelBn} • পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageEnd)}"
+                            } else {
+                                "${bookId.shortLabelBn} • ডিজিটাল পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(chapter.printedPageEnd)}"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -994,7 +1063,14 @@ fun BookChapterOverviewScreen(
                         },
                         modifier = Modifier.testTag("chapter_overview_pdf_btn")
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = "মূল বইয়ে দেখুন")
+                        Icon(
+                            imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = if (isPdfAvailable) {
+                                "মূল পিডিএফ বইয়ে দেখুন"
+                            } else {
+                                "ডিজিটাল পাঠ্যবই কনটেন্টে দেখুন (মূল PDF অনুপলব্ধ)"
+                            }
+                        )
                     }
                 }
             )
@@ -1525,6 +1601,11 @@ fun BookLessonScreen(
     val lessonId by viewModel.selectedBookLessonId.collectAsStateWithLifecycle()
     val lessonProgress by viewModel.bookLessonProgress.collectAsStateWithLifecycle()
 
+    val appContext = LocalContext.current.applicationContext
+    val isPdfAvailable = remember(appContext, bookId) {
+        isOfflinePdfAssetAvailable(appContext, bookId)
+    }
+
     val chapter = remember(bookId, chapterNumber) {
         BookCurriculumRepository.getChapter(bookId, chapterNumber)
             ?: BookCurriculumRepository.getChapters(bookId).first()
@@ -1566,7 +1647,11 @@ fun BookLessonScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${bookId.shortLabelBn} • অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)} • পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageEnd)}",
+                            text = if (isPdfAvailable) {
+                                "${bookId.shortLabelBn} • অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)} • পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageEnd)}"
+                            } else {
+                                "${bookId.shortLabelBn} • অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(chapter.chapterNumber)} • ডিজিটাল পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageStart)}–${BengaliNumberFormatter.toBengaliDigits(lesson.printedPageEnd)}"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1591,7 +1676,14 @@ fun BookLessonScreen(
                         },
                         modifier = Modifier.testTag("book_lesson_pdf_btn")
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = "মূল পৃষ্ঠা দেখুন")
+                        Icon(
+                            imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = if (isPdfAvailable) {
+                                "মূল পিডিএফ পৃষ্ঠা দেখুন"
+                            } else {
+                                "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                            }
+                        )
                     }
                 }
             )

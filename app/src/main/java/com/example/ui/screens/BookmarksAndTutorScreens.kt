@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.LooksOne
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Straighten
@@ -46,9 +47,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -75,6 +78,7 @@ fun BookmarksScreen(
     BackHandler { viewModel.navigateBack() }
 
     val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+    val appContext = LocalContext.current.applicationContext
 
     Column(modifier = modifier.fillMaxSize()) {
         MathTopAppBar(
@@ -126,6 +130,19 @@ fun BookmarksScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(bookmarks, key = { it.id }) { bm ->
+                    val bookPageTarget = remember(bm.id, bm.category) {
+                        if (bm.category == "BOOK_PAGE") {
+                            val suffix = bm.id.removePrefix("book_page_")
+                            val bookIdStr = suffix.substringBeforeLast("_", "class_6")
+                            val printedPage = suffix.substringAfterLast("_", "1").toIntOrNull() ?: 1
+                            BookId.fromId(bookIdStr) to printedPage
+                        } else {
+                            null
+                        }
+                    }
+                    val isBookPagePdfAvailable = remember(appContext, bookPageTarget) {
+                        bookPageTarget?.first?.let { isOfflinePdfAssetAvailable(appContext, it) } ?: true
+                    }
                     ElevatedCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -157,10 +174,10 @@ fun BookmarksScreen(
                                     "NUMBER_SYSTEM" -> viewModel.navigateTo(Screen.NumberSystem)
                                     "SOLVER", "PROBLEM_SOLVER" -> viewModel.navigateTo(Screen.ProblemSolver)
                                     "BOOK_PAGE" -> {
-                                        val suffix = bm.id.removePrefix("book_page_")
-                                        val bookIdStr = suffix.substringBeforeLast("_", "class_6")
-                                        val printedPage = suffix.substringAfterLast("_", "1").toIntOrNull() ?: 1
-                                        viewModel.openBookPdfReader(BookId.fromId(bookIdStr), printedPage)
+                                        val target = bookPageTarget
+                                        if (target != null) {
+                                            viewModel.openBookPdfReader(target.first, target.second)
+                                        }
                                     }
                                     "BCS_PREP" -> viewModel.navigateTo(Screen.BcsPreparation)
                                 }
@@ -190,13 +207,25 @@ fun BookmarksScreen(
                                         "FORMULA_LIBRARY" -> Icons.Default.School
                                         "NUMBER_SYSTEM" -> Icons.Default.Functions
                                         "SOLVER", "PROBLEM_SOLVER" -> Icons.Default.Calculate
-                                        "BOOK_PAGE" -> Icons.AutoMirrored.Filled.MenuBook
+                                        "BOOK_PAGE" -> if (isBookPagePdfAvailable) {
+                                            Icons.Default.PictureAsPdf
+                                        } else {
+                                            Icons.AutoMirrored.Filled.MenuBook
+                                        }
                                         "BCS_PREP" -> Icons.Default.School
                                         else -> Icons.Default.Functions
                                     }
                                     Icon(
                                         imageVector = icon,
-                                        contentDescription = null,
+                                        contentDescription = if (bm.category == "BOOK_PAGE") {
+                                            if (isBookPagePdfAvailable) {
+                                                "মূল পিডিএফ পৃষ্ঠা খুলুন"
+                                            } else {
+                                                "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                                            }
+                                        } else {
+                                            null
+                                        },
                                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 }
@@ -216,8 +245,13 @@ fun BookmarksScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
+                                val detailText = if (bm.category == "BOOK_PAGE" && !isBookPagePdfAvailable && bookPageTarget != null) {
+                                    "ডিজিটাল পাঠ্যবই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(bookPageTarget.second)} (ডিজিটাল কনটেন্ট • মূল PDF অনুপলব্ধ)"
+                                } else {
+                                    bm.detailBn
+                                }
                                 Text(
-                                    text = bm.detailBn,
+                                    text = detailText,
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 2

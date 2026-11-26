@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.CheckCircle
@@ -64,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -540,6 +542,7 @@ fun BookRevisionScreen(
     viewModel: MathViewModel,
     modifier: Modifier = Modifier
 ) {
+    val appContext = LocalContext.current.applicationContext
     val selectedBookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
     val mistakes by viewModel.bookMistakes.collectAsStateWithLifecycle()
     val notes by viewModel.bookNotes.collectAsStateWithLifecycle()
@@ -992,19 +995,23 @@ fun BookRevisionScreen(
                     if (bookmarkedPages.isEmpty()) {
                         item(key = "empty_page_bookmarks") {
                             Text(
-                                text = "কোনো পাঠ্যবই পৃষ্ঠা এখনো বুকমার্ক করা হয়নি। পিডিএফ রিডার থেকে পছন্দের পৃষ্ঠা বুকমার্ক করুন।",
+                                text = "কোনো পাঠ্যবই পৃষ্ঠা এখনো বুকমার্ক করা হয়নি। পাঠ্যবই রিডার থেকে পছন্দের পৃষ্ঠা বুকমার্ক করুন।",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     } else {
                         items(bookmarkedPages, key = { "${it.first.id}_p_${it.second}" }) { (bId, page) ->
+                            val isPdfAvailable = remember(appContext, bId) {
+                                isOfflinePdfAssetAvailable(appContext, bId)
+                            }
                             ElevatedCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
                                         viewModel.openBookPdfReader(bookId = bId, printedPage = page)
-                                    },
+                                    }
+                                    .testTag("revision_bookmarked_page_${bId.id}_$page"),
                                 shape = RoundedCornerShape(14.dp)
                             ) {
                                 Row(
@@ -1031,13 +1038,24 @@ fun BookRevisionScreen(
                                                 fontWeight = FontWeight.Bold
                                             )
                                             Text(
-                                                text = "পিডিএফ পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(bId.printedToPdfPage(page))}",
+                                                text = if (isPdfAvailable) {
+                                                    "পিডিএফ পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(bId.printedToPdfPage(page))}"
+                                                } else {
+                                                    "ডিজিটাল পাঠ্যবই কনটেন্ট (মূল PDF অনুপলব্ধ)"
+                                                },
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
-                                    Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+                                    Icon(
+                                        imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                                        contentDescription = if (isPdfAvailable) {
+                                            "মূল পিডিএফ পৃষ্ঠা খুলুন"
+                                        } else {
+                                            "ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"
+                                        }
+                                    )
                                 }
                             }
                         }

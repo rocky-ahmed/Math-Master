@@ -369,10 +369,11 @@ class MathViewModel @JvmOverloads constructor(
     private val prefs = application.getSharedPreferences("math_master_prefs", android.content.Context.MODE_PRIVATE)
 
     // Study Streaks & Daily Activity
-    private val _streakDays = MutableStateFlow(1)
+    private val streakPrefsLock = Any()
+    private val _streakDays = MutableStateFlow(0)
     val streakDays: StateFlow<Int> = _streakDays.asStateFlow()
 
-    private val _longestStreak = MutableStateFlow(1)
+    private val _longestStreak = MutableStateFlow(0)
     val longestStreak: StateFlow<Int> = _longestStreak.asStateFlow()
 
     private val _weeklyActivities = MutableStateFlow<List<WeeklyDayStat>>(emptyList())
@@ -485,8 +486,11 @@ class MathViewModel @JvmOverloads constructor(
         @Volatile
         internal var disableAutoBcsGoalCreditStartupSweepForTesting: Boolean = false
 
+        @Volatile
+        internal var defaultDateKeyProviderForTesting: (() -> String)? = null
+
         private val DATE_FORMAT_THREAD_LOCAL: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
-            SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }
         }
     }
 
@@ -4424,15 +4428,37 @@ class MathViewModel @JvmOverloads constructor(
     internal var currentDateKeyProvider: (() -> String)? = null
 
     private fun getTodayDateStr(): String {
-        currentDateKeyProvider?.invoke()?.takeIf { it.isNotBlank() }?.let { return it }
+        (currentDateKeyProvider ?: defaultDateKeyProviderForTesting)
+            ?.invoke()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { return it }
         val cal = Calendar.getInstance()
-        return DATE_FORMAT_THREAD_LOCAL.get()!!.format(cal.time)
+        val sdf = DATE_FORMAT_THREAD_LOCAL.get()!!
+        sdf.timeZone = cal.timeZone
+        return sdf.format(cal.time)
     }
 
-    private fun getYesterdayDateStr(): String {
-        val cal = Calendar.getInstance()
+    private fun calendarForDateKey(dateStr: String): Calendar? {
+        val parts = dateStr.trim().split("-")
+        if (parts.size != 3) return null
+        val year = parts[0].toIntOrNull() ?: return null
+        val month = parts[1].toIntOrNull() ?: return null
+        val day = parts[2].toIntOrNull() ?: return null
+        if (month !in 1..12 || day !in 1..31) return null
+        return Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+    }
+
+    private fun getYesterdayDateStr(todayStr: String = getTodayDateStr()): String {
+        val cal = calendarForDateKey(todayStr) ?: Calendar.getInstance()
+        val sdf = DATE_FORMAT_THREAD_LOCAL.get()!!
+        sdf.timeZone = cal.timeZone
         cal.add(Calendar.DAY_OF_YEAR, -1)
-        return DATE_FORMAT_THREAD_LOCAL.get()!!.format(cal.time)
+        return sdf.format(cal.time)
     }
 
     private fun getDayOfWeekBn(calendar: Calendar): String {
@@ -4448,82 +4474,109 @@ class MathViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun initStreakAndActivity() {
-        val today = getTodayDateStr()
-        val yesterday = getYesterdayDateStr()
-        val lastDate = prefs.getString("streak_last_active_date", null)
-        var currentStreak = prefs.getInt("streak_current_days", 0)
-        var longestStreak = prefs.getInt("streak_longest_days", 0)
+    internal fun initStreakAndActivity() {
+        synchronized(streakPrefsLock) {
+            val today = getTodayDateStr()
+            val yesterday = getYesterdayDateStr(today)
+            val lastDate = prefs.getString("streak_last_active_date", null)?.trim()?.takeIf { it.isNotEmpty() }
+            val storedCurrent = prefs.getInt("streak_current_days", 0).coerceAtLeast(0)
+            var longestStreak = prefs.getInt("streak_longest_days", 0).coerceAtLeast(0)
 
-        if (lastDate == null) {
-            currentStreak = 1
-            longestStreak = 1
-            prefs.edit()
-                .putString("streak_last_active_date", today)
-                .putInt("streak_current_days", 1)
-                .putInt("streak_longest_days", 1)
-                .putInt("act_$today", maxOf(prefs.getInt("act_$today", 0), 1))
-                .apply()
-        } else if (lastDate == yesterday) {
-            if (currentStreak < 1) currentStreak = 1
-        } else if (lastDate != today) {
-            currentStreak = 1
-            prefs.edit().putInt("streak_current_days", 1).apply()
+            val currentStreak = when {
+                lastDate == null -> {
+                    if (storedCurrent != 0) {
+                        prefs.edit().putInt("streak_current_days", 0).apply()
+                    }
+                    0
+                }
+                lastDate == today -> {
+                    val todayActivity = prefs.getInt("act_$today", 0).coerceAtLeast(0)
+                    when {
+                        storedCurrent > 0 -> storedCurrent
+                        todayActivity > 0 -> 1
+                        else -> 0
+                    }
+                }
+                lastDate == yesterday -> {
+                    val yesterdayActivity = prefs.getInt("act_$yesterday", 0).coerceAtLeast(0)
+                    when {
+                        storedCurrent > 0 -> storedCurrent
+                        yesterdayActivity > 0 -> 1
+                        else -> 0
+                    }
+                }
+                else -> {
+                    if (storedCurrent != 0) {
+                        prefs.edit().putInt("streak_current_days", 0).apply()
+                    }
+                    0
+                }
+            }
+
+            if (longestStreak < currentStreak) {
+                longestStreak = currentStreak
+                prefs.edit().putInt("streak_longest_days", longestStreak).apply()
+            }
+
+            _streakDays.value = currentStreak
+            _longestStreak.value = longestStreak
+            refreshWeeklyStatsLocked(today)
         }
-
-        if (longestStreak < currentStreak) {
-            longestStreak = currentStreak
-            prefs.edit().putInt("streak_longest_days", longestStreak).apply()
-        }
-
-        _streakDays.value = currentStreak
-        _longestStreak.value = longestStreak
-        refreshWeeklyStats()
     }
 
     fun recordDailyActivity(count: Int = 1) {
-        val today = getTodayDateStr()
-        val yesterday = getYesterdayDateStr()
-        val currentTodayCount = prefs.getInt("act_$today", 0)
-        prefs.edit().putInt("act_$today", currentTodayCount + count).apply()
+        if (count <= 0) return
+        synchronized(streakPrefsLock) {
+            val today = getTodayDateStr()
+            val yesterday = getYesterdayDateStr(today)
+            val currentTodayCount = prefs.getInt("act_$today", 0).coerceAtLeast(0)
 
-        val lastDate = prefs.getString("streak_last_active_date", null)
-        var currentStreak = prefs.getInt("streak_current_days", 1)
-        var longestStreak = prefs.getInt("streak_longest_days", 1)
+            val lastDate = prefs.getString("streak_last_active_date", null)?.trim()?.takeIf { it.isNotEmpty() }
+            val storedCurrent = prefs.getInt("streak_current_days", 0).coerceAtLeast(0)
+            var longestStreak = prefs.getInt("streak_longest_days", 0).coerceAtLeast(0)
 
-        if (lastDate == yesterday) {
-            currentStreak += 1
-        } else if (lastDate != null && lastDate != today) {
-            currentStreak = 1
+            val currentStreak = when (lastDate) {
+                today -> maxOf(storedCurrent, 1)
+                yesterday -> storedCurrent + 1
+                else -> 1
+            }
+
+            if (currentStreak > longestStreak) {
+                longestStreak = currentStreak
+            }
+
+            prefs.edit()
+                .putInt("act_$today", currentTodayCount + count)
+                .putString("streak_last_active_date", today)
+                .putInt("streak_current_days", currentStreak)
+                .putInt("streak_longest_days", longestStreak)
+                .apply()
+
+            _streakDays.value = currentStreak
+            _longestStreak.value = longestStreak
+            refreshWeeklyStatsLocked(today)
         }
-
-        if (currentStreak > longestStreak) {
-            longestStreak = currentStreak
-        }
-
-        prefs.edit()
-            .putString("streak_last_active_date", today)
-            .putInt("streak_current_days", currentStreak)
-            .putInt("streak_longest_days", longestStreak)
-            .apply()
-
-        _streakDays.value = currentStreak
-        _longestStreak.value = longestStreak
-        refreshWeeklyStats()
     }
 
     fun refreshWeeklyStats() {
+        synchronized(streakPrefsLock) {
+            refreshWeeklyStatsLocked(getTodayDateStr())
+        }
+    }
+
+    private fun refreshWeeklyStatsLocked(todayStr: String) {
         val list = mutableListOf<WeeklyDayStat>()
-        val cal = Calendar.getInstance()
+        val baseCal = calendarForDateKey(todayStr) ?: Calendar.getInstance()
         val sdf = DATE_FORMAT_THREAD_LOCAL.get()!!
-        val todayStr = sdf.format(cal.time)
+        sdf.timeZone = baseCal.timeZone
 
         for (i in 6 downTo 0) {
-            val dayCal = Calendar.getInstance()
-            dayCal.add(Calendar.DAY_OF_YEAR, -i)
+            val dayCal = (baseCal.clone() as Calendar).apply {
+                add(Calendar.DAY_OF_YEAR, -i)
+            }
             val dateStr = sdf.format(dayCal.time)
             val dayName = getDayOfWeekBn(dayCal)
-            val count = prefs.getInt("act_$dateStr", 0)
+            val count = prefs.getInt("act_$dateStr", 0).coerceAtLeast(0)
             list.add(
                 WeeklyDayStat(
                     dayNameBn = dayName,
@@ -5256,7 +5309,6 @@ class MathViewModel @JvmOverloads constructor(
                     targetAccuracyPercent = existing?.targetAccuracyPercent ?: 75
                 )
             )
-            recordDailyActivity(2)
         }
     }
 
@@ -5620,7 +5672,6 @@ class MathViewModel @JvmOverloads constructor(
         _selectedBookChapterNumber.value = chapterNumber
         _selectedBookLessonId.value = lessonId
         navigateTo(Screen.BookLesson)
-        recordDailyActivity(1)
     }
 
     @JvmOverloads

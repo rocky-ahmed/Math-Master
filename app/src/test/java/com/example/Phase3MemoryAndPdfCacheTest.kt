@@ -9,15 +9,19 @@ import android.os.Build
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -25,9 +29,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.db.MathDatabase
 import com.example.math.BookCurriculumRepository
 import com.example.math.BookId
 import com.example.math.BookInteractiveLabType
+import com.example.math.BookPracticeMode
+import com.example.math.BookSearchFilterType
 import com.example.math.Math3DEngine
 import com.example.math.OrbitCameraState
 import com.example.math.Solid3DShapeType
@@ -36,9 +43,15 @@ import com.example.ui.MathViewModel
 import com.example.ui.Screen
 import com.example.ui.components.Math3DStudioViewport
 import com.example.ui.components.glSurfaceViewFactoryForTesting
+import com.example.ui.screens.BookChapterOverviewScreen
 import com.example.ui.screens.BookDetailScreen
+import com.example.ui.screens.BookHubScreen
+import com.example.ui.screens.BookLessonScreen
 import com.example.ui.screens.BookPdfReaderScreen
 import com.example.ui.screens.BookPdfRenderCachePool
+import com.example.ui.screens.BookPracticeScreen
+import com.example.ui.screens.BookRevisionScreen
+import com.example.ui.screens.BookmarksScreen
 import com.example.ui.screens.MAX_PDF_CACHE_BYTES
 import com.example.ui.screens.MAX_PDF_CACHE_ENTRIES
 import com.example.ui.screens.computeSafeCacheBudgetBytes
@@ -95,6 +108,11 @@ class Phase3MemoryAndPdfCacheTest {
     @Before
     fun setUp() {
         app = ApplicationProvider.getApplicationContext()
+        app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        runBlocking(Dispatchers.IO) {
+            MathDatabase.getInstance(app).clearAllTables()
+        }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         File(app.cacheDir, "cached_${BookId.CLASS_6.id}.pdf").delete()
     }
 
@@ -102,6 +120,11 @@ class Phase3MemoryAndPdfCacheTest {
     fun tearDown() {
         glSurfaceViewFactoryForTesting = null
         ShadowBuild.reset()
+        app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()
+        runBlocking(Dispatchers.IO) {
+            MathDatabase.getInstance(app).clearAllTables()
+        }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         File(app.cacheDir, "cached_${BookId.CLASS_6.id}.pdf").delete()
     }
 
@@ -378,7 +401,14 @@ class Phase3MemoryAndPdfCacheTest {
             assertTrue(ch.titleBn.isNotBlank())
             assertTrue("Chapter ${ch.chapterNumber} must have lessons", ch.lessons.isNotEmpty())
             assertTrue("Chapter ${ch.chapterNumber} must have formulas", ch.formulas.isNotEmpty())
-            assertTrue("Chapter ${ch.chapterNumber} must have worked examples", ch.workedExamples.isNotEmpty())
+            if (ch.chapterNumber in setOf(7, 15)) {
+                assertTrue(
+                    "Geometry chapter ${ch.chapterNumber} must have theorems or constructions",
+                    ch.theoremsAndConstructions.isNotEmpty()
+                )
+            } else {
+                assertTrue("Chapter ${ch.chapterNumber} must have worked examples", ch.workedExamples.isNotEmpty())
+            }
             assertTrue(ch.printedPageStart in 1..BookId.CLASS_9_10.maxPrintedPage)
             assertTrue(ch.printedPageEnd in ch.printedPageStart..BookId.CLASS_9_10.maxPrintedPage)
 
@@ -523,5 +553,254 @@ class Phase3MemoryAndPdfCacheTest {
             composeTestRule.onAllNodesWithTag("book_pdf_unavailable_fallback_banner").fetchSemanticsNodes().size
         )
     }
+
+    private fun assertStructuredReaderWithoutPdfCanvas() {
+        composeTestRule.onNodeWithTag("reader_mode_structured_btn").assertIsSelected()
+        composeTestRule.onNodeWithTag("reader_mode_pdf_btn").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("reader_mode_pdf_btn").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("book_pdf_unavailable_fallback_banner").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("structured_textbook_page_card").assertIsDisplayed()
+        assertEquals(
+            "Broken or blank PDF canvas card must NEVER be displayed when PDF asset is absent",
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_rendered_page_card").fetchSemanticsNodes().size
+        )
+        assertEquals(
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_loading_box").fetchSemanticsNodes().size
+        )
+        assertEquals(
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_render_error_box").fetchSemanticsNodes().size
+        )
+    }
+
+    @Test
+    fun a07_chapterOverviewAndLessonPageActions_missingPdf_openStructuredReaderAndKeepPdfDisabled() {
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+        vm.updateBookReaderPreferences(BookId.CLASS_9_10, preferredViewMode = "PDF_BITMAP", zoomScale = 1.15f)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        val chapter9 = BookCurriculumRepository.getChapter(BookId.CLASS_9_10, 9)!!
+        val firstLesson = chapter9.lessons.first()
+
+        composeTestRule.setContent {
+            val activeScreen by vm.screenStack.collectAsStateWithLifecycle()
+            when (activeScreen.last()) {
+                is Screen.BookChapterOverview -> BookChapterOverviewScreen(viewModel = vm)
+                is Screen.BookLesson -> BookLessonScreen(viewModel = vm)
+                is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = vm)
+                else -> BookChapterOverviewScreen(viewModel = vm)
+            }
+        }
+
+        // 1. Chapter Overview page action with missing Class 9-10 PDF
+        composeTestRule.runOnUiThread {
+            vm.openBookChapter(BookId.CLASS_9_10, 9)
+        }
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        val chapterActionNode = composeTestRule.onNodeWithTag("chapter_overview_pdf_btn")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+        val chapterContentDesc = chapterActionNode.fetchSemanticsNode()
+            .config[SemanticsProperties.ContentDescription]
+            .joinToString(" ")
+        assertTrue(
+            "Chapter Overview action must truthfully indicate digital structured content when PDF is unavailable, was '$chapterContentDesc'",
+            chapterContentDesc.contains("ডিজিটাল পাঠ্যবই") && chapterContentDesc.contains("অনুপলব্ধ")
+        )
+
+        chapterActionNode.performClick()
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals(Screen.BookPdfReader, vm.currentScreen)
+        assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+        assertEquals(chapter9.printedPageStart, vm.selectedBookPrintedPage.value)
+        assertStructuredReaderWithoutPdfCanvas()
+
+        // 2. Lesson page action with missing Class 9-10 PDF
+        composeTestRule.runOnUiThread {
+            vm.openBookLesson(BookId.CLASS_9_10, 9, firstLesson.id)
+        }
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        val lessonActionNode = composeTestRule.onNodeWithTag("book_lesson_pdf_btn")
+            .assertIsDisplayed()
+            .assertIsEnabled()
+        val lessonContentDesc = lessonActionNode.fetchSemanticsNode()
+            .config[SemanticsProperties.ContentDescription]
+            .joinToString(" ")
+        assertTrue(
+            "Lesson page action must truthfully indicate digital structured content when PDF is unavailable, was '$lessonContentDesc'",
+            lessonContentDesc.contains("ডিজিটাল পাঠ্যবই") && lessonContentDesc.contains("অনুপলব্ধ")
+        )
+
+        lessonActionNode.performClick()
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals(Screen.BookPdfReader, vm.currentScreen)
+        assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+        assertEquals(firstLesson.printedPageStart, vm.selectedBookPrintedPage.value)
+        assertStructuredReaderWithoutPdfCanvas()
+    }
+
+    private fun assertDigitalBookSemantics(nodeTag: String, expectedTextSubstring: String? = null) {
+        val node = composeTestRule.onNodeWithTag(nodeTag)
+            .assertIsDisplayed()
+            .fetchSemanticsNode()
+        val contentDesc = node.config.getOrElse(SemanticsProperties.ContentDescription) { emptyList() }
+            .joinToString(" ")
+        assertTrue(
+            "Node '$nodeTag' must have truthful digital-book Bengali contentDescription, was '$contentDesc'",
+            contentDesc.contains("ডিজিটাল পাঠ্যবই") && contentDesc.contains("অনুপলব্ধ")
+        )
+        if (expectedTextSubstring != null) {
+            val text = node.config.getOrElse(SemanticsProperties.Text) { emptyList() }
+                .joinToString(" ") { it.text }
+            assertTrue(
+                "Node '$nodeTag' must display '$expectedTextSubstring', was '$text'",
+                text.contains(expectedTextSubstring)
+            )
+        }
+    }
+
+    @Test
+    fun a07_searchBookmarkAndPracticeRevisionPageRoutes_missingPdf_resolveSafelyThroughStructuredReader() {
+        val db = MathDatabase.getInstance(app)
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+        vm.updateBookReaderPreferences(BookId.CLASS_9_10, preferredViewMode = "PDF_BITMAP", zoomScale = 1.1f)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        val class910SearchResults = BookCurriculumRepository.searchAllBooks(
+            query = "ত্রিকোণমিতি",
+            filterType = BookSearchFilterType.CHAPTER,
+            bookFilter = BookId.CLASS_9_10
+        )
+        assertTrue("Expected Class 9-10 trigonometry search result", class910SearchResults.isNotEmpty())
+        val searchResult = class910SearchResults.first { it.bookId == BookId.CLASS_9_10 }
+        val targetBookmarkPage = 180
+
+        try {
+            composeTestRule.setContent {
+                val activeScreen by vm.screenStack.collectAsStateWithLifecycle()
+                when (activeScreen.last()) {
+                    is Screen.BookHub -> BookHubScreen(viewModel = vm)
+                    is Screen.BookDetail -> BookDetailScreen(viewModel = vm)
+                    is Screen.Bookmarks -> BookmarksScreen(viewModel = vm)
+                    is Screen.BookPractice -> BookPracticeScreen(viewModel = vm)
+                    is Screen.BookRevision -> BookRevisionScreen(viewModel = vm)
+                    is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = vm)
+                    else -> BookHubScreen(viewModel = vm)
+                }
+            }
+
+            // 1. Search result page route in BookHubScreen
+            composeTestRule.runOnUiThread {
+                vm.openBookHub()
+                vm.setBookSearchFilter(BookSearchFilterType.CHAPTER)
+                vm.setBookSearchQuery("ত্রিকোণমিতি")
+            }
+            composeTestRule.waitUntil(timeoutMillis = 5_000L) {
+                composeTestRule.onAllNodesWithTag("book_search_result_page_${searchResult.id}")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onNodeWithTag("book_search_result_page_${searchResult.id}")
+                .performScrollTo()
+                .assertIsDisplayed()
+                .assertIsEnabled()
+            assertDigitalBookSemantics("book_search_result_page_${searchResult.id}", "ডিজিটাল পৃষ্ঠা")
+            composeTestRule.onNodeWithTag("book_search_result_page_${searchResult.id}").performClick()
+            composeTestRule.waitForIdle()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+            assertEquals(Screen.BookPdfReader, vm.currentScreen)
+            assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+            assertEquals(searchResult.printedPage, vm.selectedBookPrintedPage.value)
+            assertStructuredReaderWithoutPdfCanvas()
+
+            // 2. Bookmark page route (BookmarksScreen)
+            composeTestRule.runOnUiThread {
+                vm.toggleBookReaderPageBookmark(BookId.CLASS_9_10, targetBookmarkPage)
+                vm.navigateTo(Screen.Bookmarks)
+            }
+            composeTestRule.waitUntil(timeoutMillis = 5_000L) {
+                composeTestRule.onAllNodesWithTag("bookmark_item_book_page_class_9_10_$targetBookmarkPage")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onNodeWithTag("bookmark_item_book_page_class_9_10_$targetBookmarkPage")
+                .performScrollTo()
+                .assertIsDisplayed()
+            assertDigitalBookSemantics("bookmark_item_book_page_class_9_10_$targetBookmarkPage", "ডিজিটাল পাঠ্যবই পৃষ্ঠা")
+            composeTestRule.onNodeWithTag("bookmark_item_book_page_class_9_10_$targetBookmarkPage").performClick()
+            composeTestRule.waitForIdle()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+            assertEquals(Screen.BookPdfReader, vm.currentScreen)
+            assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+            assertEquals(targetBookmarkPage, vm.selectedBookPrintedPage.value)
+            assertStructuredReaderWithoutPdfCanvas()
+
+            // 3. Revision & Practice page routes (BookRevisionScreen Tab 3 + BookPracticeScreen + BookDetailScreen chapter chip)
+            composeTestRule.runOnUiThread {
+                vm.openBookRevision(BookId.CLASS_9_10)
+            }
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("revision_tab_3").performScrollTo().performClick()
+            composeTestRule.waitUntil(timeoutMillis = 5_000L) {
+                composeTestRule.onAllNodesWithTag("revision_bookmarked_page_class_9_10_$targetBookmarkPage")
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeTestRule.onNodeWithTag("revision_bookmarked_page_class_9_10_$targetBookmarkPage")
+                .performScrollTo()
+                .assertIsDisplayed()
+            assertDigitalBookSemantics("revision_bookmarked_page_class_9_10_$targetBookmarkPage", "ডিজিটাল পাঠ্যবই কনটেন্ট")
+            composeTestRule.onNodeWithTag("revision_bookmarked_page_class_9_10_$targetBookmarkPage").performClick()
+            composeTestRule.waitForIdle()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+            assertEquals(Screen.BookPdfReader, vm.currentScreen)
+            assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+            assertEquals(targetBookmarkPage, vm.selectedBookPrintedPage.value)
+            assertStructuredReaderWithoutPdfCanvas()
+
+            // Verify BookPracticeScreen for Class 9-10 renders safely and BookDetailScreen chapter page chip routes safely
+            composeTestRule.runOnUiThread {
+                vm.startBookPractice(BookId.CLASS_9_10, chapterNumber = 9, mode = BookPracticeMode.STANDARD)
+            }
+            composeTestRule.waitForIdle()
+            assertEquals(Screen.BookPractice, vm.currentScreen)
+            composeTestRule.onNodeWithTag("book_practice_question_card").assertIsDisplayed()
+
+            composeTestRule.runOnUiThread {
+                vm.openBookDetail(BookId.CLASS_9_10)
+            }
+            composeTestRule.waitForIdle()
+            composeTestRule.onNodeWithTag("book_detail_chapter_list")
+                .performScrollToNode(hasTestTag("chapter_page_chip_class_9_10_1"))
+            assertDigitalBookSemantics("chapter_page_chip_class_9_10_1", "ডিজিটাল পৃষ্ঠা")
+            composeTestRule.onNodeWithTag("chapter_page_chip_class_9_10_1")
+                .assertIsDisplayed()
+                .assertIsEnabled()
+                .performClick()
+            composeTestRule.waitForIdle()
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+            assertEquals(Screen.BookPdfReader, vm.currentScreen)
+            assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+            assertStructuredReaderWithoutPdfCanvas()
+        } finally {
+            runBlocking(Dispatchers.IO) {
+                db.mathDao().deleteBookmarkById("book_page_class_9_10_$targetBookmarkPage")
+            }
+            vm.setBookSearchQuery("")
+            vm.setBookSearchFilter(BookSearchFilterType.ALL)
+        }
+    }
 }
+
 

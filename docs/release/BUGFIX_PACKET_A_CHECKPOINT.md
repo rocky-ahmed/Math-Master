@@ -2,8 +2,8 @@
 
 **Project**: Math Master (`com.aistudio.applet.ghqqzu` / `com.example`)  
 **Workspace**: `/app/applet`  
-**Packet Status**: In Progress — **Tasks `A-01`, `A-02`, `A-03`, `A-04`, `A-05`, and `A-06` Completed & Verified** (`14 / 14` passed in `Phase1ValidationAndIntegrityUnitTest`; `9 / 9` passed in `Phase3DatabaseTransactionAndHistoryTest`; `15 / 15` passed in `Phase4Wp41IntegrityRegressionTest`)  
-**Last Updated**: `2026-11-25T18:45:30Z`
+**Packet Status**: **CLOSED** — **Tasks `A-01`, `A-02`, `A-03`, `A-04`, `A-05`, `A-06`, and `A-07` (Safe Fallback & UI Hardening) Completed & Verified** (`14 / 14` passed in `Phase1ValidationAndIntegrityUnitTest`; `9 / 9` passed in `Phase3DatabaseTransactionAndHistoryTest`; `15 / 15` passed in `Phase4Wp41IntegrityRegressionTest`; `8 / 8` passed in `Phase3MemoryAndPdfCacheTest`; `5 / 5` passed in `PrincipalAuditBug94To97RegressionTest`). Note: Original `class_9_10.pdf` asset remains **BLOCKED / UNAVAILABLE** (3 offline PDFs bundled for Classes 6–8; structured digital content available for all 4 books).  
+**Last Updated**: `2026-11-26T09:35:00Z`
 
 ---
 
@@ -17,7 +17,7 @@
 | **`A-04`** | `F4-05A` | `MathRepository.recordBcsTopicProgress` unlocked RMW concurrency | `CONFIRMED OPEN` | **IMPLEMENTED AND VERIFIED** |
 | **`A-05`** | `F4-05C` | Practice Lab / Mental Math / Number System / Book Practice split completion writes | `CONFIRMED OPEN` | **IMPLEMENTED AND VERIFIED** |
 | **`A-06`** | `F4-06` | `MathViewModel.finishQuizSession` immediate-feedback correct-answer guard & in-flight submit coordination | `CONFIRMED OPEN` | **IMPLEMENTED AND VERIFIED** |
-| **`A-07`** | `PDF-9-10` | Missing `app/src/main/assets/books/class_9_10.pdf` recovery / safe Bengali fallback | `CONFIRMED OPEN / BLOCKED ASSET` | Pending (`A-07`) |
+| **`A-07`** | `PDF-9-10` | Missing `app/src/main/assets/books/class_9_10.pdf` detection, centralized Bengali structured fallback & entry-point accessibility hardening | `CONFIRMED OPEN / BLOCKED ASSET` | **FALLBACK IMPLEMENTED AND VERIFIED (ORIGINAL PDF BLOCKED)** |
 
 ### Protected Baseline Implementations Verified Intact (Unmodified)
 - **`F4-01`**: Number System CAS completion/progression guard (`MathViewModel.kt:4433–4493`) — **ALREADY FIXED & PRESERVED**.
@@ -365,6 +365,59 @@ Added three comprehensive regression test methods to `app/src/test/java/com/exam
 
 ---
 
-## 8. Remaining Limitations for Packet A
-- Tasks `A-01`, `A-02`, `A-03`, `A-04`, `A-05`, and `A-06` are implemented and verified. Task `A-07` remains in progress.
+## 8. Task `A-07` — Missing Class 9–10 PDF Detection, Centralized Safe Bengali Fallback & Entry-Point Accessibility Hardening
 
+### 8.1 Original PDF Asset Status & Blocker
+- **Present Offline PDFs (3 Books Only)**:
+  - `app/src/main/assets/books/class_6.pdf`: `5,372,426` bytes (present & valid `%PDF-` header)
+  - `app/src/main/assets/books/class_7.pdf`: `6,391,697` bytes (present & valid `%PDF-` header)
+  - `app/src/main/assets/books/class_8.pdf`: `6,459,157` bytes (present & valid `%PDF-` header)
+- **Missing / Blocked Offline PDF Asset (Class 9–10)**:
+  - `app/src/main/assets/books/class_9_10.pdf` is **UNAVAILABLE** on disk and **not fabricated or substituted**.
+  - Expected verified asset specification:
+    - **Size**: `12,969,807` bytes
+    - **SHA-256**: `df1cbcf4f4451de94e3a57b7fbed3cf94fd4dbe031a571b85999a9591d2d65c0`
+    - **Pages**: `362`
+  - **Feature Status**: Offline PDF rendering for Class 9–10 remains explicitly **BLOCKED** (3-PDF offline support only; four-PDF support is NOT claimed). All **17 structured Class 9–10 chapters** (lessons, formulas, worked examples, geometry theorems/constructions, and practice) remain fully available offline.
+
+### 8.2 Centralized Fallback & UI Accessibility Refinements
+- **Authoritative Centralized Fallback (`BookReaderAndLabsScreens.kt`)**:
+  - `isOfflinePdfAssetAvailable`, `getBookPdfAvailabilityStatus`, `resolveOfflinePdfFile`, and `renderPdfPageWithAutoRecovery` detect missing Class 9–10 PDF without crashing.
+  - `BookPdfReaderScreen` intercepts even pre-seeded `preferredViewMode = "PDF_BITMAP"` preferences when `!isPdfAvailable`, forces `"STRUCTURED"` mode, keeps `reader_mode_pdf_btn` disabled and unselected, displays the Bengali availability notice (`book_pdf_unavailable_fallback_banner`), renders `structured_textbook_page_card`, and never displays `pdf_rendered_page_card`, `pdf_loading_box`, or `pdf_render_error_box`.
+- **Entry-Point UI & Accessibility Refinements**:
+  1. `app/src/main/java/com/example/ui/screens/BookHubAndDetailScreens.kt`:
+     - `BookCoverCard` (`btn_pdf_book_${book.id}` and header page summary badge): switches to `Icons.AutoMirrored.Filled.MenuBook`, `"ডিজিটাল বই"`, `"ডিজিটাল পৃষ্ঠা"` count, and truthful Bengali `contentDescription` (`"ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"`) when PDF is unavailable.
+     - `BookSearchResultCard` (`book_search_result_page_${result.id}`): displays `Icons.AutoMirrored.Filled.MenuBook`, `"ডিজিটাল পৃষ্ঠা ..."` label, and truthful Bengali `contentDescription` when PDF is unavailable while preserving navigation to `BookPdfReaderScreen`.
+     - `BookDetailScreen` (`chapter_page_chip_${bookId.id}_${chapter.chapterNumber}`, `book_detail_resume_pdf_btn`, and disabled `book_detail_pdf_btn`): uses digital-book icon, `"ডিজিটাল পৃষ্ঠা ..."` label, and truthful Bengali `contentDescription` while keeping `book_detail_pdf_btn` disabled and preserving structured reader navigation.
+     - `BookChapterOverviewScreen` (`chapter_overview_pdf_btn` and subtitle): switches to `Icons.AutoMirrored.Filled.MenuBook` and truthful Bengali `contentDescription` (`"ডিজিটাল পাঠ্যবই কনটেন্টে দেখুন (মূল PDF অনুপলব্ধ)"`) while preserving navigation into structured `BookPdfReaderScreen`.
+     - `BookLessonScreen` (`book_lesson_pdf_btn` and subtitle): switches to `Icons.AutoMirrored.Filled.MenuBook` and truthful Bengali `contentDescription` (`"ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"`) while preserving navigation into structured `BookPdfReaderScreen`.
+  2. `app/src/main/java/com/example/ui/screens/BookmarksAndTutorScreens.kt`:
+     - `BookmarksScreen` (`BOOK_PAGE` items): uses `Icons.AutoMirrored.Filled.MenuBook`, truthful Bengali `contentDescription` (`"ডিজিটাল পাঠ্যবই কনটেন্ট খুলুন (মূল PDF অনুপলব্ধ)"`), and structured digital-page detail text when the book's PDF is unavailable, preserving navigation to `BookPdfReaderScreen`.
+  3. `app/src/main/java/com/example/ui/screens/BookPracticeAndRevisionScreens.kt`:
+     - `BookRevisionScreen` Tab 3 (`revision_bookmarked_page_${bId.id}_$page`): uses `Icons.AutoMirrored.Filled.MenuBook`, `"ডিজিটাল পাঠ্যবই কনটেন্ট (মূল PDF অনুপলব্ধ)"` subtitle, and truthful Bengali `contentDescription` when the book's PDF is unavailable, preserving navigation to `BookPdfReaderScreen`.
+
+### 8.3 Regression Tests Verified (`app/src/test/java/com/example/Phase3MemoryAndPdfCacheTest.kt`)
+1. `a07_pdfResolverAndCurriculumIntegrity_class6To8Available_class910MissingDetected_all17ChaptersIntact` (isolated DB/prefs setup; accurately asserts worked examples for algebraic/applied chapters and theorems/constructions for geometry chapters 7 & 15)
+2. `a07_class910BookDetailAndReader_gracefulBengaliFallback_pdfActionsDisabled_structuredNavigationIntact`
+3. `a07_chapterOverviewAndLessonPageActions_missingPdf_openStructuredReaderAndKeepPdfDisabled` *(new)*
+4. `a07_searchBookmarkAndPracticeRevisionPageRoutes_missingPdf_resolveSafelyThroughStructuredReader` *(new)*
+
+### 8.4 Exact Test Commands & Fresh JUnit XML Evidence
+- **Sequential & Combined Gradle Verification Runs**:
+  - `gradle :app:testDebugUnitTest --tests com.example.Phase3MemoryAndPdfCacheTest` -> `BUILD SUCCESSFUL` (`8 / 8` passed)
+  - `gradle :app:testDebugUnitTest --tests com.example.PrincipalAuditBug94To97RegressionTest` -> `BUILD SUCCESSFUL` (`5 / 5` passed)
+  - `gradle :app:testDebugUnitTest --tests com.example.Phase3MemoryAndPdfCacheTest --tests com.example.PrincipalAuditBug94To97RegressionTest` -> `BUILD SUCCESSFUL` (retains both fresh XML reports simultaneously)
+- **JUnit XML Report 1**: `app/build/test-results/testDebugUnitTest/TEST-com.example.Phase3MemoryAndPdfCacheTest.xml`
+  - **XML Timestamp**: `2026-11-26T09:34:12.040Z` (file mtime `2026-11-26T09:34:35.067Z` — strictly newer than all source edits `09:20:53Z`–`09:29:35Z`)
+  - **Executed**: `8` | **Passed**: `8` | **Failed**: `0` | **Errors**: `0` | **Skipped**: `0`
+- **JUnit XML Report 2**: `app/build/test-results/testDebugUnitTest/TEST-com.example.PrincipalAuditBug94To97RegressionTest.xml`
+  - **XML Timestamp**: `2026-11-26T09:34:33.011Z` (file mtime `2026-11-26T09:34:35.067Z` — strictly newer than all source edits)
+  - **Executed**: `5` | **Passed**: `5` | **Failed**: `0` | **Errors**: `0` | **Skipped**: `0`
+
+---
+
+## 9. Packet A Closure & Verification Distinction
+- **Fallback implementation verified**: Yes — `A-01` through `A-07` software fixes, UI accessibility refinements, and all fallback/alternative navigation regression tests passed on JVM/Robolectric with fresh XML evidence.
+- **Original Class 9–10 PDF unavailable**: Yes — `app/src/main/assets/books/class_9_10.pdf` (`12,969,807` bytes, SHA-256 `df1cbcf4f4451de94e3a57b7fbed3cf94fd4dbe031a571b85999a9591d2d65c0`, `362` pages) remains missing; offline PDF rendering for Class 9–10 remains explicitly **BLOCKED** (3-PDF offline support for Classes 6–8 only; all 17 Class 9–10 structured digital chapters remain available).
+- **Physical-device validation not performed**: Yes — all verification in this environment ran under local JVM / Robolectric + Compose UI tests (`No Android Emulator or ADB available`).
+- **Packet A Status**: **CLOSED** (all Packet A software defects `A-01` through `A-07` resolved and verified; `BCS-GC-02`, Study Timer production code, and Room migrations untouched).

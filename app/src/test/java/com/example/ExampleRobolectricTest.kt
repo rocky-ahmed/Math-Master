@@ -154,9 +154,10 @@ class ExampleRobolectricTest {
     @Test
     fun `verify math viewmodel creation and streak initialization`() {
         val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        app.getSharedPreferences("math_master_prefs", Context.MODE_PRIVATE).edit().clear().commit()
         val viewModel = com.example.ui.MathViewModel(app)
-        assertTrue(viewModel.streakDays.value >= 1)
-        assertTrue(viewModel.longestStreak.value >= 1)
+        assertEquals(0, viewModel.streakDays.value)
+        assertEquals(0, viewModel.longestStreak.value)
         assertEquals(7, viewModel.weeklyActivities.value.size)
         assertEquals(com.example.ui.Screen.Home, viewModel.currentScreen)
     }
