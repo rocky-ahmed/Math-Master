@@ -542,7 +542,8 @@ data class BookPracticeQuestion(
     val stepByStepSolutionBn: List<String>,
     val explanationBn: String,
     val diagramTag: String? = null,
-    val sourcePrintedPage: Int? = null
+    val sourcePrintedPage: Int? = null,
+    val acceptedRoundingDecimalPlaces: Int? = null
 )
 
 data class BookPracticeSessionState(
@@ -563,7 +564,8 @@ data class BookPracticeSessionState(
     val answeredResults: Map<Int, Boolean> = emptyMap(),
     val selectedOptionsByIndex: Map<Int, Set<Int>> = emptyMap(),
     val userTextInputsByIndex: Map<Int, String> = emptyMap(),
-    val sessionStartEpochMs: Long = System.currentTimeMillis()
+    val sessionStartEpochMs: Long = System.currentTimeMillis(),
+    val sessionId: String = java.util.UUID.randomUUID().toString()
 ) {
     val currentQuestion: BookPracticeQuestion?
         get() = questions.getOrNull(currentIndex)

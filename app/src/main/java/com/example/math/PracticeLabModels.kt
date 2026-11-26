@@ -241,7 +241,8 @@ data class PracticeSessionState(
     val userTextAnswers: Map<Int, String> = emptyMap(),
     val questionOutcomes: Map<Int, Boolean> = emptyMap(),
     val isFinished: Boolean = false,
-    val isReviewMode: Boolean = false
+    val isReviewMode: Boolean = false,
+    val sessionId: String = java.util.UUID.randomUUID().toString()
 ) {
     val incorrectQuestions: List<PracticeQuestion>
         get() = questions.filterIndexed { index, q ->

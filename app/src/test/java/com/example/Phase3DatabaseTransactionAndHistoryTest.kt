@@ -28,7 +28,11 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -66,6 +70,7 @@ class Phase3DatabaseTransactionAndHistoryTest {
         runCatching { db.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS abort_session_after_partial_writes") }
         runCatching { db.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS abort_book_mistake_partial_writes") }
         runCatching { db.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS abort_bcs_mistake_partial_writes") }
+        runCatching { db.openHelper.writableDatabase.execSQL("DROP TRIGGER IF EXISTS abort_a05_after_quiz_score") }
         db.close()
     }
 
@@ -707,4 +712,716 @@ class Phase3DatabaseTransactionAndHistoryTest {
         assertEquals(650, dashboardData.kpiSummary.totalExamsCompleted)
         assertEquals(27, dashboardData.kpiSummary.learnedItemsCount)
     }
+
+    // -----------------------------------------------------------------
+    // A-04: BCS TOPIC PROGRESS CONCURRENCY & TRANSACTIONAL INTEGRITY
+    // -----------------------------------------------------------------
+    @Test
+    fun a04_recordBcsTopicProgress_concurrentUpdatesSameTopicAndProfilePreserveAllAccumulations(): Unit = runBlocking {
+        // Ensure Room schema is initialized before concurrent worker threads hit the transaction executor
+        db.openHelper.writableDatabase
+
+        val baseTimeMs = 1_710_000_000_000L
+        val workerCount = 12
+        val startLatch = java.util.concurrent.CountDownLatch(1)
+        val readyLatch = java.util.concurrent.CountDownLatch(workerCount)
+        val pool = Executors.newFixedThreadPool(workerCount)
+        val dispatcher = pool.asCoroutineDispatcher()
+
+        try {
+            val deferreds = (1..workerCount).map { idx ->
+                async(dispatcher) {
+                    readyLatch.countDown()
+                    assertTrue(
+                        "Workers must reach start barrier within timeout",
+                        startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    )
+                    repository.recordBcsTopicProgress(
+                        topicId = "bcs_math_real_numbers",
+                        subjectTrack = "MATH_REASONING",
+                        isGuideCompleted = idx == 5, // Only 1 worker marks guide completed
+                        miniCheckPassed = idx == 9, // Only 1 worker marks mini-check passed
+                        additionalTimeSeconds = 15,
+                        questionsAttemptedDelta = 2,
+                        questionsCorrectDelta = if (idx % 2 == 0) 2 else 1,
+                        examProfileId = "BCS_50TH_PRELIM_2025",
+                        nowMs = baseTimeMs + idx * 100L
+                    )
+                }
+            }
+            assertTrue(
+                "All concurrent workers must be ready before release",
+                readyLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            )
+            startLatch.countDown()
+            deferreds.awaitAll()
+
+            // Expected accumulated totals across 12 concurrent updates:
+            // - attempted = 12 * 2 = 24
+            // - correct = 6 * 2 + 6 * 1 = 18 (75% accuracy)
+            // - totalTimeSeconds = 12 * 15 = 180
+            // - isGuideCompleted = true (preserved once true even when subsequent workers pass false)
+            // - miniCheckPassed = true (preserved once true even when subsequent workers pass false)
+            // - masteryPercent = ((75 + 100) / 2).coerceIn(60, 100) = 87
+            // - lastStudiedAt = max timestamp = baseTimeMs + 1200L
+            val saved = dao.getBcsTopicProgressById("bcs_math_real_numbers")
+            assertNotNull("Default profile row must exist under canonical topicId", saved)
+            assertEquals(24, saved?.questionsAttempted)
+            assertEquals(18, saved?.questionsCorrect)
+            assertEquals(180, saved?.totalTimeSeconds)
+            assertEquals(true, saved?.isGuideCompleted)
+            assertEquals(true, saved?.miniCheckPassed)
+            assertEquals(87, saved?.masteryPercent)
+            assertEquals(baseTimeMs + 1200L, saved?.lastStudiedAt)
+            assertEquals("BCS_50TH_PRELIM_2025", saved?.examProfileId)
+        } finally {
+            startLatch.countDown()
+            runCatching { dispatcher.close() }
+            pool.shutdownNow()
+        }
+    }
+
+    @Test
+    fun a04_recordBcsTopicProgress_concurrentMultiProfileMultiTopicIsolationAndDatabaseRecreationPersistence(): Unit = runBlocking {
+        val dbFile = java.io.File(app.cacheDir, "a04_bcs_topic_concurrency_persistence.db")
+        val dbWalFile = java.io.File(app.cacheDir, "a04_bcs_topic_concurrency_persistence.db-wal")
+        val dbShmFile = java.io.File(app.cacheDir, "a04_bcs_topic_concurrency_persistence.db-shm")
+        if (dbFile.exists()) dbFile.delete()
+        if (dbWalFile.exists()) dbWalFile.delete()
+        if (dbShmFile.exists()) dbShmFile.delete()
+
+        val baseTimeMs = 1_720_000_000_000L
+        val perGroupWorkers = 4
+        val totalWorkers = perGroupWorkers * 3
+        val pool = Executors.newFixedThreadPool(totalWorkers)
+        val dispatcher = pool.asCoroutineDispatcher()
+
+        val profile50 = "BCS_50TH_PRELIM_2025"
+        val profile51 = "BCS_51ST_SPECIAL"
+        val profileWritten = "BCS_WRITTEN_008_MATH"
+
+        val topicReal = "bcs_math_real_numbers"
+        val topicAlgebra = "bcs_math_algebra"
+
+        try {
+            val fileDb1 = Room.databaseBuilder(app, MathDatabase::class.java, dbFile.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                // Warm up SQLite schema before releasing 12 concurrent worker threads
+                fileDb1.openHelper.writableDatabase
+                val repo1 = MathRepository(fileDb1.mathDao())
+                val readyLatch = java.util.concurrent.CountDownLatch(totalWorkers)
+                val startLatch = java.util.concurrent.CountDownLatch(1)
+
+                val deferreds = mutableListOf<kotlinx.coroutines.Deferred<Unit>>()
+
+                try {
+                    // Group 1: Profile 50, topicReal (also passing scoped prefix in half the calls to test canonicalization)
+                    for (i in 1..perGroupWorkers) {
+                        deferreds += async(dispatcher) {
+                            readyLatch.countDown()
+                            assertTrue(
+                                "Group 1 worker must reach start barrier within timeout",
+                                startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                            )
+                            val inputTopic = if (i % 2 == 0) "$profile50::$topicReal" else topicReal
+                            repo1.recordBcsTopicProgress(
+                                topicId = inputTopic,
+                                subjectTrack = "MATH_REASONING",
+                                isGuideCompleted = i == 1,
+                                miniCheckPassed = false,
+                                additionalTimeSeconds = 20,
+                                questionsAttemptedDelta = 3,
+                                questionsCorrectDelta = 2,
+                                examProfileId = profile50,
+                                nowMs = baseTimeMs + i * 10L
+                            )
+                        }
+                    }
+
+                    // Group 2: Profile 51, SAME topicReal (must be isolated under BCS_51ST_SPECIAL::bcs_math_real_numbers)
+                    for (i in 1..perGroupWorkers) {
+                        deferreds += async(dispatcher) {
+                            readyLatch.countDown()
+                            assertTrue(
+                                "Group 2 worker must reach start barrier within timeout",
+                                startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                            )
+                            repo1.recordBcsTopicProgress(
+                                topicId = topicReal,
+                                subjectTrack = "MATH_REASONING",
+                                isGuideCompleted = false,
+                                miniCheckPassed = i == 2, // 1 worker passes mini-check with 0 explicit delta -> +1/+1
+                                additionalTimeSeconds = 30,
+                                questionsAttemptedDelta = if (i == 2) 0 else 4,
+                                questionsCorrectDelta = if (i == 2) 0 else 3,
+                                examProfileId = profile51,
+                                nowMs = baseTimeMs + 1000L + i * 10L
+                            )
+                        }
+                    }
+
+                    // Group 3: Profile Written, different topicAlgebra
+                    for (i in 1..perGroupWorkers) {
+                        deferreds += async(dispatcher) {
+                            readyLatch.countDown()
+                            assertTrue(
+                                "Group 3 worker must reach start barrier within timeout",
+                                startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                            )
+                            repo1.recordBcsTopicProgress(
+                                topicId = topicAlgebra,
+                                subjectTrack = "MENTAL_ABILITY",
+                                isGuideCompleted = i == 3,
+                                miniCheckPassed = i == 4,
+                                additionalTimeSeconds = 25,
+                                questionsAttemptedDelta = 5,
+                                questionsCorrectDelta = 5,
+                                examProfileId = profileWritten,
+                                nowMs = baseTimeMs + 2000L + i * 10L
+                            )
+                        }
+                    }
+
+                    assertTrue(
+                        "All 12 workers across 3 profiles must be ready before release",
+                        readyLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    )
+                    startLatch.countDown()
+                    deferreds.awaitAll()
+                } finally {
+                    startLatch.countDown()
+                }
+            } finally {
+                fileDb1.close()
+            }
+
+            // Re-open fresh Room database & repository instance from disk to verify durable persistence
+            val fileDb2 = Room.databaseBuilder(app, MathDatabase::class.java, dbFile.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                val dao2 = fileDb2.mathDao()
+                val repo2 = MathRepository(dao2)
+
+                val allRows = repo2.allBcsTopicProgress.first()
+                assertEquals("Must persist exactly 3 distinct profile-scoped topic rows without duplicates", 3, allRows.size)
+
+                // Verify Group 1 (Profile 50, topicReal): 4 workers * (+3 attempted, +2 correct, +20s)
+                val row50Real = dao2.getBcsTopicProgressById(topicReal)
+                assertNotNull(row50Real)
+                assertEquals(12, row50Real?.questionsAttempted)
+                assertEquals(8, row50Real?.questionsCorrect)
+                assertEquals(80, row50Real?.totalTimeSeconds)
+                assertEquals(true, row50Real?.isGuideCompleted)
+                assertEquals(false, row50Real?.miniCheckPassed)
+                assertEquals(75, row50Real?.masteryPercent) // guideDone=true, checkDone=false -> max(75, 66) = 75
+                assertEquals(profile50, row50Real?.examProfileId)
+
+                // Verify Group 2 (Profile 51, topicReal)
+                val key51Real = BcsTopicProgressEntity.buildScopedKey(profile51, topicReal)
+                val row51Real = dao2.getBcsTopicProgressById(key51Real)
+                assertNotNull(row51Real)
+                // 3 workers with +4/+3 and 1 worker with miniCheckPassed=true (+1/+1) -> 13 attempted, 10 correct
+                assertEquals(13, row51Real?.questionsAttempted)
+                assertEquals(10, row51Real?.questionsCorrect)
+                assertEquals(120, row51Real?.totalTimeSeconds)
+                assertEquals(false, row51Real?.isGuideCompleted)
+                assertEquals(true, row51Real?.miniCheckPassed)
+                assertEquals(profile51, row51Real?.examProfileId)
+
+                // Verify Group 3 (Profile Written, topicAlgebra): 4 workers * (+5 attempted, +5 correct, +25s)
+                val keyWrittenAlg = BcsTopicProgressEntity.buildScopedKey(profileWritten, topicAlgebra)
+                val rowWrittenAlg = dao2.getBcsTopicProgressById(keyWrittenAlg)
+                assertNotNull(rowWrittenAlg)
+                assertEquals(20, rowWrittenAlg?.questionsAttempted)
+                assertEquals(20, rowWrittenAlg?.questionsCorrect)
+                assertEquals(100, rowWrittenAlg?.totalTimeSeconds)
+                assertEquals(true, rowWrittenAlg?.isGuideCompleted)
+                assertEquals(true, rowWrittenAlg?.miniCheckPassed)
+                assertEquals(100, rowWrittenAlg?.masteryPercent)
+                assertEquals("MENTAL_ABILITY", rowWrittenAlg?.subjectTrack)
+
+                // Verify repeated guide-completion call on existing row is idempotent for completion flags
+                // and preserves existing questionsAttempted, questionsCorrect, and subjectTrack
+                repo2.recordBcsTopicProgress(
+                    topicId = topicReal,
+                    subjectTrack = "",
+                    isGuideCompleted = false,
+                    miniCheckPassed = false,
+                    additionalTimeSeconds = 10,
+                    questionsAttemptedDelta = 0,
+                    questionsCorrectDelta = 0,
+                    examProfileId = profile50,
+                    nowMs = baseTimeMs + 20L // Older timestamp must not regress lastStudiedAt (max was baseTimeMs + 40L)
+                )
+                val afterRepeat = dao2.getBcsTopicProgressById(topicReal)
+                assertEquals(12, afterRepeat?.questionsAttempted)
+                assertEquals(8, afterRepeat?.questionsCorrect)
+                assertEquals(90, afterRepeat?.totalTimeSeconds)
+                assertEquals(true, afterRepeat?.isGuideCompleted)
+                assertEquals("MATH_REASONING", afterRepeat?.subjectTrack)
+                assertEquals(baseTimeMs + 40L, afterRepeat?.lastStudiedAt)
+            } finally {
+                fileDb2.close()
+            }
+        } finally {
+            runCatching { dispatcher.close() }
+            pool.shutdownNow()
+            runCatching { dbFile.delete() }
+            runCatching { dbWalFile.delete() }
+            runCatching { dbShmFile.delete() }
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // A-05: ATOMIC PRACTICE SESSION COMPLETION & IDEMPOTENCY (4 MODULES)
+    // -----------------------------------------------------------------
+    @Test
+    fun a05_completePracticeSessionAtomically_allFourModulesPersistScoreHistoryAnalyticsAndRollbackCleanlyOnMidTransactionFailure(): Unit = runBlocking {
+        val nowMs = 1_730_000_000_000L
+        val dateKey = MathRepository.todayDateKey(nowMs)
+        val wdb = db.openHelper.writableDatabase
+
+        // 1. Install SQLite trigger on daily_study_activity (the final write in completePracticeSessionTransaction)
+        // so that insertQuizScore, upsertProgress, insertPracticeHistory, and upsertTopicAnalytics execute first
+        // and must ALL roll back when daily_study_activity aborts.
+        wdb.execSQL(
+            """
+            CREATE TRIGGER abort_a05_after_quiz_score
+            BEFORE INSERT ON daily_study_activity
+            BEGIN
+                SELECT RAISE(ABORT, 'A-05 mid-transaction failure after quiz_score and progress writes');
+            END;
+            """.trimIndent()
+        )
+
+        val moduleConfigs = listOf<suspend () -> Boolean>(
+            // Practice Lab
+            {
+                repository.completePracticeSessionAtomically(
+                    sessionId = "a05_pl_1",
+                    quizScoreTopicId = "PRACTICE_fractions_easy",
+                    quizScoreTitleBn = "প্র্যাকটিস: ভগ্নাংশ (সহজ)",
+                    quizScoreValue = 8,
+                    totalQuestions = 10,
+                    percentage = 80,
+                    learnedProgressItemId = "practice_fractions",
+                    moduleType = "PRACTICE_LAB",
+                    categoryId = "fractions",
+                    categoryTitleBn = "ভগ্নাংশ",
+                    difficulty = "easy",
+                    mode = "fixed",
+                    inputFormat = "mcq",
+                    sessionScore = 80,
+                    correctCount = 8,
+                    wrongCount = 2,
+                    durationSeconds = 45L,
+                    highestStreak = 5,
+                    nowMs = nowMs
+                )
+            },
+            // Mental Math
+            {
+                repository.completePracticeSessionAtomically(
+                    sessionId = "a05_mm_1",
+                    quizScoreTopicId = "MENTAL_MATH_addition_medium",
+                    quizScoreTitleBn = "মেন্টাল ম্যাথ: যোগ (মধ্যম)",
+                    quizScoreValue = 145,
+                    totalQuestions = 10,
+                    percentage = 90,
+                    learnedProgressItemId = "mental_math_addition",
+                    moduleType = "MENTAL_MATH",
+                    categoryId = "addition",
+                    categoryTitleBn = "যোগ",
+                    difficulty = "medium",
+                    mode = "timed_sprint",
+                    inputFormat = "keypad",
+                    sessionScore = 145,
+                    correctCount = 9,
+                    wrongCount = 1,
+                    durationSeconds = 60L,
+                    highestStreak = 7,
+                    nowMs = nowMs + 100L
+                )
+            },
+            // Number System
+            {
+                repository.completePracticeSessionAtomically(
+                    sessionId = "a05_ns_1",
+                    quizScoreTopicId = "NUMBER_SYSTEM",
+                    quizScoreTitleBn = "বাস্তব সংখ্যা ও বিভাজ্যতা (কঠিন)",
+                    quizScoreValue = 7,
+                    totalQuestions = 10,
+                    percentage = 70,
+                    learnedProgressItemId = null,
+                    moduleType = "NUMBER_SYSTEM",
+                    categoryId = "divisibility",
+                    categoryTitleBn = "বাস্তব সংখ্যা ও বিভাজ্যতা (কঠিন)",
+                    difficulty = "hard",
+                    mode = "practice",
+                    inputFormat = "mcq",
+                    sessionScore = 70,
+                    correctCount = 7,
+                    wrongCount = 3,
+                    durationSeconds = 50L,
+                    highestStreak = 4,
+                    nowMs = nowMs + 200L
+                )
+            },
+            // Book Practice
+            {
+                repository.completePracticeSessionAtomically(
+                    sessionId = "a05_book_1",
+                    quizScoreTopicId = "BOOK_class_9_10_C1",
+                    quizScoreTitleBn = "নবম-দশম শ্রেণি (অধ্যায় ১ • সাধারণ অনুশীলন)",
+                    quizScoreValue = 9,
+                    totalQuestions = 10,
+                    percentage = 90,
+                    learnedProgressItemId = null,
+                    moduleType = "BOOK",
+                    categoryId = "BOOK_class_9_10_C1",
+                    categoryTitleBn = "নবম-দশম শ্রেণি (অধ্যায় ১ • সাধারণ অনুশীলন)",
+                    difficulty = "standard",
+                    mode = "standard",
+                    inputFormat = "MULTI_FORMAT",
+                    sessionScore = 90,
+                    correctCount = 9,
+                    wrongCount = 1,
+                    durationSeconds = 60L,
+                    highestStreak = 9,
+                    nowMs = nowMs + 300L
+                )
+            }
+        )
+
+        try {
+            for (attempt in moduleConfigs) {
+                var aborted = false
+                try {
+                    attempt()
+                } catch (e: Exception) {
+                    aborted = e.message?.contains("A-05 mid-transaction failure") == true
+                }
+                assertTrue("Mid-transaction trigger must abort completion call", aborted)
+            }
+        } finally {
+            wdb.execSQL("DROP TRIGGER IF EXISTS abort_a05_after_quiz_score")
+        }
+
+        // Verify ZERO partial state leaked into any table after rollback across all 4 modules
+        assertEquals("No partial quiz_scores row may survive rollback", 0, dao.getAllQuizScores().first().size)
+        assertEquals("No partial user_progress row may survive rollback", 0, dao.getAllProgress().first().size)
+        assertEquals("No partial practice_history row may survive rollback", 0, dao.getAllPracticeHistory().first().size)
+        assertEquals("No partial topic_analytics row may survive rollback", 0, dao.getAllTopicAnalytics().first().size)
+        assertEquals("No partial daily_study_activity row may survive rollback", null, dao.getDailyStudyActivityByDate(dateKey))
+        assertEquals("No rolled-back session receipt may block retry", null, dao.getProgressByItemId("__session_receipt__a05_pl_1"))
+
+        // 2. Retry the exact same 4 session completions after trigger removal -> all 4 must succeed and commit atomically
+        for (attempt in moduleConfigs) {
+            assertTrue("Retry after clean rollback must commit", attempt())
+        }
+
+        val scores = dao.getAllQuizScores().first()
+        val history = dao.getAllPracticeHistory().first()
+        val analytics = dao.getAllTopicAnalytics().first()
+        val progress = dao.getAllProgress().first()
+        val daily = dao.getDailyStudyActivityByDate(dateKey)
+
+        assertEquals(4, scores.size)
+        assertEquals(4, history.size)
+        assertEquals(4, analytics.size)
+        // Only the 2 real learned items (Practice Lab & Mental Math) appear in getAllProgress(); session receipts are excluded
+        assertEquals(2, progress.size)
+        assertTrue(progress.any { it.itemId == "practice_fractions" && it.isLearned })
+        assertTrue(progress.any { it.itemId == "mental_math_addition" && it.isLearned })
+
+        assertNotNull(daily)
+        assertEquals(4, daily?.practiceSessionsCompleted)
+        assertEquals(0, daily?.examsCompleted)
+        assertEquals(40, daily?.questionsAttempted)
+        assertEquals(33, daily?.correctCount)
+        assertEquals(7, daily?.wrongCount)
+        assertEquals(215, daily?.studyTimeSeconds)
+    }
+
+    @Test
+    fun a05_completePracticeSessionAtomically_duplicateAndConcurrentCompletionsAndDatabaseRecreationIdempotency(): Unit = runBlocking {
+        val dbFile = java.io.File(app.cacheDir, "a05_session_completion_idempotency.db")
+        val dbWalFile = java.io.File(app.cacheDir, "a05_session_completion_idempotency.db-wal")
+        val dbShmFile = java.io.File(app.cacheDir, "a05_session_completion_idempotency.db-shm")
+        if (dbFile.exists()) dbFile.delete()
+        if (dbWalFile.exists()) dbWalFile.delete()
+        if (dbShmFile.exists()) dbShmFile.delete()
+
+        val nowMs = 1_735_000_000_000L
+        val dateKey = MathRepository.todayDateKey(nowMs)
+        val workerCount = 12
+        val pool = Executors.newFixedThreadPool(workerCount)
+        val dispatcher = pool.asCoroutineDispatcher()
+
+        try {
+            val fileDb1 = Room.databaseBuilder(app, MathDatabase::class.java, dbFile.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                fileDb1.openHelper.writableDatabase
+                val repo1 = MathRepository(fileDb1.mathDao())
+                val readyLatch = java.util.concurrent.CountDownLatch(workerCount)
+                val startLatch = java.util.concurrent.CountDownLatch(1)
+
+                // 12 concurrent threads attempt to complete the EXACT SAME sessionId simultaneously
+                val deferredResults = (1..workerCount).map { idx ->
+                    async(dispatcher) {
+                        readyLatch.countDown()
+                        assertTrue(
+                            "Worker must reach start barrier within timeout",
+                            startLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                        )
+                        repo1.completePracticeSessionAtomically(
+                            sessionId = "shared_pl_session_99",
+                            quizScoreTopicId = "PRACTICE_algebra_medium",
+                            quizScoreTitleBn = "প্র্যাকটিস: বীজগণিত (মধ্যম)",
+                            quizScoreValue = 9,
+                            totalQuestions = 10,
+                            percentage = 90,
+                            learnedProgressItemId = "practice_algebra",
+                            moduleType = "PRACTICE_LAB",
+                            categoryId = "algebra",
+                            categoryTitleBn = "বীজগণিত",
+                            difficulty = "medium",
+                            mode = "fixed",
+                            inputFormat = "mcq",
+                            sessionScore = 90,
+                            correctCount = 9,
+                            wrongCount = 1,
+                            durationSeconds = 40L,
+                            highestStreak = 6,
+                            nowMs = nowMs + idx
+                        )
+                    }
+                }
+                assertTrue(
+                    "All 12 concurrent workers must be ready before release",
+                    readyLatch.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                )
+                startLatch.countDown()
+                val outcomes = deferredResults.awaitAll()
+
+                assertEquals("Strictly 1 concurrent completion for the same sessionId must commit", 1, outcomes.count { it })
+                assertEquals("All remaining 11 duplicate concurrent completions must be no-ops", workerCount - 1, outcomes.count { !it })
+            } finally {
+                fileDb1.close()
+            }
+
+            // Re-open fresh Room database & repository instance from disk to verify persistence and durable idempotency
+            val fileDb2 = Room.databaseBuilder(app, MathDatabase::class.java, dbFile.absolutePath)
+                .allowMainThreadQueries()
+                .build()
+            try {
+                val dao2 = fileDb2.mathDao()
+                val repo2 = MathRepository(dao2)
+
+                assertEquals(1, dao2.getAllQuizScores().first().size)
+                assertEquals(1, dao2.getAllPracticeHistory().first().size)
+                assertEquals(1, dao2.getAllProgress().first().size)
+                val topicAfterConcurrent = dao2.getTopicAnalyticsByKey("PRACTICE_LAB_algebra_medium")
+                assertNotNull(topicAfterConcurrent)
+                assertEquals(10, topicAfterConcurrent?.totalAttempted)
+                assertEquals(9, topicAfterConcurrent?.totalCorrect)
+                assertEquals(1, topicAfterConcurrent?.totalWrong)
+
+                val dailyAfterConcurrent = dao2.getDailyStudyActivityByDate(dateKey)
+                assertNotNull(dailyAfterConcurrent)
+                assertEquals(1, dailyAfterConcurrent?.practiceSessionsCompleted)
+                assertEquals(10, dailyAfterConcurrent?.questionsAttempted)
+
+                // Duplicate completion on recreated repository with same sessionId must still be rejected
+                val dupAfterReopen = repo2.completePracticeSessionAtomically(
+                    sessionId = "shared_pl_session_99",
+                    quizScoreTopicId = "PRACTICE_algebra_medium",
+                    quizScoreTitleBn = "প্র্যাকটিস: বীজগণিত (মধ্যম)",
+                    quizScoreValue = 9,
+                    totalQuestions = 10,
+                    percentage = 90,
+                    learnedProgressItemId = "practice_algebra",
+                    moduleType = "PRACTICE_LAB",
+                    categoryId = "algebra",
+                    categoryTitleBn = "বীজগণিত",
+                    difficulty = "medium",
+                    mode = "fixed",
+                    inputFormat = "mcq",
+                    sessionScore = 90,
+                    correctCount = 9,
+                    wrongCount = 1,
+                    durationSeconds = 40L,
+                    highestStreak = 6,
+                    nowMs = nowMs + 5000L
+                )
+                assertEquals(false, dupAfterReopen)
+                assertEquals(1, dao2.getAllQuizScores().first().size)
+                assertEquals(1, dao2.getAllPracticeHistory().first().size)
+                assertEquals(10, dao2.getTopicAnalyticsByKey("PRACTICE_LAB_algebra_medium")?.totalAttempted)
+
+                // Legitimate separate session with a new sessionId must commit and accumulate normally
+                val distinctCommitted = repo2.completePracticeSessionAtomically(
+                    sessionId = "distinct_pl_session_100",
+                    quizScoreTopicId = "PRACTICE_algebra_medium",
+                    quizScoreTitleBn = "প্র্যাকটিস: বীজগণিত (মধ্যম)",
+                    quizScoreValue = 7,
+                    totalQuestions = 10,
+                    percentage = 70,
+                    learnedProgressItemId = "practice_algebra",
+                    moduleType = "PRACTICE_LAB",
+                    categoryId = "algebra",
+                    categoryTitleBn = "বীজগণিত",
+                    difficulty = "medium",
+                    mode = "fixed",
+                    inputFormat = "mcq",
+                    sessionScore = 70,
+                    correctCount = 7,
+                    wrongCount = 3,
+                    durationSeconds = 35L,
+                    highestStreak = 4,
+                    nowMs = nowMs + 6000L
+                )
+                assertEquals(true, distinctCommitted)
+                assertEquals(2, dao2.getAllQuizScores().first().size)
+                assertEquals(2, dao2.getAllPracticeHistory().first().size)
+                assertEquals(20, dao2.getTopicAnalyticsByKey("PRACTICE_LAB_algebra_medium")?.totalAttempted)
+                assertEquals(16, dao2.getTopicAnalyticsByKey("PRACTICE_LAB_algebra_medium")?.totalCorrect)
+                assertEquals(2, dao2.getDailyStudyActivityByDate(dateKey)?.practiceSessionsCompleted)
+            } finally {
+                fileDb2.close()
+            }
+        } finally {
+            runCatching { dispatcher.close() }
+            pool.shutdownNow()
+            runCatching { dbFile.delete() }
+            runCatching { dbWalFile.delete() }
+            runCatching { dbShmFile.delete() }
+        }
+    }
+
+    @Test
+    fun a05_viewModelFourModules_practiceLabMentalMathNumberSystemAndBookPracticeCommitAtomicallyOnce() {
+        val singletonDb = MathDatabase.getInstance(app)
+        runBlocking(Dispatchers.IO) {
+            singletonDb.clearAllTables()
+        }
+        val singletonDao = singletonDb.mathDao()
+        val vm = com.example.ui.MathViewModel(app, savedStateHandle = androidx.lifecycle.SavedStateHandle())
+
+        fun waitUntilDbCondition(timeoutMs: Long = 10_000L, condition: suspend () -> Boolean) {
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+            while (true) {
+                org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                if (runBlocking(Dispatchers.IO) { condition() }) break
+                if (System.nanoTime() > deadline) {
+                    throw AssertionError("Timed out after ${timeoutMs}ms waiting for DB condition")
+                }
+                Thread.sleep(15)
+            }
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        }
+
+        try {
+            // 1. Practice Lab completion (with repeated finishPracticeSessionNow calls)
+            vm.startPracticeSession(
+                category = com.example.math.PracticeCategory.FRACTIONS,
+                difficulty = com.example.math.PracticeDifficulty.EASY,
+                count = 5,
+                inputFormat = com.example.math.QuestionInputFormat.MCQ,
+                isUnlimitedMode = false
+            )
+            val plQ0 = vm.practiceSession.value.questions.first()
+            vm.selectPracticeOption(plQ0.correctIndex)
+            vm.submitPracticeAnswer()
+            repeat(4) { vm.finishPracticeSessionNow() }
+
+            waitUntilDbCondition {
+                singletonDao.getAllPracticeHistory().first().any { it.module == "PRACTICE_LAB" }
+            }
+
+            // 2. Mental Math completion (with repeated finishMentalMathSession calls)
+            vm.startMentalMathChallenge(
+                category = com.example.math.MentalMathCategory.ADDITION,
+                difficulty = com.example.math.MentalMathDifficulty.EASY,
+                mode = com.example.math.MentalMathMode.FIXED_QUESTIONS,
+                durationOrCount = 5,
+                inputFormat = com.example.math.QuestionInputFormat.MCQ
+            )
+            val mmQ0 = vm.mentalMathSession.value.questions.first()
+            vm.submitMentalMathAnswer(mmQ0.correctAnswer)
+            repeat(4) { vm.finishMentalMathSession() }
+
+            waitUntilDbCondition {
+                singletonDao.getAllPracticeHistory().first().any { it.module == "MENTAL_MATH" }
+            }
+
+            // 3. Number System completion (complete all questions + repeated nextNumberSystemQuestion calls)
+            vm.startNumberSystemPractice(
+                topic = com.example.math.NumberSystemTopic.DIVISIBILITY,
+                difficulty = com.example.math.NumberSystemDifficulty.EASY,
+                inputFormat = com.example.math.QuestionInputFormat.MCQ
+            )
+            val nsTotal = vm.numberSystemPracticeState.value.questions.size
+            for (idx in 0 until nsTotal) {
+                val q = vm.numberSystemPracticeState.value.questions[idx]
+                vm.selectNumberSystemOption(q.correctIndex)
+                vm.submitNumberSystemAnswer()
+                if (idx < nsTotal - 1) {
+                    vm.nextNumberSystemQuestion()
+                }
+            }
+            repeat(4) { vm.nextNumberSystemQuestion() }
+
+            waitUntilDbCondition {
+                singletonDao.getAllPracticeHistory().first().any { it.module == "NUMBER_SYSTEM" }
+            }
+
+            // 4. Book Practice completion (with repeated finishBookPracticeSession calls)
+            vm.startBookPractice(
+                bookId = com.example.math.BookId.CLASS_6,
+                chapterNumber = 1,
+                mode = com.example.math.BookPracticeMode.STANDARD,
+                questionCount = 5
+            )
+            val bookQ0 = vm.bookPracticeSession.value.questions.first()
+            if (bookQ0.correctOptionIndices.isNotEmpty()) {
+                bookQ0.correctOptionIndices.forEach { vm.toggleBookPracticeOption(it) }
+            } else {
+                vm.setBookPracticeTextInput(bookQ0.correctTextAnswer)
+            }
+            vm.submitBookPracticeAnswer()
+            repeat(4) { vm.finishBookPracticeSession() }
+
+            waitUntilDbCondition {
+                singletonDao.getAllPracticeHistory().first().any { it.module == "BOOK" }
+            }
+
+            runBlocking(Dispatchers.IO) {
+                val allScores = singletonDao.getAllQuizScores().first()
+                val allHistory = singletonDao.getAllPracticeHistory().first()
+                val allAnalytics = singletonDao.getAllTopicAnalytics().first()
+                val allProgress = singletonDao.getAllProgress().first()
+
+                assertEquals("Strictly 4 QuizScoreEntity rows (1 per module)", 4, allScores.size)
+                assertEquals("Strictly 4 PracticeHistoryEntity rows (1 per module)", 4, allHistory.size)
+                assertEquals(
+                    setOf("PRACTICE_LAB", "MENTAL_MATH", "NUMBER_SYSTEM", "BOOK"),
+                    allHistory.map { it.module }.toSet()
+                )
+                assertEquals("Strictly 4 TopicAnalyticsEntity rows (1 per module)", 4, allAnalytics.size)
+                assertTrue(allProgress.any { it.itemId == "practice_fractions" && it.isLearned })
+                assertTrue(allProgress.any { it.itemId == "mental_math_addition" && it.isLearned })
+            }
+        } finally {
+            runBlocking(Dispatchers.IO) {
+                singletonDb.clearAllTables()
+            }
+        }
+    }
 }
+

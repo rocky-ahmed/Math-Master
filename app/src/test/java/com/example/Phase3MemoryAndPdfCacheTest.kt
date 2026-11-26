@@ -7,24 +7,45 @@ import android.graphics.Bitmap
 import android.opengl.GLSurfaceView
 import android.os.Build
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.test.core.app.ApplicationProvider
+import com.example.math.BookCurriculumRepository
 import com.example.math.BookId
+import com.example.math.BookInteractiveLabType
 import com.example.math.Math3DEngine
 import com.example.math.OrbitCameraState
 import com.example.math.Solid3DShapeType
 import com.example.math.SolidAnatomyHighlight
+import com.example.ui.MathViewModel
+import com.example.ui.Screen
 import com.example.ui.components.Math3DStudioViewport
 import com.example.ui.components.glSurfaceViewFactoryForTesting
+import com.example.ui.screens.BookDetailScreen
+import com.example.ui.screens.BookPdfReaderScreen
 import com.example.ui.screens.BookPdfRenderCachePool
 import com.example.ui.screens.MAX_PDF_CACHE_BYTES
 import com.example.ui.screens.MAX_PDF_CACHE_ENTRIES
 import com.example.ui.screens.computeSafeCacheBudgetBytes
+import com.example.ui.screens.getBookPdfAvailabilityStatus
+import com.example.ui.screens.isOfflinePdfAssetAvailable
+import com.example.ui.screens.isValidPdfFileHeader
+import com.example.ui.screens.renderPdfPageWithAutoRecovery
 import com.example.ui.screens.resolveOfflinePdfFile
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -34,6 +55,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -278,4 +300,228 @@ class Phase3MemoryAndPdfCacheTest {
         composeTestRule.waitForIdle()
         assertTrue("DESTROYED transition must pause GLSurfaceView cleanly", pauseCalls.get() >= pauseBeforeDestroy)
     }
+
+    // =========================================================================
+    // A-07: CLASS 6–8 PDF RESOLUTION, CLASS 9–10 MISSING PDF DETECTION & SAFE FALLBACK
+    // =========================================================================
+
+    @Test
+    fun a07_pdfResolverAndCurriculumIntegrity_class6To8Available_class910MissingDetected_all17ChaptersIntact() {
+        val expectedAvailableAssetSizes = mapOf(
+            BookId.CLASS_6 to 5_372_426L,
+            BookId.CLASS_7 to 6_391_697L,
+            BookId.CLASS_8 to 6_459_157L
+        )
+        val expectedChaptersCount = mapOf(
+            BookId.CLASS_6 to 8,
+            BookId.CLASS_7 to 11,
+            BookId.CLASS_8 to 11,
+            BookId.CLASS_9_10 to 17
+        )
+
+        // 1, 2, 3. Verify Class 6, Class 7, and Class 8 offline PDFs resolve with exact sizes and valid %PDF- headers.
+        listOf(BookId.CLASS_6, BookId.CLASS_7, BookId.CLASS_8).forEach { bookId ->
+            File(app.cacheDir, "cached_${bookId.id}.pdf").delete()
+            assertTrue("Offline PDF must be detected as available for ${bookId.id}", isOfflinePdfAssetAvailable(app, bookId))
+            val resolvedFile = resolveOfflinePdfFile(app, bookId, forceRefresh = true)
+            assertNotNull("resolveOfflinePdfFile must return non-null File for ${bookId.id}", resolvedFile)
+            assertTrue("Resolved file for ${bookId.id} must have valid %PDF- header", isValidPdfFileHeader(resolvedFile!!))
+            assertEquals(
+                "Resolved PDF byte size for ${bookId.id} must match verified NCTB asset",
+                expectedAvailableAssetSizes.getValue(bookId),
+                resolvedFile.length()
+            )
+
+            val status = getBookPdfAvailabilityStatus(app, bookId)
+            assertTrue(status.isStructuredContentAvailable)
+            assertTrue(status.isOfflinePdfAvailable)
+            assertEquals(expectedChaptersCount.getValue(bookId), status.totalChaptersCount)
+            assertTrue(status.structuredStatusBn.contains("উপলব্ধ"))
+            assertTrue(status.pdfStatusBn.contains("উপলব্ধ"))
+            assertNull(status.fallbackExplanationBn)
+        }
+
+        // 4 & 9. Verify Class 9–10 missing PDF is accurately detected and renderPdfPageWithAutoRecovery does not crash.
+        File(app.cacheDir, "cached_${BookId.CLASS_9_10.id}.pdf").delete()
+        val class910AssetFile = File("app/src/main/assets/${BookId.CLASS_9_10.assetFileName}")
+        val class910WorkspaceFile = File("/app/applet/app/src/main/assets/${BookId.CLASS_9_10.assetFileName}")
+        val isClass910PresentOnDisk = isValidPdfFileHeader(class910AssetFile) || isValidPdfFileHeader(class910WorkspaceFile)
+        assertFalse("Class 9-10 PDF asset is currently absent from assets/books/", isClass910PresentOnDisk)
+
+        assertNull("resolveOfflinePdfFile must return null when Class 9-10 PDF asset is absent", resolveOfflinePdfFile(app, BookId.CLASS_9_10))
+        assertFalse("isOfflinePdfAssetAvailable must return false for Class 9-10 when asset is absent", isOfflinePdfAssetAvailable(app, BookId.CLASS_9_10))
+
+        val class910Status = getBookPdfAvailabilityStatus(app, BookId.CLASS_9_10)
+        assertTrue("Structured digital content for Class 9-10 must be reported available", class910Status.isStructuredContentAvailable)
+        assertFalse("Offline PDF for Class 9-10 must be reported unavailable", class910Status.isOfflinePdfAvailable)
+        assertEquals(17, class910Status.totalChaptersCount)
+        assertTrue(class910Status.structuredStatusBn.contains("ডিজিটাল পাঠ্যবই কনটেন্ট (১৭টি অধ্যায়): উপলব্ধ"))
+        assertTrue(class910Status.pdfStatusBn.contains("বর্তমানে অনুপলব্ধ"))
+        assertNotNull(class910Status.fallbackExplanationBn)
+        assertTrue(class910Status.fallbackExplanationBn!!.contains("১৭টি অধ্যায়ের সকল পাঠ"))
+
+        val renderAttempt = renderPdfPageWithAutoRecovery(
+            context = app,
+            bookId = BookId.CLASS_9_10,
+            printedPage = 1,
+            scale = 1.0f,
+            cacheKey = "class_9_10_p1_z10",
+            forceReExtract = true
+        )
+        assertTrue("renderPdfPageWithAutoRecovery must return clean failure Result without crashing when PDF is absent", renderAttempt.isFailure)
+
+        // 8. Verify all 17 Class 9–10 chapters, lessons, formulas, worked examples, theorems, and structured page content remain intact.
+        val class910Chapters = BookCurriculumRepository.getChapters(BookId.CLASS_9_10)
+        assertEquals("Class 9-10 must preserve all 17 chapters", 17, class910Chapters.size)
+        class910Chapters.forEachIndexed { index, ch ->
+            assertEquals(index + 1, ch.chapterNumber)
+            assertTrue(ch.titleBn.isNotBlank())
+            assertTrue("Chapter ${ch.chapterNumber} must have lessons", ch.lessons.isNotEmpty())
+            assertTrue("Chapter ${ch.chapterNumber} must have formulas", ch.formulas.isNotEmpty())
+            assertTrue("Chapter ${ch.chapterNumber} must have worked examples", ch.workedExamples.isNotEmpty())
+            assertTrue(ch.printedPageStart in 1..BookId.CLASS_9_10.maxPrintedPage)
+            assertTrue(ch.printedPageEnd in ch.printedPageStart..BookId.CLASS_9_10.maxPrintedPage)
+
+            val startPageContent = BookCurriculumRepository.getStructuredPageContent(BookId.CLASS_9_10, ch.printedPageStart)
+            assertEquals(ch.chapterNumber, startPageContent.chapterNumber)
+            assertEquals(ch.printedPageStart, startPageContent.printedPage)
+            assertTrue(startPageContent.sectionHeadingBn.isNotBlank())
+            assertTrue(startPageContent.keyDefinitionsBn.isNotEmpty())
+        }
+        assertTrue(
+            "Class 9-10 geometry chapters must preserve theorems and constructions",
+            class910Chapters.sumOf { it.theoremsAndConstructions.size } > 0
+        )
+    }
+
+    @Test
+    fun a07_class910BookDetailAndReader_gracefulBengaliFallback_pdfActionsDisabled_structuredNavigationIntact() {
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+
+        // Pre-seed preferredViewMode = "PDF_BITMAP" for Class 9-10 to ensure even a previously saved PDF canvas preference
+        // is safely intercepted and forced into structured digital textbook mode without showing a broken PDF canvas.
+        vm.updateBookReaderPreferences(BookId.CLASS_9_10, preferredViewMode = "PDF_BITMAP", zoomScale = 1.2f)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // 5, 6, 10. Open Class 9-10 BookDetailScreen -> verify structured vs PDF status distinction, disabled top-bar PDF icon,
+        // Bengali fallback banner, and intact 17-chapter navigation.
+        vm.openBookDetail(BookId.CLASS_9_10)
+        assertEquals(Screen.BookDetail, vm.currentScreen)
+        assertEquals(BookId.CLASS_9_10, vm.selectedBookId.value)
+
+        composeTestRule.setContent {
+            val activeScreen by vm.screenStack.collectAsStateWithLifecycle()
+            when (activeScreen.last()) {
+                is Screen.BookDetail -> BookDetailScreen(viewModel = vm)
+                is Screen.BookPdfReader -> BookPdfReaderScreen(viewModel = vm)
+                else -> BookDetailScreen(viewModel = vm)
+            }
+        }
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // Top-bar raw PDF button is disabled for Class 9-10 when PDF asset is absent.
+        composeTestRule.onNodeWithTag("book_detail_pdf_btn").assertIsNotEnabled()
+        // Explicit distinction between Structured content (Available) and Offline PDF (Unavailable) is displayed.
+        composeTestRule.onNodeWithTag("book_detail_structured_status_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_detail_pdf_status_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_detail_pdf_unavailable_banner").assertIsDisplayed()
+
+        // Clicking the primary reader button ("ডিজিটাল পাঠ্যবই পড়ুন") opens BookPdfReaderScreen in structured digital view.
+        composeTestRule.onNodeWithTag("book_detail_resume_pdf_btn").assertIsEnabled().performClick()
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals(Screen.BookPdfReader, vm.currentScreen)
+
+        // 5, 6, 7, 9. Inside BookPdfReaderScreen for Class 9-10:
+        // - Structured mode chip is selected; PDF mode chip is disabled.
+        // - Bengali fallback notice banner is displayed.
+        // - No blank, loading, or error PDF canvas card is rendered.
+        // - Structured textbook page content card is displayed and navigable across chapters/pages.
+        composeTestRule.onNodeWithTag("reader_mode_structured_btn").assertIsSelected()
+        composeTestRule.onNodeWithTag("reader_mode_pdf_btn").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("reader_mode_pdf_btn").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("book_pdf_unavailable_fallback_banner").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_reader_structured_status_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_reader_pdf_status_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("book_reader_pdf_fallback_message_text").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("structured_textbook_page_card").assertIsDisplayed()
+
+        assertEquals(
+            "Broken or blank PDF canvas card must NEVER be displayed when PDF asset is absent",
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_rendered_page_card").fetchSemanticsNodes().size
+        )
+        assertEquals(
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_render_error_box").fetchSemanticsNodes().size
+        )
+        assertEquals(
+            0,
+            composeTestRule.onAllNodesWithTag("pdf_loading_box").fetchSemanticsNodes().size
+        )
+
+        // 7 & 10. Navigate pages and chapters within Class 9-10 structured reader (Page 1 -> Page 2 -> Chapter 17 Page 325).
+        assertEquals(1, vm.selectedBookPrintedPage.value)
+        composeTestRule.onNodeWithTag("pdf_next_page_btn").assertIsEnabled().performClick()
+        composeTestRule.waitForIdle()
+        assertEquals(2, vm.selectedBookPrintedPage.value)
+
+        val chapter17 = BookCurriculumRepository.getChapter(BookId.CLASS_9_10, 17)
+        assertNotNull(chapter17)
+        composeTestRule.runOnUiThread {
+            vm.updateBookReaderPage(BookId.CLASS_9_10, printedPage = chapter17!!.printedPageStart, chapterNumber = 17)
+        }
+        composeTestRule.waitForIdle()
+        assertEquals(chapter17!!.printedPageStart, vm.selectedBookPrintedPage.value)
+        assertEquals(17, vm.selectedBookChapterNumber.value)
+        composeTestRule.onNodeWithTag("structured_textbook_page_card").assertIsDisplayed()
+
+        // Verify Class 9-10 chapter overview, lesson, and interactive lab navigation remain intact.
+        composeTestRule.runOnUiThread {
+            vm.openBookChapter(BookId.CLASS_9_10, 9) // Trigonometry
+        }
+        assertEquals(Screen.BookChapterOverview, vm.currentScreen)
+        assertEquals(9, vm.selectedBookChapterNumber.value)
+
+        val ch9FirstLesson = BookCurriculumRepository.getChapter(BookId.CLASS_9_10, 9)!!.lessons.first()
+        composeTestRule.runOnUiThread {
+            vm.openBookLesson(BookId.CLASS_9_10, 9, ch9FirstLesson.id)
+        }
+        assertEquals(Screen.BookLesson, vm.currentScreen)
+        assertEquals(ch9FirstLesson.id, vm.selectedBookLessonId.value)
+
+        composeTestRule.runOnUiThread {
+            vm.openBookInteractiveLab(BookInteractiveLabType.TRIGONOMETRY_HEIGHT_DISTANCE_LAB, BookId.CLASS_9_10, 9)
+        }
+        assertEquals(Screen.BookInteractiveLab, vm.currentScreen)
+
+        // 1, 2, 3, 10. Verify Class 6 (whose PDF asset IS available) has enabled PDF buttons on BookDetailScreen and BookPdfReaderScreen.
+        composeTestRule.runOnUiThread {
+            vm.openBookDetail(BookId.CLASS_6)
+        }
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        composeTestRule.onNodeWithTag("book_detail_pdf_btn").assertIsEnabled()
+        assertEquals(
+            "Fallback unavailable banner must not appear for Class 6 whose PDF is available",
+            0,
+            composeTestRule.onAllNodesWithTag("book_detail_pdf_unavailable_banner").fetchSemanticsNodes().size
+        )
+
+        composeTestRule.runOnUiThread {
+            vm.openBookPdfReader(BookId.CLASS_6, printedPage = 10, chapterNumber = 1)
+        }
+        composeTestRule.waitForIdle()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        composeTestRule.onNodeWithTag("reader_mode_pdf_btn").assertIsEnabled()
+        assertEquals(
+            0,
+            composeTestRule.onAllNodesWithTag("book_pdf_unavailable_fallback_banner").fetchSemanticsNodes().size
+        )
+    }
 }
+

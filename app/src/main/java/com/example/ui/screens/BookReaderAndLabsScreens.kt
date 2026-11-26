@@ -262,8 +262,13 @@ fun BookPdfReaderScreen(
     }
     val isPageBookmarked = bookmarkedPages.contains(printedPage)
 
-    var showPdfCanvasMode by remember(currentReadingState?.preferredViewMode) {
-        mutableStateOf(currentReadingState?.preferredViewMode == "PDF_BITMAP")
+    val pdfAvailability = remember(appContext, bookId) {
+        getBookPdfAvailabilityStatus(appContext, bookId)
+    }
+    val isPdfAvailable = pdfAvailability.isOfflinePdfAvailable
+
+    var showPdfCanvasMode by remember(bookId, isPdfAvailable, currentReadingState?.preferredViewMode) {
+        mutableStateOf(isPdfAvailable && currentReadingState?.preferredViewMode == "PDF_BITMAP")
     }
     var zoomScale by remember(currentReadingState?.lastZoomScale) {
         mutableFloatStateOf(currentReadingState?.lastZoomScale ?: 1.0f)
@@ -281,8 +286,24 @@ fun BookPdfReaderScreen(
     }
     val chapters = remember(bookId) { BookCurriculumRepository.getChapters(bookId) }
 
-    LaunchedEffect(bookId, printedPage, showPdfCanvasMode, zoomScale, pdfRetryToken) {
-        if (!showPdfCanvasMode) {
+    LaunchedEffect(bookId, isPdfAvailable, currentReadingState?.preferredViewMode) {
+        if (!isPdfAvailable) {
+            showPdfCanvasMode = false
+            renderedBitmap = null
+            isPdfLoading = false
+            pdfErrorMessageBn = null
+            if (currentReadingState?.preferredViewMode == "PDF_BITMAP") {
+                viewModel.updateBookReaderPreferences(
+                    bookId = bookId,
+                    preferredViewMode = "STRUCTURED",
+                    zoomScale = zoomScale
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(bookId, printedPage, showPdfCanvasMode, isPdfAvailable, zoomScale, pdfRetryToken) {
+        if (!showPdfCanvasMode || !isPdfAvailable) {
             isPdfLoading = false
             pdfErrorMessageBn = null
             return@LaunchedEffect
@@ -347,7 +368,11 @@ fun BookPdfReaderScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "পাঠ্যবই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(printedPage)}/${BengaliNumberFormatter.toBengaliDigits(bookId.maxPrintedPage)} (PDF পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(structuredContent.pdfPage)})",
+                            text = if (isPdfAvailable) {
+                                "পাঠ্যবই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(printedPage)}/${BengaliNumberFormatter.toBengaliDigits(bookId.maxPrintedPage)} (PDF পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(structuredContent.pdfPage)})"
+                            } else {
+                                "পাঠ্যবই পৃষ্ঠা ${BengaliNumberFormatter.toBengaliDigits(printedPage)}/${BengaliNumberFormatter.toBengaliDigits(bookId.maxPrintedPage)} (ডিজিটাল পাঠ্যবই মোড • মূল PDF অনুপলব্ধ)"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -496,7 +521,7 @@ fun BookPdfReaderScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             FilterChip(
-                                selected = !showPdfCanvasMode,
+                                selected = !showPdfCanvasMode || !isPdfAvailable,
                                 onClick = {
                                     showPdfCanvasMode = false
                                     viewModel.updateBookReaderPreferences(bookId, "STRUCTURED", zoomScale)
@@ -505,12 +530,23 @@ fun BookPdfReaderScreen(
                                 modifier = Modifier.testTag("reader_mode_structured_btn")
                             )
                             FilterChip(
-                                selected = showPdfCanvasMode,
+                                selected = isPdfAvailable && showPdfCanvasMode,
                                 onClick = {
-                                    showPdfCanvasMode = true
-                                    viewModel.updateBookReaderPreferences(bookId, "PDF_BITMAP", zoomScale)
+                                    if (isPdfAvailable) {
+                                        showPdfCanvasMode = true
+                                        viewModel.updateBookReaderPreferences(bookId, "PDF_BITMAP", zoomScale)
+                                    }
                                 },
-                                label = { Text("মূল পিডিএফ পৃষ্ঠা (PDF)") },
+                                enabled = isPdfAvailable,
+                                label = {
+                                    Text(
+                                        if (isPdfAvailable) {
+                                            "মূল পিডিএফ পৃষ্ঠা (PDF)"
+                                        } else {
+                                            "মূল পিডিএফ অনুপলব্ধ"
+                                        }
+                                    )
+                                },
                                 leadingIcon = {
                                     Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
                                 },
@@ -521,8 +557,51 @@ fun BookPdfReaderScreen(
                 }
             }
 
-            // 2. If PDF Canvas Mode is enabled, show Zoom Slider & Rendered PDF Page Bitmap
-            if (showPdfCanvasMode) {
+            // 1B. Safe Bengali Fallback Notice when Original Offline PDF Asset is Unavailable (A-07)
+            if (!isPdfAvailable) {
+                item(key = "pdf_unavailable_fallback_notice") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("book_pdf_unavailable_fallback_banner"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = pdfAvailability.structuredStatusBn,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("book_reader_structured_status_text")
+                            )
+                            Text(
+                                text = pdfAvailability.pdfStatusBn,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.testTag("book_reader_pdf_status_text")
+                            )
+                            pdfAvailability.fallbackExplanationBn?.let { explanation ->
+                                Text(
+                                    text = explanation,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.testTag("book_reader_pdf_fallback_message_text")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. If PDF Canvas Mode is enabled AND PDF asset is available, show Zoom Slider & Rendered PDF Page Bitmap
+            if (showPdfCanvasMode && isPdfAvailable) {
                 item(key = "pdf_canvas_view") {
                     ElevatedCard(
                         modifier = Modifier
@@ -831,6 +910,54 @@ fun BookPdfReaderScreen(
     }
 }
 
+internal data class BookPdfAvailabilityStatus(
+    val bookId: BookId,
+    val isStructuredContentAvailable: Boolean,
+    val isOfflinePdfAvailable: Boolean,
+    val totalChaptersCount: Int,
+    val structuredStatusBn: String,
+    val pdfStatusBn: String,
+    val fallbackExplanationBn: String?
+)
+
+internal fun isOfflinePdfAssetAvailable(
+    context: android.content.Context,
+    bookId: BookId
+): Boolean {
+    return resolveOfflinePdfFile(context, bookId, forceRefresh = false) != null
+}
+
+internal fun getBookPdfAvailabilityStatus(
+    context: android.content.Context,
+    bookId: BookId
+): BookPdfAvailabilityStatus {
+    val chaptersCount = BookCurriculumRepository.getChapters(bookId).size
+    val structuredAvailable = chaptersCount > 0
+    val pdfAvailable = isOfflinePdfAssetAvailable(context, bookId)
+    val chaptersBn = BengaliNumberFormatter.toBengaliDigits(chaptersCount)
+    return if (pdfAvailable) {
+        BookPdfAvailabilityStatus(
+            bookId = bookId,
+            isStructuredContentAvailable = structuredAvailable,
+            isOfflinePdfAvailable = true,
+            totalChaptersCount = chaptersCount,
+            structuredStatusBn = "ডিজিটাল পাঠ্যবই কনটেন্ট (${chaptersBn}টি অধ্যায়): উপলব্ধ",
+            pdfStatusBn = "মূল অফলাইন PDF ফাইল (${bookId.assetFileName}): উপলব্ধ",
+            fallbackExplanationBn = null
+        )
+    } else {
+        BookPdfAvailabilityStatus(
+            bookId = bookId,
+            isStructuredContentAvailable = structuredAvailable,
+            isOfflinePdfAvailable = false,
+            totalChaptersCount = chaptersCount,
+            structuredStatusBn = "ডিজিটাল পাঠ্যবই কনটেন্ট (${chaptersBn}টি অধ্যায়): উপলব্ধ",
+            pdfStatusBn = "মূল অফলাইন PDF ফাইল (${bookId.assetFileName}): বর্তমানে অনুপলব্ধ",
+            fallbackExplanationBn = "${bookId.titleBn}-এর মূল অফলাইন পিডিএফ (PDF) ফাইলটি বর্তমানে এই সংস্করণে সংযুক্ত নেই। তবে ${chaptersBn}টি অধ্যায়ের সকল পাঠ, গাণিতিক সূত্র, সমাধানকৃত উদাহরণ, উপপাদ্য, অনুশীলনী এবং পৃষ্ঠাভিত্তিক স্পষ্ট ডিজিটাল পাঠ্যবই রিডার সম্পূর্ণ অফলাইনে ব্যবহার করা যাবে।"
+        )
+    }
+}
+
 internal fun renderPdfPageWithAutoRecovery(
     context: android.content.Context,
     bookId: BookId,
@@ -839,6 +966,11 @@ internal fun renderPdfPageWithAutoRecovery(
     cacheKey: String,
     forceReExtract: Boolean = false
 ): Result<Bitmap> {
+    if (!isOfflinePdfAssetAvailable(context, bookId)) {
+        return Result.failure(
+            IllegalStateException("Offline PDF asset '${bookId.assetFileName}' is unavailable for ${bookId.id}")
+        )
+    }
     for (attempt in 0..1) {
         val shouldForce = forceReExtract || attempt == 1
         val attemptResult = runCatching {

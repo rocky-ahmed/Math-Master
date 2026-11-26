@@ -601,4 +601,381 @@ class Phase1ValidationAndIntegrityUnitTest {
         assertNotNull(parseBnToDouble("২,৫"))
         assertNotNull(parseBnToLong("১২৩৪"))
     }
+
+    // -----------------------------------------------------------------
+    // 4. A-01: SHARED MATH ENGINE NUMERIC VS BOOLEAN ANSWER VALIDATION
+    // -----------------------------------------------------------------
+    @Test
+    fun a01_sharedMathEngine_numericOneAndZeroRejectBooleanWordsAndAcceptNumericForms() {
+        val trueWords = listOf("হ্যাঁ", "সত্য", "true", "True", "TRUE", "yes", "Yes", "ঠিক", "সত্য (True)")
+        val falseWords = listOf("না", "মিথ্যা", "false", "False", "FALSE", "no", "No", "ভুল", "মিথ্যা (False)")
+
+        // Numeric expected 1 ("1", "১", "1.0", "১.০", "1 একক") must reject all Boolean words
+        val expectedOnes = listOf("1", "১", "1.0", "১.০", "1 সেমি")
+        for (expOne in expectedOnes) {
+            for (word in trueWords + falseWords) {
+                assertFalse(
+                    "Numeric expected '$expOne' must reject boolean word '$word'",
+                    com.example.math.SharedMathEngine.isAnswerCorrect(word, expOne)
+                )
+            }
+        }
+
+        // Numeric expected 0 ("0", "০", "0.0", "০.০") must reject all Boolean words
+        val expectedZeros = listOf("0", "০", "0.0", "০.০")
+        for (expZero in expectedZeros) {
+            for (word in falseWords + trueWords) {
+                assertFalse(
+                    "Numeric expected '$expZero' must reject boolean word '$word'",
+                    com.example.math.SharedMathEngine.isAnswerCorrect(word, expZero)
+                )
+            }
+        }
+
+        // Numeric expected 1 and 0 must still accept valid numeric equivalents in Bengali & English
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("1", "1"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("১", "1"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("1", "১"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("১", "১"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("1.0", "১"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("১.০", "1"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("2/2", "১"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("  ১  ", "1"))
+
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0", "0"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("০", "0"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0", "০"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("০", "০"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0.0", "০"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("০.০", "0"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0/5", "০"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("  ০  ", "0"))
+
+        // Numeric 1 vs 0 must remain distinct
+        assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("0", "1"))
+        assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("১", "০"))
+    }
+
+    @Test
+    fun a01_sharedMathEngine_booleanQuestionsAcceptValidAliasesAndRejectNumericOneZero() {
+        val trueAliases = listOf("true", "True", "সত্য", "হ্যাঁ", "yes", "ঠিক", "সত্য (True)")
+        val falseAliases = listOf("false", "False", "মিথ্যা", "না", "no", "ভুল", "মিথ্যা (False)")
+
+        for (userTrue in trueAliases) {
+            for (expectedTrue in trueAliases) {
+                assertTrue(
+                    "Boolean true alias '$userTrue' must match expected '$expectedTrue'",
+                    com.example.math.SharedMathEngine.isAnswerCorrect(userTrue, expectedTrue)
+                )
+            }
+            for (expectedFalse in falseAliases) {
+                assertFalse(
+                    "Boolean true alias '$userTrue' must NOT match expected false '$expectedFalse'",
+                    com.example.math.SharedMathEngine.isAnswerCorrect(userTrue, expectedFalse)
+                )
+            }
+            // Boolean questions must NOT accept raw numeric 1 or 0
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("1", userTrue))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("১", userTrue))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("0", userTrue))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("০", userTrue))
+        }
+
+        for (userFalse in falseAliases) {
+            for (expectedFalse in falseAliases) {
+                assertTrue(
+                    "Boolean false alias '$userFalse' must match expected '$expectedFalse'",
+                    com.example.math.SharedMathEngine.isAnswerCorrect(userFalse, expectedFalse)
+                )
+            }
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("0", userFalse))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("০", userFalse))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("1", userFalse))
+            assertFalse(com.example.math.SharedMathEngine.isAnswerCorrect("১", userFalse))
+        }
+
+        // Existing fraction, mixed fraction, ratio, unit-suffixed, and decimal answer formats remain valid
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("২/৪", "1/2"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("0.5", "১/২"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("১ সমস্ত ১/২", "1.5"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("২৪ সে.মি.", "24 cm"))
+        assertTrue(com.example.math.SharedMathEngine.isAnswerCorrect("৩:৪", "6:8"))
+    }
+
+    // -----------------------------------------------------------------
+    // 5. A-02: PROBLEM SOLVER ANSWER VALIDATION HARDENING
+    // -----------------------------------------------------------------
+    @Test
+    fun a02_problemSolverStepValidation_rejectsPartialSubstringsAndAcceptsExactOrEquivalent125() {
+        val expectedEn = "125"
+        val expectedBn = "১২৫"
+
+        // Required substring rejection checks for expected 125 (both English and Bengali numerals)
+        for (expected in listOf(expectedEn, expectedBn)) {
+            assertFalse(
+                "Attempt '1' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("1", expected)
+            )
+            assertFalse(
+                "Attempt '১' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("১", expected)
+            )
+            assertFalse(
+                "Attempt '12' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("12", expected)
+            )
+            assertFalse(
+                "Attempt '১২' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("১২", expected)
+            )
+            assertFalse(
+                "Attempt '25' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("25", expected)
+            )
+            assertFalse(
+                "Attempt '২৫' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("২৫", expected)
+            )
+            assertFalse(
+                "Attempt '5' must be rejected for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("5", expected)
+            )
+
+            // Valid full value in English and Bengali numerals
+            assertTrue(
+                "Attempt '125' must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("125", expected)
+            )
+            assertTrue(
+                "Attempt '১২৫' must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("১২৫", expected)
+            )
+            // Leading and trailing whitespace
+            assertTrue(
+                "Attempt '  125  ' with whitespace must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("  125  ", expected)
+            )
+            assertTrue(
+                "Attempt '  ১২৫  ' with whitespace must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("  ১২৫  ", expected)
+            )
+            // Equivalent numeric forms (decimal & fraction)
+            assertTrue(
+                "Attempt '125.0' must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("125.0", expected)
+            )
+            assertTrue(
+                "Attempt '250/2' must be accepted for expected '$expected'",
+                com.example.ui.screens.isSolverStepAttemptCorrect("250/2", expected)
+            )
+        }
+    }
+
+    @Test
+    fun a02_problemSolverStepValidation_supportsFractionsDecimalsNegativesEquationsAndRejectsMalformedOrEmpty() {
+        // 1. Valid fraction and decimal forms
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("3/4", "৩/৪"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("0.75", "৩/৪"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("০.৭৫", "3/4"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("6/8", "৩/৪"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("১ সমস্ত ১/২", "৩/২"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("1.5", "৩/২"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("3", "৩/৪"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("4", "৩/৪"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("/", "৩/৪"))
+
+        // 2. Negative values
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("-125", "-১২৫"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("-১২৫", "-125"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("  -১২৫  ", "-125"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("-3/4", "-০.৭৫"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("125", "-125"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("১২৫", "-১২৫"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("-12", "-125"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("-", "-125"))
+
+        // 3. Structured step expected values (equations, arrow transformations, labeled values, ratios)
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("125", "x = ১২৫"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("১২৫", "x = 125"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("x = 125", "x = ১২৫"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("12", "x = ১২৫"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("x =", "x = ১২৫"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("y = 125", "x = ১২৫"))
+
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("৪০", "২৫ + ১৫ = ৪০"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("40", "২৫ + ১৫ = ৪০"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("২৫", "২৫ + ১৫ = ৪০"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("১৫", "২৫ + ১৫ = ৪০"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("৪", "২৫ + ১৫ = ৪০"))
+
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("১২৫", "রূপান্তর ➜ ১২৫ টাকা"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("125", "উত্তর: ১২৫ টাকা"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("১২", "উত্তর: ১২৫ টাকা"))
+
+        // Ratios must not treat the colon as a text label prefix
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("৩:৪", "3:4"))
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("6:8", "৩:৪"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("4", "3:4"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("৪", "৩:৪"))
+
+        // 4. Ordinary algebraic/text step expressions require full normalized match (no partial factor/substring)
+        assertTrue(com.example.ui.screens.isSolverStepAttemptCorrect("(x - 2)(x - 3)", "(x-2)(x-3)"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("(x - 2)", "(x - 2)(x - 3)"))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("x", "(x - 2)(x - 3)"))
+
+        // 5. Empty and malformed inputs
+        val malformedAndEmptyInputs = listOf("", "   ", "\t\n", "abc", "12..5", "12/0", "+++", "--125", "125/0", "NaN")
+        for (badInput in malformedAndEmptyInputs) {
+            assertFalse(
+                "Malformed or empty input '$badInput' must be rejected for expected '125'",
+                com.example.ui.screens.isSolverStepAttemptCorrect(badInput, "125")
+            )
+            assertFalse(
+                "Malformed or empty input '$badInput' must be rejected for expected '১২৫'",
+                com.example.ui.screens.isSolverStepAttemptCorrect(badInput, "১২৫")
+            )
+        }
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("125", ""))
+        assertFalse(com.example.ui.screens.isSolverStepAttemptCorrect("125", "   "))
+    }
+
+    // -----------------------------------------------------------------
+    // 6. A-03: BOOK QUESTION ENGINE NUMERICAL ANSWER VALIDATION
+    // -----------------------------------------------------------------
+    @Test
+    fun a03_bookQuestionEngine_exactDecimalAndFractionEquivalenceRejectsNearIncorrectValues() {
+        // Expected 0.50: 0.50, 0.5, ০.৫০, ০.৫, 1/2, ১/২, 2/4 are exact equivalents;
+        // near-but-incorrect decimals within the old 0.01 window (0.509, 0.495, 0.501, 0.50001) MUST be rejected.
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0.50", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0.5", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("০.৫০", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("০.৫", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("1/2", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("১/২", "0.50"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("2/4", "0.50"))
+
+        val nearIncorrectForHalf = listOf("0.509", "০.৫০৯", "0.491", "0.499", "0.501", "0.505", "0.5001", "0.50001")
+        for (nearWrong in nearIncorrectForHalf) {
+            assertFalse(
+                "Near-but-incorrect answer '$nearWrong' must NOT be accepted for expected '0.50'",
+                com.example.math.BookQuestionEngine.isTextEquivalent(nearWrong, "0.50")
+            )
+        }
+
+        // Exact integer answers (Bengali & English digits, unit suffixes, comma formatting)
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("36", "36"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৩৬", "36"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("36", "৩৬"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("36.0", "36"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৩৬টি", "36"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("36.005", "36"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("35.995", "36"))
+
+        // Correct fraction/decimal/mixed-fraction/ratio equivalence & non-equivalence
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("১/২", "0.5"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("২/৪", "১/২"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৩/৪", "0.75"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("১ সমস্ত ১/২", "1.5"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৩ : ৪", "6 : 8"))
+        // 1/3 is 0.3333..., NOT 0.33 unless rounding metadata explicitly permits 2 decimal places
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("0.33", "1/3"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("1/3", "0.333"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("১/৩", "১/২"))
+        // Ratios must not match non-ratio fractions/decimals
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("3:4", "0.75"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("3:4", "3/4"))
+    }
+
+    @Test
+    fun a03_bookQuestionEngine_negativesZeroSmallLargeExplicitRoundingAndInvalidInputs() {
+        // Negative numerical answers
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("-15.5", "-১৫.৫"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("-১৫.৫", "-15.5"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("-31/2", "-১৫.৫"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("15.5", "-১৫.৫"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("-15.505", "-১৫.৫"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("-15.495", "-১৫.৫"))
+
+        // Zero
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0", "0"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("০", "0"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0.0", "০"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("-0.0", "0"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0/7", "০"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("0.001", "0"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("-0.001", "0"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("0.0001", "0"))
+
+        // Very small decimal values (previously indistinguishable from 0 under < 0.01!)
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("0.0005", "0.0005"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("০.০০০৫", "0.0005"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("1/2000", "0.0005"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("0.0006", "0.0005"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("0", "0.0005"))
+
+        // Large values (exact BigDecimal precision beyond Double mantissa limits)
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("৯৮৭৫৪৩০", "9875430"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("9,875,430", "৯৮৭৫৪৩০"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("999999999999999999", "999999999999999999"))
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("999999999999999998", "999999999999999999"))
+
+        // Explicit rounding metadata on BookPracticeQuestion when permitted by the question
+        val baseNumQuestion = com.example.math.BookPracticeQuestion(
+            id = "a03_test_rounding",
+            bookId = com.example.math.BookId.CLASS_9_10,
+            chapterNumber = 17,
+            lessonId = "c910_17_l1",
+            format = com.example.math.BookQuestionFormat.NUMERICAL_INPUT,
+            difficultyMode = com.example.math.BookPracticeMode.STANDARD,
+            provenance = com.example.math.BookQuestionProvenance.ORIGINAL_TEXTBOOK,
+            promptBn = "প্রচুরক নির্ণয় কর (২ দশমিক স্থান পর্যন্ত)",
+            optionsBn = emptyList(),
+            correctOptionIndices = emptySet(),
+            correctTextAnswer = "143/3", // 47.6666... -> 47.67 at 2 decimal places
+            hintBn = "",
+            stepByStepSolutionBn = emptyList(),
+            explanationBn = "",
+            acceptedRoundingDecimalPlaces = null
+        )
+        // Without explicit rounding metadata: 47.67 is NOT accepted for exact 143/3, only exact 143/3 or 47 2/3 is accepted
+        assertFalse(com.example.math.BookQuestionEngine.evaluateQuestion(baseNumQuestion, emptySet(), "47.67").first)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(baseNumQuestion, emptySet(), "143/3").first)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(baseNumQuestion, emptySet(), "৪৭ সমস্ত ২/৩").first)
+
+        // With explicit acceptedRoundingDecimalPlaces = 2: 47.67 and ৪৭.৬৭ are accepted, while 47.66 and 47.68 are rejected
+        val rounded2dpQuestion = baseNumQuestion.copy(acceptedRoundingDecimalPlaces = 2)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "47.67").first)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "৪৭.৬৭").first)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "47.666").first)
+        assertTrue(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "143/3").first)
+        assertFalse(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "47.66").first)
+        assertFalse(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "47.68").first)
+        assertFalse(com.example.math.BookQuestionEngine.evaluateQuestion(rounded2dpQuestion, emptySet(), "47.7").first)
+
+        // Malformed, division-by-zero, NaN, and Infinity inputs (must be rejected against '0.5' AND against themselves)
+        val malformedNumericAndNonFiniteInputs = listOf(
+            "", "   ", "NaN", "nan", "-NaN", "Infinity", "+Infinity", "-Infinity", "inf", "∞",
+            "1/0", "0/0", "12/0", "-5/0", "১/০", "3:0", "0:0", "1:2:3", "1/2/3", "12..5", "12.3.4", "--5", "++5"
+        )
+        for (invalid in malformedNumericAndNonFiniteInputs) {
+            assertFalse(
+                "Invalid input '$invalid' must be rejected against '0.5'",
+                com.example.math.BookQuestionEngine.isTextEquivalent(invalid, "0.5")
+            )
+            assertFalse(
+                "Invalid input '$invalid' must be rejected against itself",
+                com.example.math.BookQuestionEngine.isTextEquivalent(invalid, invalid)
+            )
+        }
+
+        // Ordinary text / algebraic formula answers must be rejected against numeric '0.5',
+        // but preserved as valid text-to-text matches when compared against their expected text
+        assertFalse(com.example.math.BookQuestionEngine.isTextEquivalent("abc", "0.5"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("abc", "abc"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("(x - 2) / (x + 3)", "(x - 2) / (x + 3)"))
+        assertTrue(com.example.math.BookQuestionEngine.isTextEquivalent("সত্য (True)", "সত্য"))
+    }
 }
+
+
+

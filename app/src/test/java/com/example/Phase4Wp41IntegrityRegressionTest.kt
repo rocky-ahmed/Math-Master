@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.MathDatabase
+import com.example.data.repository.ExamQuestionMistakeOutcome
 import com.example.data.model.BcsGoalCreditRecordEntity
 import com.example.data.model.BcsMistakeEntity
 import com.example.data.model.BookMistakeEntity
@@ -22,6 +23,8 @@ import com.example.math.BcsSyllabusUnit
 import com.example.math.BookId
 import com.example.math.BookPracticeMode
 import com.example.math.BookQuestionFormat
+import com.example.math.ExamConfig
+import com.example.math.ExamPresetType
 import com.example.math.ExamQuestionBank
 import com.example.math.MonotonicClock
 import com.example.math.NumberSystemDifficulty
@@ -31,12 +34,16 @@ import com.example.math.QuestionInputFormat
 import com.example.math.QuizMode
 import com.example.math.QuizQuestion
 import com.example.math.QuizQuestionType
+import com.example.math.QuizTopic
 import com.example.ui.MathViewModel
+import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
@@ -1300,4 +1307,481 @@ class Phase4Wp41IntegrityRegressionTest {
             assertEquals(histTime, unifiedAfter.lastFailedAtMillis)
         }
     }
+
+    // =========================================================================
+    // A-06: QUIZ SUBMISSION, PERSISTENCE COORDINATION & FINALIZATION RACE FIX
+    // =========================================================================
+
+    private fun quizUnifiedMistakeKey(q: QuizQuestion): String {
+        return "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
+    }
+
+    @Test
+    fun a06_correctAnswerSkipGuard_immediateAndFullExamMistakeOutcomeIsolation() {
+        val repo = MathRepository(db.mathDao())
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+
+        // Start a non-Full Exam (immediate feedback) quiz session with 3 questions.
+        vm.startQuiz(
+            topic = QuizTopic.ARITHMETIC_PERCENTAGE,
+            count = 3,
+            mode = QuizMode.PRACTICE,
+            difficulty = PracticeDifficulty.EASY,
+            questionType = QuizQuestionType.MCQ
+        )
+        val initialSession = vm.quizSession.value
+        assertFalse("Practice quiz must run in immediate-feedback mode (!isFullExamMode)", initialSession.isFullExamMode)
+        assertEquals(3, initialSession.questions.size)
+
+        val q0 = initialSession.questions[0]
+        val q1 = initialSession.questions[1]
+        val q2 = initialSession.questions[2]
+        val q0Key = quizUnifiedMistakeKey(q0)
+        val q1Key = quizUnifiedMistakeKey(q1)
+        val q2Key = quizUnifiedMistakeKey(q2)
+
+        // Pre-seed unresolved unified mistakes for Q0, Q1, and Q2 (reviewIntervalDays = 1)
+        // so any duplicate resolution during finishQuizSession() would double-advance 1 -> 3 -> 7.
+        runBlocking(Dispatchers.IO) {
+            listOf(q0, q1, q2).forEach { q ->
+                repo.recordUnifiedMistake(
+                    mistakeKey = quizUnifiedMistakeKey(q),
+                    sourceModule = "QUIZ",
+                    subjectId = q.topicTitleBn,
+                    curriculumTrack = "NCTB",
+                    questionPromptBn = q.questionBn,
+                    userAnswerBn = "ভুল",
+                    correctAnswerBn = q.optionsBn.getOrElse(q.correctIndex) { "" },
+                    diagnosticExplanationBn = q.explanationBn
+                )
+            }
+            assertEquals(1, db.mathDao().getUnifiedMistakeByKey(q0Key)!!.reviewIntervalDays)
+            assertEquals(1, db.mathDao().getUnifiedMistakeByKey(q1Key)!!.reviewIntervalDays)
+            assertEquals(1, db.mathDao().getUnifiedMistakeByKey(q2Key)!!.reviewIntervalDays)
+        }
+
+        // Capture finalizeExamAttempt mistake outcomes via testing hook.
+        val capturedFinalizedOutcomes = Collections.synchronizedList(ArrayList<ExamQuestionMistakeOutcome>())
+        vm.quizFinalizationExecutorForTesting = { _, _, outcomes, defaultExecute ->
+            capturedFinalizedOutcomes.addAll(outcomes)
+            defaultExecute()
+        }
+
+        // 1. Submit a CORRECT answer on Q0 in immediate-feedback mode.
+        vm.selectQuizOption(q0.correctIndex)
+        vm.submitQuizAnswer()
+        assertTrue(vm.quizSession.value.isAnswerSubmitted)
+        assertEquals(1, vm.quizSession.value.correctCount)
+        assertEquals(q0.correctIndex, vm.quizSession.value.userAnswers[0])
+
+        // Try to mutate or clear Q0 after submission -> must be blocked in immediate-feedback mode.
+        val wrongForQ0 = (q0.correctIndex + 1) % q0.optionsBn.size
+        vm.selectQuizOption(wrongForQ0)
+        assertEquals(q0.correctIndex, vm.quizSession.value.selectedOptionIndex)
+        vm.clearCurrentQuizAnswer()
+        assertEquals(q0.correctIndex, vm.quizSession.value.userAnswers[0])
+        assertTrue(vm.quizSession.value.isAnswerSubmitted)
+
+        // Advance to Q1, select a WRONG answer and submit it via submitQuizAnswer().
+        vm.nextQuizQuestion()
+        assertEquals(1, vm.quizSession.value.currentIndex)
+        val wrongForQ1 = (q1.correctIndex + 1) % q1.optionsBn.size
+        vm.selectQuizOption(wrongForQ1)
+        vm.submitQuizAnswer()
+        assertTrue(vm.quizSession.value.isAnswerSubmitted)
+
+        // Advance to Q2, select a CORRECT answer as an UNSUBMITTED draft, then skip/finish immediately.
+        vm.nextQuizQuestion()
+        assertEquals(2, vm.quizSession.value.currentIndex)
+        vm.selectQuizOption(q2.correctIndex)
+        assertFalse("Q2 is an unsubmitted draft before finishQuizSession()", vm.quizSession.value.userAnswers.containsKey(2))
+
+        val practiceAttemptId = vm.quizSession.value.attemptId
+        vm.finishQuizSession()
+        val finishJob = vm.getActiveQuizFinalizationJobForTesting(practiceAttemptId)
+        assertNotNull(finishJob)
+        awaitJobWithMainLooper(finishJob!!)
+
+        assertTrue(vm.quizSession.value.isFinished)
+        assertTrue(vm.isQuizFinalizationCommittedForTesting(practiceAttemptId))
+        // Both Q0 (submitted correct) and Q2 (unsubmitted draft correct) must count toward final score = 2.
+        assertEquals(2, vm.quizSession.value.correctCount)
+
+        // Only Q2 (the unsubmitted draft correct answer) should be in questionMistakeOutcomes;
+        // Q0 (already-submitted correct) and Q1 (already-submitted wrong) must BOTH be skipped!
+        assertEquals(
+            "questionMistakeOutcomes in !isFullExamMode must exclude already-submitted Q0 and Q1 and include only unsubmitted draft Q2",
+            listOf(q2Key),
+            capturedFinalizedOutcomes.map { it.unifiedMistakeKey }
+        )
+
+        runBlocking(Dispatchers.IO) {
+            val q0Unified = db.mathDao().getUnifiedMistakeByKey(q0Key)!!
+            val q1Unified = db.mathDao().getUnifiedMistakeByKey(q1Key)!!
+            val q2Unified = db.mathDao().getUnifiedMistakeByKey(q2Key)!!
+
+            // Item 1 & 2 & 5: Q0 was already submitted in !isFullExamMode -> resolved strictly ONCE (interval 1 -> 3, NOT 7).
+            assertTrue("Q0 mistake must be resolved", q0Unified.resolved)
+            assertEquals(
+                "Already-submitted correct answer in !isFullExamMode must NOT be re-resolved during finishQuizSession()",
+                3,
+                q0Unified.reviewIntervalDays
+            )
+
+            // Q1 was submitted wrong in !isFullExamMode -> failureCount incremented once (1 -> 2), not twice (3).
+            assertFalse("Q1 mistake must remain unresolved", q1Unified.resolved)
+            assertEquals(
+                "Already-submitted wrong answer in !isFullExamMode must NOT be double-recorded during finishQuizSession()",
+                2,
+                q1Unified.failureCount
+            )
+
+            // Item 3 & 5: Q2 was an unsubmitted draft correct answer -> merged on finish and resolved once (interval 1 -> 3).
+            assertTrue("Unsubmitted draft correct answer on Q2 must be accepted and resolve mistake on finish", q2Unified.resolved)
+            assertEquals(3, q2Unified.reviewIntervalDays)
+        }
+
+        // Item 4: Full Exam mode (isFullExamMode = true) must include both correct and wrong answers in finishQuizSession().
+        capturedFinalizedOutcomes.clear()
+        vm.startConfiguredExam(
+            ExamConfig(
+                preset = ExamPresetType.TOPIC_TEST,
+                selectedTopics = setOf(QuizTopic.ALGEBRA),
+                difficulty = PracticeDifficulty.EASY,
+                questionType = QuizQuestionType.MCQ,
+                questionCount = 2,
+                durationMinutes = 10,
+                immediateFeedback = false
+            )
+        )
+        val fullExamSession = vm.quizSession.value
+        assertTrue("Configured exam with immediateFeedback=false must be Full Exam mode", fullExamSession.isFullExamMode)
+        val fq0 = fullExamSession.questions[0]
+        val fq1 = fullExamSession.questions[1]
+        val fq0Key = quizUnifiedMistakeKey(fq0)
+        val fq1Key = quizUnifiedMistakeKey(fq1)
+
+        // Pre-seed unresolved mistake for fq0 so correct answer in Full Exam resolves it once on finish.
+        runBlocking(Dispatchers.IO) {
+            repo.recordUnifiedMistake(
+                mistakeKey = fq0Key,
+                sourceModule = "QUIZ",
+                subjectId = fq0.topicTitleBn,
+                curriculumTrack = "NCTB",
+                questionPromptBn = fq0.questionBn,
+                userAnswerBn = "ভুল",
+                correctAnswerBn = fq0.optionsBn.getOrElse(fq0.correctIndex) { "" },
+                diagnosticExplanationBn = fq0.explanationBn
+            )
+        }
+
+        // Answer fq0 correctly and fq1 incorrectly in Full Exam mode.
+        vm.selectQuizOption(fq0.correctIndex)
+        vm.nextQuizQuestion()
+        val wrongFq1 = (fq1.correctIndex + 1) % fq1.optionsBn.size
+        vm.selectQuizOption(wrongFq1)
+
+        val fullExamAttemptId = vm.quizSession.value.attemptId
+        vm.finishQuizSession()
+        val fullExamFinishJob = vm.getActiveQuizFinalizationJobForTesting(fullExamAttemptId)
+        assertNotNull(fullExamFinishJob)
+        awaitJobWithMainLooper(fullExamFinishJob!!)
+
+        assertTrue(vm.quizSession.value.isFinished)
+        assertEquals(1, vm.quizSession.value.correctCount)
+        assertEquals(
+            "Full Exam mode must include both answered questions (correct and wrong) in questionMistakeOutcomes",
+            listOf(fq0Key, fq1Key),
+            capturedFinalizedOutcomes.map { it.unifiedMistakeKey }
+        )
+        runBlocking(Dispatchers.IO) {
+            val fq0Unified = db.mathDao().getUnifiedMistakeByKey(fq0Key)!!
+            val fq1Unified = db.mathDao().getUnifiedMistakeByKey(fq1Key)!!
+            assertTrue("Full Exam correct answer must resolve pre-existing mistake on finish", fq0Unified.resolved)
+            assertEquals(3, fq0Unified.reviewIntervalDays)
+            assertFalse("Full Exam wrong answer must record mistake on finish", fq1Unified.resolved)
+            assertEquals(1, fq1Unified.failureCount)
+        }
+        capturedFinalizedOutcomes.clear()
+    }
+
+    @Test
+    fun a06_persistenceCoordination_finishAwaitsPendingWritesAndRollsBackOnFailure() {
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+
+        vm.startQuiz(
+            topic = QuizTopic.GEOMETRY_MENSURATION,
+            count = 2,
+            mode = QuizMode.PRACTICE,
+            difficulty = PracticeDifficulty.EASY,
+            questionType = QuizQuestionType.MCQ
+        )
+        val session = vm.quizSession.value
+        val attemptId = session.attemptId
+        val q0 = session.questions[0]
+        val q1 = session.questions[1]
+        val q1Key = quizUnifiedMistakeKey(q1)
+
+        // Track chronological event ordering across answer persistence and exam finalization.
+        val events = Collections.synchronizedList(ArrayList<String>())
+        val q0Gate = CompletableDeferred<Unit>()
+        val q1Gate = CompletableDeferred<Unit>()
+        val failQ1Write = AtomicBoolean(true)
+
+        vm.quizAnswerPersistenceExecutorForTesting = { _, idx, _, defaultExecute ->
+            events.add("ANSWER_START_$idx")
+            if (idx == 0) {
+                q0Gate.await()
+            } else if (idx == 1) {
+                q1Gate.await()
+                if (failQ1Write.get()) {
+                    events.add("ANSWER_FAIL_$idx")
+                    throw IllegalStateException("Simulated room write failure for question $idx")
+                }
+            }
+            defaultExecute()
+            events.add("ANSWER_END_$idx")
+        }
+        vm.quizFinalizationExecutorForTesting = { _, _, _, defaultExecute ->
+            events.add("FINALIZE_START")
+            defaultExecute()
+            events.add("FINALIZE_END")
+        }
+
+        // Submit Q0 (correct) and Q1 (incorrect with mistake persistence), then call finishQuizSession() immediately.
+        vm.selectQuizOption(q0.correctIndex)
+        vm.submitQuizAnswer()
+        vm.nextQuizQuestion()
+        val wrongQ1 = (q1.correctIndex + 1) % q1.optionsBn.size
+        vm.selectQuizOption(wrongQ1)
+        vm.submitQuizAnswer()
+
+        assertEquals(2, vm.getPendingQuizAnswerWriteCountForTesting(attemptId))
+
+        // Call finishQuizSession() immediately while both Q0 and Q1 answer persistence writes are still suspended.
+        vm.finishQuizSession()
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // Verify finalization is in-flight and waiting on the pending answer gates (FINALIZE_START not reached).
+        assertTrue(vm.isQuizFinalizationInFlightForTesting(attemptId))
+        assertFalse(vm.isQuizFinalizationCommittedForTesting(attemptId))
+        assertFalse("finalizeExamAttempt must NOT start before pending answer writes complete", events.contains("FINALIZE_START"))
+
+        // Release Q0 and Q1 gates; Q1 is configured to throw an exception on the first attempt.
+        q0Gate.complete(Unit)
+        q1Gate.complete(Unit)
+        val failedFinishJob = vm.getActiveQuizFinalizationJobForTesting(attemptId)
+        if (failedFinishJob != null) {
+            awaitJobWithMainLooper(failedFinishJob)
+        }
+        awaitConditionWithMainLooper {
+            !vm.isQuizFinalizationInFlightForTesting(attemptId)
+        }
+
+        // Item 11: Persistence failure must NOT be silently treated as successful completion.
+        assertFalse("Failed answer write must prevent finalization commit", vm.isQuizFinalizationCommittedForTesting(attemptId))
+        assertFalse("FINALIZE_START must not execute when required answer persistence fails", events.contains("FINALIZE_START"))
+        assertNotNull("Failure reason must be recorded for attempt", vm.getLastQuizPersistenceFailureForTesting(attemptId))
+        assertFalse("Session isFinished must roll back to false on persistence failure", vm.quizSession.value.isFinished)
+        assertEquals("Submitted userAnswers must be preserved after rollback", 2, vm.quizSession.value.userAnswers.size)
+
+        runBlocking(Dispatchers.IO) {
+            val attemptRow = db.mathDao().getExamAttemptById(attemptId)
+            assertTrue("ExamAttemptEntity in Room must not be marked COMPLETED on failure", attemptRow == null || attemptRow.status != "COMPLETED")
+        }
+
+        // Clear the simulated failure and retry finishQuizSession() -> failed Q1 write is retried before finalization.
+        failQ1Write.set(false)
+        vm.finishQuizSession()
+        val retryJob = vm.getActiveQuizFinalizationJobForTesting(attemptId)
+        assertNotNull(retryJob)
+        awaitJobWithMainLooper(retryJob!!)
+
+        assertTrue("Retry after transient failure must commit finalization", vm.isQuizFinalizationCommittedForTesting(attemptId))
+        assertTrue(vm.quizSession.value.isFinished)
+        assertNull(vm.getLastQuizPersistenceFailureForTesting(attemptId))
+        assertEquals(0, vm.getPendingQuizAnswerWriteCountForTesting(attemptId))
+
+        // Verify strict ordering: all ANSWER_END_* events occurred strictly before FINALIZE_START.
+        val lastAnswerEndIdx = events.indexOfLast { it.startsWith("ANSWER_END_") }
+        val finalizeStartIdx = events.indexOf("FINALIZE_START")
+        assertTrue("ANSWER_END must be recorded", lastAnswerEndIdx >= 0)
+        assertTrue("FINALIZE_START must be recorded after retry", finalizeStartIdx > lastAnswerEndIdx)
+
+        // Item 10: Verify final Room database state includes the submitted answers, exam attempt, score, and mistake record.
+        runBlocking(Dispatchers.IO) {
+            val completedAttempt = db.mathDao().getExamAttemptById(attemptId)
+            assertNotNull("Completed ExamAttemptEntity must exist in Room", completedAttempt)
+            assertEquals("COMPLETED", completedAttempt!!.status)
+            assertEquals(1, completedAttempt.correctCount)
+            assertEquals(1, completedAttempt.wrongCount)
+
+            val mistakeRow = db.mathDao().getUnifiedMistakeByKey(q1Key)
+            assertNotNull("Submitted incorrect answer on Q1 must be persisted in unified_mistake_notebook", mistakeRow)
+            assertFalse(mistakeRow!!.resolved)
+
+            val quizScores = db.mathDao().getAllQuizScores().first()
+            assertEquals("QuizScoreEntity must be persisted strictly once", 1, quizScores.size)
+            assertEquals(1, quizScores.first().score)
+        }
+    }
+
+    @Test
+    fun a06_raceAndSessionIsolation_concurrentSubmitFinishAndSupersededSessionGuard() {
+        val vm = MathViewModel(app, savedStateHandle = SavedStateHandle())
+
+        // Part 1 (Items 14–16): Start Session A, gate its answer persistence, call finishQuizSession(),
+        // then start Session B before Session A's answer write finishes.
+        vm.startQuiz(
+            topic = QuizTopic.ARITHMETIC_PERCENTAGE,
+            count = 2,
+            mode = QuizMode.PRACTICE,
+            difficulty = PracticeDifficulty.EASY,
+            questionType = QuizQuestionType.MCQ
+        )
+        val sessionA = vm.quizSession.value
+        val attemptA = sessionA.attemptId
+        val qA0 = sessionA.questions[0]
+
+        val sessionAGate = CompletableDeferred<Unit>()
+        val finalizedAttempts = Collections.synchronizedList(ArrayList<String>())
+
+        vm.quizAnswerPersistenceExecutorForTesting = { _, _, _, defaultExecute ->
+            if (!sessionAGate.isCompleted) {
+                sessionAGate.await()
+            }
+            defaultExecute()
+        }
+        vm.quizFinalizationExecutorForTesting = { attemptId, _, _, defaultExecute ->
+            finalizedAttempts.add(attemptId)
+            defaultExecute()
+        }
+
+        // Submit Q0 in Session A and request finish while Session A's answer write is gated.
+        vm.selectQuizOption(qA0.correctIndex)
+        vm.submitQuizAnswer()
+        vm.finishQuizSession()
+        val jobA = vm.getActiveQuizFinalizationJobForTesting(attemptA)
+
+        // Immediately start Session B while Session A is still waiting on sessionAGate.
+        vm.startQuiz(
+            topic = QuizTopic.ALGEBRA,
+            count = 2,
+            mode = QuizMode.PRACTICE,
+            difficulty = PracticeDifficulty.MEDIUM,
+            questionType = QuizQuestionType.MCQ
+        )
+        val sessionB = vm.quizSession.value
+        val attemptB = sessionB.attemptId
+        assertTrue("Session B must have a distinct attemptId from Session A", attemptA != attemptB)
+        assertTrue("Session A must be marked superseded when Session B starts", vm.isQuizAttemptSupersededForTesting(attemptA))
+
+        // Release Session A's gate and let any background coroutine drain.
+        sessionAGate.complete(Unit)
+        if (jobA != null) {
+            awaitJobWithMainLooper(jobA)
+        }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        Thread.sleep(60)
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        // Items 15 & 16: Session A must NOT overwrite Session B's state and must NOT commit finalization.
+        assertEquals("Active session must remain Session B", attemptB, vm.quizSession.value.attemptId)
+        assertFalse("Session B must remain in progress (not marked finished by Session A)", vm.quizSession.value.isFinished)
+        assertFalse("Superseded Session A must not commit finalization", vm.isQuizFinalizationCommittedForTesting(attemptA))
+        assertFalse("finalizeExamAttempt must never run for superseded Session A", finalizedAttempts.contains(attemptA))
+
+        // Part 2 (Item 13): Concurrent submitQuizAnswer() race on Session B Q0 -> submits and persists strictly once.
+        val answerWriteCountB = AtomicInteger(0)
+        val finalizeCountB = AtomicInteger(0)
+        vm.quizAnswerPersistenceExecutorForTesting = { _, _, _, defaultExecute ->
+            answerWriteCountB.incrementAndGet()
+            defaultExecute()
+        }
+        vm.quizFinalizationExecutorForTesting = { _, _, _, defaultExecute ->
+            finalizeCountB.incrementAndGet()
+            defaultExecute()
+        }
+
+        val qB0 = vm.quizSession.value.questions[0]
+        vm.selectQuizOption(qB0.correctIndex)
+
+        val submitThreads = 8
+        val submitStart = CountDownLatch(1)
+        val submitDone = CountDownLatch(submitThreads)
+        val submitPool = Executors.newFixedThreadPool(submitThreads)
+        repeat(submitThreads) {
+            submitPool.submit {
+                try {
+                    submitStart.await(3, TimeUnit.SECONDS)
+                    vm.submitQuizAnswer()
+                } finally {
+                    submitDone.countDown()
+                }
+            }
+        }
+        submitStart.countDown()
+        assertTrue(submitDone.await(5, TimeUnit.SECONDS))
+        submitPool.shutdownNow()
+
+        // Extra sequential duplicate submit calls must also be no-ops.
+        repeat(4) { vm.submitQuizAnswer() }
+        Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
+        assertEquals("Concurrent submitQuizAnswer() must score Q0 strictly once", 1, vm.quizSession.value.correctCount)
+        assertEquals("Concurrent submitQuizAnswer() must launch answer persistence strictly once", 1, answerWriteCountB.get())
+
+        // Move to Session B Q1 and submit correct answer.
+        vm.nextQuizQuestion()
+        val qB1 = vm.quizSession.value.questions[1]
+        vm.selectQuizOption(qB1.correctIndex)
+        vm.submitQuizAnswer()
+
+        // Part 3 (Item 12): Concurrent finishQuizSession() race on Session B -> finalizes strictly once.
+        val finishThreads = 8
+        val finishStart = CountDownLatch(1)
+        val finishDone = CountDownLatch(finishThreads)
+        val finishPool = Executors.newFixedThreadPool(finishThreads)
+        repeat(finishThreads) {
+            finishPool.submit {
+                try {
+                    finishStart.await(3, TimeUnit.SECONDS)
+                    vm.finishQuizSession()
+                } finally {
+                    finishDone.countDown()
+                }
+            }
+        }
+        finishStart.countDown()
+        assertTrue(finishDone.await(5, TimeUnit.SECONDS))
+        finishPool.shutdownNow()
+
+        // Extra sequential finish calls must also be no-ops.
+        repeat(4) { vm.finishQuizSession() }
+
+        val jobB = vm.getActiveQuizFinalizationJobForTesting(attemptB)
+        if (jobB != null) {
+            awaitJobWithMainLooper(jobB)
+        }
+        awaitConditionWithMainLooper {
+            vm.isQuizFinalizationCommittedForTesting(attemptB)
+        }
+
+        assertTrue(vm.quizSession.value.isFinished)
+        assertEquals("Session B must finalize strictly once under concurrent finishQuizSession() calls", 1, finalizeCountB.get())
+        assertEquals("Session B must persist 2 question answer writes total", 2, answerWriteCountB.get())
+
+        runBlocking(Dispatchers.IO) {
+            val attemptBRow = db.mathDao().getExamAttemptById(attemptB)
+            assertNotNull(attemptBRow)
+            assertEquals("COMPLETED", attemptBRow!!.status)
+            assertEquals(2, attemptBRow.correctCount)
+
+            val quizScores = db.mathDao().getAllQuizScores().first()
+            assertEquals("Only Session B should have a finalized QuizScoreEntity", 1, quizScores.size)
+            assertEquals(2, quizScores.first().score)
+        }
+    }
 }
+
+

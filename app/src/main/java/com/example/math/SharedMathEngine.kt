@@ -404,20 +404,35 @@ object SharedMathEngine {
         return str.lowercase(Locale.ROOT)
     }
 
+    private val TRUE_ANSWER_TOKENS = setOf(
+        "true", "সত্য", "হ্যাঁ", "yes", "ঠিক", "সত্য(true)"
+    )
+
+    private val FALSE_ANSWER_TOKENS = setOf(
+        "false", "মিথ্যা", "না", "no", "ভুল", "মিথ্যা(false)"
+    )
+
     /**
      * Independent mathematical equivalence check between user's submitted answer and expected answer.
+     *
+     * Boolean aliases ("সত্য", "মিথ্যা", "হ্যাঁ", "না", "true", "false", "yes", "no", "ঠিক", "ভুল")
+     * are strictly separated from numeric tokens ("1", "0", "১", "০") so numerical questions expecting
+     * 1 or 0 never falsely accept boolean words, and boolean questions never accept raw numbers.
      */
     fun isAnswerCorrect(userAnswer: String, expectedAnswer: String): Boolean {
-        if (userAnswer.isBlank()) return false
+        if (userAnswer.isBlank() || expectedAnswer.isBlank()) return false
         val normUser = normalizeAnswerToken(userAnswer)
         val normExpected = normalizeAnswerToken(expectedAnswer)
         if (normUser == normExpected) return true
 
-        // True / False bilingual equivalence
-        val trueTokens = setOf("true", "সত্য", "হ্যাঁ", "yes", "1", "ঠিক")
-        val falseTokens = setOf("false", "মিথ্যা", "না", "no", "0", "ভুল")
-        if (normUser in trueTokens && normExpected in trueTokens) return true
-        if (normUser in falseTokens && normExpected in falseTokens) return true
+        // True / False bilingual equivalence (strictly non-numeric boolean tokens only)
+        val isExpectedBoolean = normExpected in TRUE_ANSWER_TOKENS || normExpected in FALSE_ANSWER_TOKENS
+        val isUserBoolean = normUser in TRUE_ANSWER_TOKENS || normUser in FALSE_ANSWER_TOKENS
+        if (isExpectedBoolean || isUserBoolean) {
+            if (normUser in TRUE_ANSWER_TOKENS && normExpected in TRUE_ANSWER_TOKENS) return true
+            if (normUser in FALSE_ANSWER_TOKENS && normExpected in FALSE_ANSWER_TOKENS) return true
+            return false
+        }
 
         val strippedUser = stripCommonUnitSuffixes(normUser)
         val strippedExpected = stripCommonUnitSuffixes(normExpected)

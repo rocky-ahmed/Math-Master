@@ -199,7 +199,8 @@ data class NumberSystemPracticeState(
     val userAnswers: Map<Int, Int> = emptyMap(), // question index -> chosen option
     val currentStreak: Int = 0,
     val highestStreak: Int = 0,
-    val sessionStartEpochMs: Long = System.currentTimeMillis()
+    val sessionStartEpochMs: Long = System.currentTimeMillis(),
+    val sessionId: String = java.util.UUID.randomUUID().toString()
 )
 
 object NumberSystemProvider {

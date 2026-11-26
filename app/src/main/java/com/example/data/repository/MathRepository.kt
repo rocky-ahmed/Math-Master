@@ -291,6 +291,61 @@ class MathRepository(private val dao: MathDao) {
         )
     }
 
+    /**
+     * A-05 / F4-05C: Atomically records a completed practice session's QuizScoreEntity,
+     * optional learned ProgressEntity item, PracticeHistoryEntity, cumulative TopicAnalyticsEntity,
+     * and DailyStudyActivityEntity inside a single Room SQLite transaction under [dailyStudyWriteMutex].
+     *
+     * When [sessionId] is non-blank, duplicate or retried completion calls for the same sessionId
+     * are idempotently ignored (`returns false`) without double-counting scores, history, or analytics.
+     */
+    suspend fun completePracticeSessionAtomically(
+        sessionId: String = "",
+        quizScoreTopicId: String,
+        quizScoreTitleBn: String,
+        quizScoreValue: Int,
+        totalQuestions: Int,
+        percentage: Int,
+        learnedProgressItemId: String? = null,
+        moduleType: String,
+        categoryId: String,
+        categoryTitleBn: String,
+        difficulty: String,
+        mode: String,
+        inputFormat: String = "mcq",
+        sessionScore: Int,
+        correctCount: Int,
+        wrongCount: Int,
+        durationSeconds: Long,
+        highestStreak: Int,
+        nowMs: Long = System.currentTimeMillis()
+    ): Boolean {
+        val dateKey = todayDateKey(nowMs)
+        return dailyStudyWriteMutex.lockWith {
+            dao.completePracticeSessionTransaction(
+                sessionId = sessionId,
+                quizScoreTopicId = quizScoreTopicId,
+                quizScoreTitleBn = quizScoreTitleBn,
+                quizScoreValue = quizScoreValue,
+                totalQuestions = totalQuestions,
+                percentage = percentage,
+                learnedProgressItemId = learnedProgressItemId,
+                module = moduleType,
+                topicId = categoryId,
+                topicTitleBn = categoryTitleBn,
+                difficulty = difficulty,
+                mode = "$mode:$inputFormat",
+                score = sessionScore,
+                correctCount = correctCount,
+                wrongCount = wrongCount,
+                bestStreak = highestStreak,
+                durationSeconds = durationSeconds.toInt().coerceAtLeast(1),
+                nowMs = nowMs,
+                dateKey = dateKey
+            )
+        }
+    }
+
     suspend fun recordFormulaViewed(
         formulaId: String,
         titleBn: String,
@@ -862,59 +917,17 @@ class MathRepository(private val dao: MathDao) {
         examProfileId: String = "BCS_50TH_PRELIM_2025",
         nowMs: Long = System.currentTimeMillis()
     ) {
-        val rawTopicId = topicId.substringAfter("::", topicId)
-        val resolvedKey = if (examProfileId == "BCS_50TH_PRELIM_2025" || examProfileId.isBlank()) {
-            rawTopicId
-        } else {
-            com.example.data.model.BcsTopicProgressEntity.buildScopedKey(examProfileId, rawTopicId)
-        }
-        val existing = dao.getBcsTopicProgressById(resolvedKey)
-        val attemptedDelta = if (questionsAttemptedDelta > 0) questionsAttemptedDelta else if (miniCheckPassed) 1 else 0
-        val correctDelta = if (questionsCorrectDelta > 0) questionsCorrectDelta else if (miniCheckPassed) 1 else 0
-        val updated = if (existing == null) {
-            val baseMastery = when {
-                miniCheckPassed && isGuideCompleted -> 100
-                isGuideCompleted -> 70
-                attemptedDelta > 0 -> ((correctDelta * 100) / attemptedDelta.coerceAtLeast(1)).coerceIn(20, 95)
-                else -> 40
-            }
-            com.example.data.model.BcsTopicProgressEntity(
-                topicId = resolvedKey,
-                subjectTrack = subjectTrack,
-                isGuideCompleted = isGuideCompleted,
-                miniCheckPassed = miniCheckPassed,
-                questionsAttempted = attemptedDelta,
-                questionsCorrect = correctDelta,
-                totalTimeSeconds = additionalTimeSeconds,
-                masteryPercent = baseMastery,
-                lastStudiedAt = nowMs,
-                examProfileId = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
-            )
-        } else {
-            val guideDone = existing.isGuideCompleted || isGuideCompleted
-            val checkDone = existing.miniCheckPassed || miniCheckPassed
-            val nextAttempted = existing.questionsAttempted + attemptedDelta
-            val nextCorrect = existing.questionsCorrect + correctDelta
-            val accuracyRatio = if (nextAttempted > 0) (nextCorrect * 100) / nextAttempted else existing.masteryPercent
-            val computedMastery = when {
-                guideDone && checkDone && nextAttempted >= 3 -> ((accuracyRatio + 100) / 2).coerceIn(60, 100)
-                guideDone && checkDone -> 100
-                guideDone -> max(75, accuracyRatio)
-                nextAttempted > 0 -> accuracyRatio.coerceIn(15, 95)
-                else -> existing.masteryPercent
-            }
-            existing.copy(
-                isGuideCompleted = guideDone,
-                miniCheckPassed = checkDone,
-                questionsAttempted = nextAttempted,
-                questionsCorrect = nextCorrect,
-                totalTimeSeconds = existing.totalTimeSeconds + additionalTimeSeconds,
-                masteryPercent = computedMastery,
-                lastStudiedAt = nowMs,
-                examProfileId = examProfileId.ifBlank { existing.examProfileId }
-            )
-        }
-        dao.upsertBcsTopicProgress(updated)
+        dao.recordBcsTopicProgressTransaction(
+            topicId = topicId,
+            subjectTrack = subjectTrack,
+            isGuideCompleted = isGuideCompleted,
+            miniCheckPassed = miniCheckPassed,
+            additionalTimeSeconds = additionalTimeSeconds,
+            questionsAttemptedDelta = questionsAttemptedDelta,
+            questionsCorrectDelta = questionsCorrectDelta,
+            examProfileId = examProfileId,
+            nowMs = nowMs
+        )
     }
 
     internal fun extractCanonicalBcsQuestionId(questionId: String): String {

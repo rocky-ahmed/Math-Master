@@ -253,7 +253,8 @@ data class MentalMathSessionState(
     val history: List<AnsweredMentalQuestion> = emptyList(),
     val isReviewMode: Boolean = false,
     val startElapsedRealtimeMs: Long = 0L,
-    val deadlineElapsedRealtimeMs: Long = 0L
+    val deadlineElapsedRealtimeMs: Long = 0L,
+    val sessionId: String = java.util.UUID.randomUUID().toString()
 )
 
 /**

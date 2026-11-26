@@ -73,6 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -593,12 +594,18 @@ fun BookDetailScreen(
     viewModel: MathViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val appContext = context.applicationContext
     val bookId by viewModel.selectedBookId.collectAsStateWithLifecycle()
     val lessonProgress by viewModel.bookLessonProgress.collectAsStateWithLifecycle()
     val readingStates by viewModel.bookReadingStates.collectAsStateWithLifecycle()
 
     val chapters = remember(bookId) { BookCurriculumRepository.getChapters(bookId) }
     val readingState = readingStates.firstOrNull { it.bookId == bookId.id }
+    val pdfAvailability = remember(appContext, bookId) {
+        getBookPdfAvailabilityStatus(appContext, bookId)
+    }
+    val isPdfAvailable = pdfAvailability.isOfflinePdfAvailable
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -613,7 +620,11 @@ fun BookDetailScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "${BengaliNumberFormatter.toBengaliDigits(chapters.size)}টি অধ্যায় • ${BengaliNumberFormatter.toBengaliDigits(bookId.totalPdfPages)} পিডিএফ পৃষ্ঠা",
+                            text = if (isPdfAvailable) {
+                                "${BengaliNumberFormatter.toBengaliDigits(chapters.size)}টি অধ্যায় • ${BengaliNumberFormatter.toBengaliDigits(bookId.totalPdfPages)} পিডিএফ পৃষ্ঠা"
+                            } else {
+                                "${BengaliNumberFormatter.toBengaliDigits(chapters.size)}টি অধ্যায় • ${BengaliNumberFormatter.toBengaliDigits(bookId.maxPrintedPage)} ডিজিটাল পৃষ্ঠা (মূল PDF অনুপলব্ধ)"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -629,10 +640,18 @@ fun BookDetailScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { viewModel.openBookPdfReader(bookId) },
+                        onClick = {
+                            if (isPdfAvailable) {
+                                viewModel.openBookPdfReader(bookId)
+                            }
+                        },
+                        enabled = isPdfAvailable,
                         modifier = Modifier.testTag("book_detail_pdf_btn")
                     ) {
-                        Icon(Icons.Default.PictureAsPdf, contentDescription = "মূল পাঠ্যবই")
+                        Icon(
+                            Icons.Default.PictureAsPdf,
+                            contentDescription = if (isPdfAvailable) "মূল পাঠ্যবই" else "মূল পিডিএফ অনুপলব্ধ"
+                        )
                     }
                     IconButton(
                         onClick = { viewModel.openBookRevision(bookId) },
@@ -674,7 +693,7 @@ fun BookDetailScreen(
                             text = if (readingState != null) {
                                 "সর্বশেষ পঠিত পৃষ্ঠা: ${BengaliNumberFormatter.toBengaliDigits(readingState.lastReadPrintedPage)} (অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(readingState.lastReadChapterNumber)})"
                             } else {
-                                "অধ্যায়ভিত্তিক পাঠ, সূত্র, উদাহরণ, মূল পাঠ্যবই এবং ৬ ধরনের অনুশীলন মোড"
+                                "অধ্যায়ভিত্তিক পাঠ, সূত্র, উদাহরণ, ডিজিটাল পাঠ্যবই এবং ৬ ধরনের অনুশীলন মোড"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
@@ -691,9 +710,13 @@ fun BookDetailScreen(
                                     .testTag("book_detail_resume_pdf_btn"),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(
+                                    imageVector = if (isPdfAvailable) Icons.Default.PictureAsPdf else Icons.AutoMirrored.Filled.MenuBook,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("পাঠ্যবই পড়ুন")
+                                Text(if (isPdfAvailable) "পাঠ্যবই পড়ুন" else "ডিজিটাল পাঠ্যবই পড়ুন")
                             }
                             OutlinedButton(
                                 onClick = {
@@ -717,7 +740,7 @@ fun BookDetailScreen(
                 }
             }
 
-            // NCTB Official Edition & Source Fidelity Card
+            // NCTB Official Edition & Source Fidelity Card (with explicit Structured vs Offline PDF status)
             item(key = "book_edition_fidelity_card") {
                 val meta = bookId.editionMetadata
                 Card(
@@ -742,10 +765,33 @@ fun BookDetailScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            text = meta.offlineModeNoteBn,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = pdfAvailability.structuredStatusBn,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.testTag("book_detail_structured_status_text")
                         )
+                        Text(
+                            text = pdfAvailability.pdfStatusBn,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isPdfAvailable) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("book_detail_pdf_status_text")
+                        )
+                        if (!isPdfAvailable && pdfAvailability.fallbackExplanationBn != null) {
+                            Text(
+                                text = pdfAvailability.fallbackExplanationBn,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.testTag("book_detail_pdf_unavailable_banner")
+                            )
+                        } else {
+                            Text(
+                                text = meta.offlineModeNoteBn,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

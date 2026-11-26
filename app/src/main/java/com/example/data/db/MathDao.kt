@@ -79,7 +79,7 @@ interface MathDao {
     suspend fun deleteQuizScoresInTimeWindow(minTimestamp: Long, maxTimestamp: Long)
 
     // User Progress
-    @Query("SELECT * FROM user_progress")
+    @Query("SELECT * FROM user_progress WHERE itemId NOT LIKE '__session_receipt__%'")
     fun getAllProgress(): Flow<List<ProgressEntity>>
 
     @Query("SELECT COUNT(*) FROM user_progress WHERE isLearned = 1 AND itemId LIKE 'table\\_%' ESCAPE '\\'")
@@ -90,6 +90,9 @@ interface MathDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProgress(progress: ProgressEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertProgressIfAbsent(progress: ProgressEntity): Long
 
     // Practice & Challenge History (Room v3) — full historical completeness without arbitrary row truncation
     @Query("SELECT * FROM practice_history ORDER BY timestamp DESC")
@@ -598,6 +601,89 @@ interface MathDao {
         )
     }
 
+    /**
+     * A-05 / F4-05C: Atomically persists QuizScoreEntity, optional learned ProgressEntity,
+     * PracticeHistoryEntity, cumulative TopicAnalyticsEntity, and DailyStudyActivityEntity
+     * inside a single Room SQLite transaction, guarded by an optional idempotent [sessionId]
+     * completion receipt so duplicate or retried completion calls never double-count scores,
+     * history, or analytics.
+     */
+    @Transaction
+    suspend fun completePracticeSessionTransaction(
+        sessionId: String = "",
+        quizScoreTopicId: String,
+        quizScoreTitleBn: String,
+        quizScoreValue: Int,
+        totalQuestions: Int,
+        percentage: Int,
+        learnedProgressItemId: String? = null,
+        module: String,
+        topicId: String,
+        topicTitleBn: String,
+        difficulty: String,
+        mode: String,
+        score: Int,
+        correctCount: Int,
+        wrongCount: Int,
+        bestStreak: Int,
+        durationSeconds: Int,
+        nowMs: Long,
+        dateKey: String
+    ): Boolean {
+        val cleanSessionId = sessionId.trim()
+        if (cleanSessionId.isNotEmpty()) {
+            val receiptRowId = insertProgressIfAbsent(
+                ProgressEntity(
+                    itemId = "__session_receipt__$cleanSessionId",
+                    isLearned = false,
+                    updatedAt = nowMs
+                )
+            )
+            if (receiptRowId == -1L) {
+                return false
+            }
+        }
+
+        insertQuizScore(
+            QuizScoreEntity(
+                topicId = quizScoreTopicId,
+                topicTitleBn = quizScoreTitleBn,
+                score = quizScoreValue,
+                totalQuestions = totalQuestions,
+                percentage = percentage,
+                timestamp = nowMs
+            )
+        )
+
+        val cleanLearnedId = learnedProgressItemId?.trim().orEmpty()
+        if (cleanLearnedId.isNotEmpty()) {
+            upsertProgress(
+                ProgressEntity(
+                    itemId = cleanLearnedId,
+                    isLearned = true,
+                    updatedAt = nowMs
+                )
+            )
+        }
+
+        recordSessionAndAnalyticsTransaction(
+            module = module,
+            topicId = topicId,
+            topicTitleBn = topicTitleBn,
+            difficulty = difficulty,
+            mode = mode,
+            score = score,
+            correctCount = correctCount,
+            wrongCount = wrongCount,
+            totalQuestions = totalQuestions,
+            bestStreak = bestStreak,
+            durationSeconds = durationSeconds,
+            nowMs = nowMs,
+            dateKey = dateKey
+        )
+        return true
+    }
+
     @Transaction
     suspend fun recordBookQuestionMistakeTransaction(
         questionId: String,
@@ -884,6 +970,81 @@ interface MathDao {
             )
         }
         upsertBcsStudyGoal(updated)
+        return updated
+    }
+
+    /**
+     * A-04 / F4-05A: Atomically reads, merges, and upserts a single [BcsTopicProgressEntity] row
+     * inside a Room SQLite transaction to eliminate lost-update races across concurrent updates.
+     */
+    @Transaction
+    suspend fun recordBcsTopicProgressTransaction(
+        topicId: String,
+        subjectTrack: String,
+        isGuideCompleted: Boolean,
+        miniCheckPassed: Boolean,
+        additionalTimeSeconds: Int,
+        questionsAttemptedDelta: Int,
+        questionsCorrectDelta: Int,
+        examProfileId: String,
+        nowMs: Long
+    ): BcsTopicProgressEntity {
+        val rawTopicId = topicId.substringAfter("::", topicId)
+        val safeProfile = examProfileId.ifBlank { "BCS_50TH_PRELIM_2025" }
+        val resolvedKey = if (safeProfile == "BCS_50TH_PRELIM_2025") {
+            rawTopicId
+        } else {
+            BcsTopicProgressEntity.buildScopedKey(safeProfile, rawTopicId)
+        }
+        val existing = getBcsTopicProgressById(resolvedKey)
+        val attemptedDelta = if (questionsAttemptedDelta > 0) questionsAttemptedDelta else if (miniCheckPassed) 1 else 0
+        val correctDelta = if (questionsCorrectDelta > 0) questionsCorrectDelta else if (miniCheckPassed) 1 else 0
+        val safeTimeDelta = max(0, additionalTimeSeconds)
+        val updated = if (existing == null) {
+            val baseMastery = when {
+                miniCheckPassed && isGuideCompleted -> 100
+                isGuideCompleted -> 70
+                attemptedDelta > 0 -> ((correctDelta * 100) / attemptedDelta.coerceAtLeast(1)).coerceIn(20, 95)
+                else -> 40
+            }
+            BcsTopicProgressEntity(
+                topicId = resolvedKey,
+                subjectTrack = subjectTrack,
+                isGuideCompleted = isGuideCompleted,
+                miniCheckPassed = miniCheckPassed,
+                questionsAttempted = attemptedDelta,
+                questionsCorrect = correctDelta,
+                totalTimeSeconds = safeTimeDelta,
+                masteryPercent = baseMastery,
+                lastStudiedAt = nowMs,
+                examProfileId = safeProfile
+            )
+        } else {
+            val guideDone = existing.isGuideCompleted || isGuideCompleted
+            val checkDone = existing.miniCheckPassed || miniCheckPassed
+            val nextAttempted = existing.questionsAttempted + attemptedDelta
+            val nextCorrect = existing.questionsCorrect + correctDelta
+            val accuracyRatio = if (nextAttempted > 0) (nextCorrect * 100) / nextAttempted else existing.masteryPercent
+            val computedMastery = when {
+                guideDone && checkDone && nextAttempted >= 3 -> ((accuracyRatio + 100) / 2).coerceIn(60, 100)
+                guideDone && checkDone -> 100
+                guideDone -> max(75, accuracyRatio)
+                nextAttempted > 0 -> accuracyRatio.coerceIn(15, 95)
+                else -> existing.masteryPercent
+            }
+            existing.copy(
+                subjectTrack = subjectTrack.ifBlank { existing.subjectTrack },
+                isGuideCompleted = guideDone,
+                miniCheckPassed = checkDone,
+                questionsAttempted = nextAttempted,
+                questionsCorrect = nextCorrect,
+                totalTimeSeconds = existing.totalTimeSeconds + safeTimeDelta,
+                masteryPercent = computedMastery,
+                lastStudiedAt = max(existing.lastStudiedAt, nowMs),
+                examProfileId = examProfileId.ifBlank { existing.examProfileId }
+            )
+        }
+        upsertBcsTopicProgress(updated)
         return updated
     }
 

@@ -1,7 +1,10 @@
 package com.example.math
 
+import java.math.BigDecimal
+import java.math.BigInteger
+import java.math.RoundingMode
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
 
 object BookQuestionEngine {
 
@@ -372,30 +375,195 @@ object BookQuestionEngine {
                     val chosen = selectedOptionIndices.first()
                     val chosenText = question.optionsBn.getOrElse(chosen) { "" }
                     val isOptionCorrect = selectedOptionIndices == question.correctOptionIndices ||
-                        isTextEquivalent(chosenText, question.correctTextAnswer)
+                        isTextEquivalent(
+                            userRaw = chosenText,
+                            expectedRaw = question.correctTextAnswer,
+                            acceptedRoundingDecimalPlaces = question.acceptedRoundingDecimalPlaces
+                        )
                     isOptionCorrect to chosenText
                 } else {
                     val trimmed = userTextInput.trim()
-                    val isTextCorrect = isTextEquivalent(trimmed, question.correctTextAnswer)
+                    val isTextCorrect = isTextEquivalent(
+                        userRaw = trimmed,
+                        expectedRaw = question.correctTextAnswer,
+                        acceptedRoundingDecimalPlaces = question.acceptedRoundingDecimalPlaces
+                    )
                     isTextCorrect to trimmed.ifEmpty { "উত্তর দেওয়া হয়নি" }
                 }
             }
         }
     }
 
-    fun isTextEquivalent(userRaw: String, expectedRaw: String): Boolean {
+    /**
+     * Evaluates mathematical and textual equivalence between [userRaw] and [expectedRaw].
+     *
+     * Key guarantees (A-03 hardening):
+     * - Removes the unjustified global `abs(uNum - eNum) < 0.01` tolerance so near-but-incorrect
+     *   decimal answers (e.g., `0.509` or `0.50001` for `0.50`) are strictly rejected.
+     * - Uses exact [BigDecimal] (`compareTo == 0`) and exact [Rational] arithmetic for numerical,
+     *   decimal, fraction, mixed-fraction, and ratio answers.
+     * - Honors explicit [acceptedRoundingDecimalPlaces] precision metadata when provided on a question
+     *   (comparing both user and expected values rounded with [RoundingMode.HALF_UP] at that scale,
+     *   or verifying that the user's rounded input matches the exact expected rational rounded to that scale).
+     * - Safely rejects malformed inputs, division by zero, `NaN`, and `Infinity`.
+     */
+    fun isTextEquivalent(
+        userRaw: String,
+        expectedRaw: String,
+        acceptedRoundingDecimalPlaces: Int? = null
+    ): Boolean {
         if (userRaw.isBlank() || expectedRaw.isBlank()) return false
-        val uNorm = BengaliNumberFormatter.toEnglishDigits(userRaw.trim()).lowercase()
-        val eNorm = BengaliNumberFormatter.toEnglishDigits(expectedRaw.trim()).lowercase()
-        if (uNorm == eNorm) return true
 
-        // Check numeric equivalence if both parse as numbers
-        val uNum = uNorm.replace(",", "").toDoubleOrNull()
-        val eNum = eNorm.replace(",", "").toDoubleOrNull()
-        if (uNum != null && eNum != null && abs(uNum - eNum) < 0.01) {
+        val uTrim = userRaw.trim()
+        val eTrim = expectedRaw.trim()
+        if (containsNonFiniteToken(uTrim) || containsNonFiniteToken(eTrim)) return false
+
+        // 1. Exact normalized token comparison (after Bengali->ASCII digit, unit stripping, mixed-fraction normalization)
+        val normUser = SharedMathEngine.normalizeAnswerToken(uTrim)
+        val normExpected = SharedMathEngine.normalizeAnswerToken(eTrim)
+        if (normUser.isEmpty() || normExpected.isEmpty()) return false
+
+        // 2. If both represent numerical values (decimal, integer, percentage, or fraction/ratio),
+        // evaluate with exact BigDecimal / Rational arithmetic (never using a global floating-point epsilon).
+        val userDecimal = parseExactBigDecimalOrNull(normUser)
+        val expectedDecimal = parseExactBigDecimalOrNull(normExpected)
+        val userRational = parseExactRationalFromCleanToken(normUser)
+        val expectedRational = parseExactRationalFromCleanToken(normExpected)
+
+        val isNumericComparison = (userDecimal != null || userRational != null) &&
+            (expectedDecimal != null || expectedRational != null)
+
+        if (isNumericComparison) {
+            // 2a. Exact BigDecimal equality (e.g., "0.50" == "0.5", "-15.5" == "-১৫.৫", "1,000" == "1000", "-0.0" == "0")
+            if (userDecimal != null && expectedDecimal != null && userDecimal.compareTo(expectedDecimal) == 0) {
+                return true
+            }
+            // 2b. Exact Rational / Fraction / Ratio equality (e.g., "1/2" == "0.5", "2/4" == "1/2", "3:4" == "6:8")
+            // Note: Only compare rationals when token types are compatible (ratios ':' only match ratios ':')
+            val userIsRatio = normUser.contains(":")
+            val expectedIsRatio = normExpected.contains(":")
+            if (userIsRatio == expectedIsRatio && userRational != null && expectedRational != null && userRational == expectedRational) {
+                return true
+            }
+            // 2c. Explicit question-level rounding precision metadata (only when explicitly permitted by the question)
+            if (acceptedRoundingDecimalPlaces != null && acceptedRoundingDecimalPlaces >= 0 && !userIsRatio && !expectedIsRatio) {
+                val uBd = userDecimal ?: userRational?.toExactOrScaledBigDecimal(acceptedRoundingDecimalPlaces + 8)
+                val eBd = expectedDecimal ?: expectedRational?.toExactOrScaledBigDecimal(acceptedRoundingDecimalPlaces + 8)
+                if (uBd != null && eBd != null) {
+                    val uRounded = uBd.setScale(acceptedRoundingDecimalPlaces, RoundingMode.HALF_UP)
+                    val eRounded = eBd.setScale(acceptedRoundingDecimalPlaces, RoundingMode.HALF_UP)
+                    if (uRounded.compareTo(eRounded) == 0) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+
+        // 3. Reject malformed numeric/fraction expressions (e.g. division by zero "1/0")
+        if (isMalformedFractionOrNumber(normUser) || isMalformedFractionOrNumber(normExpected)) {
+            return false
+        }
+
+        // 4. Non-numeric text / formula / boolean comparison
+        val uAsciiLower = BengaliNumberFormatter.toEnglishDigits(uTrim).lowercase(Locale.ROOT)
+        val eAsciiLower = BengaliNumberFormatter.toEnglishDigits(eTrim).lowercase(Locale.ROOT)
+        if (uAsciiLower == eAsciiLower || normUser == normExpected) {
             return true
         }
-        return SharedMathEngine.isAnswerCorrect(userRaw, expectedRaw)
+
+        return SharedMathEngine.isAnswerCorrect(uTrim, eTrim)
+    }
+
+    private fun containsNonFiniteToken(raw: String): Boolean {
+        val lower = raw.trim().lowercase(Locale.ROOT)
+        return lower == "nan" || lower == "+nan" || lower == "-nan" ||
+            lower == "infinity" || lower == "+infinity" || lower == "-infinity" ||
+            lower == "inf" || lower == "+inf" || lower == "-inf" ||
+            lower == "∞" || lower == "+∞" || lower == "-∞"
+    }
+
+    private fun parseExactBigDecimalOrNull(normalizedToken: String): BigDecimal? {
+        if (normalizedToken.contains("/") || normalizedToken.contains(":")) return null
+        val cleaned = normalizedToken
+            .removeSuffix("%")
+            .replace(",", "")
+            .trim()
+        if (cleaned.isEmpty()) return null
+        return try {
+            BigDecimal(cleaned)
+        } catch (_: NumberFormatException) {
+            null
+        }
+    }
+
+    private fun parseExactRationalFromCleanToken(normalizedToken: String): Rational? {
+        val cleaned = normalizedToken
+            .removeSuffix("%")
+            .replace(",", "")
+            .trim()
+        if (cleaned.isEmpty()) return null
+        return try {
+            if (cleaned.contains("/") || cleaned.contains(":")) {
+                val delimiter = if (cleaned.contains("/")) "/" else ":"
+                val parts = cleaned.split(delimiter)
+                if (parts.size != 2) return null
+                val numBd = BigDecimal(parts[0].trim()).stripTrailingZeros()
+                val denBd = BigDecimal(parts[1].trim()).stripTrailingZeros()
+                if (denBd.compareTo(BigDecimal.ZERO) == 0) return null
+                val maxScale = maxOf(numBd.scale().coerceAtLeast(0), denBd.scale().coerceAtLeast(0))
+                val factor = BigDecimal.TEN.pow(maxScale)
+                val numInt = numBd.multiply(factor).toBigIntegerExact()
+                val denInt = denBd.multiply(factor).toBigIntegerExact()
+                Rational(numInt, denInt)
+            } else {
+                val bd = BigDecimal(cleaned).stripTrailingZeros()
+                val scale = bd.scale()
+                if (scale <= 0) {
+                    Rational(bd.toBigIntegerExact(), BigInteger.ONE)
+                } else {
+                    Rational(bd.unscaledValue(), BigInteger.TEN.pow(scale))
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun Rational.toExactOrScaledBigDecimal(scale: Int): BigDecimal {
+        return BigDecimal(simplifiedNumerator)
+            .divide(BigDecimal(simplifiedDenominator), scale.coerceAtLeast(8), RoundingMode.HALF_UP)
+    }
+
+    private fun isMalformedFractionOrNumber(normalizedToken: String): Boolean {
+        val cleaned = normalizedToken.removeSuffix("%").replace(",", "").trim()
+        if (cleaned.isEmpty()) return true
+
+        val hasNumericOperatorChar = cleaned.all { ch ->
+            ch.isDigit() || ch == '.' || ch == '+' || ch == '-' || ch == '/' || ch == ':'
+        }
+
+        // Only classify as a malformed fraction/ratio/number when the token is purely composed of
+        // numeric/fraction/ratio characters (preserving algebraic/text formulas like "(x - 2) / (x + 3)" or "abc").
+        if (!hasNumericOperatorChar) return false
+
+        // Must contain at least one digit if composed exclusively of numeric/operator punctuation
+        if (!cleaned.any { it.isDigit() }) return true
+
+        if (cleaned.contains("/") || cleaned.contains(":")) {
+            // Cannot mix '/' and ':' in a single numeric ratio/fraction token
+            if (cleaned.contains("/") && cleaned.contains(":")) return true
+            val delimiter = if (cleaned.contains("/")) "/" else ":"
+            val parts = cleaned.split(delimiter)
+            if (parts.size != 2) return true
+            val num = parts[0].trim().toBigDecimalOrNull()
+            val den = parts[1].trim().toBigDecimalOrNull()
+            if (num == null || den == null || den.compareTo(BigDecimal.ZERO) == 0) return true
+            return false
+        }
+
+        // Numeric-looking token without '/' or ':' (e.g. "12..5", "12.3.4", "--5", "++5") must parse as a valid BigDecimal
+        return cleaned.toBigDecimalOrNull() == null
     }
 
     private fun buildMatchingPairsForChapter(chapter: BookChapterSpec): List<Pair<String, String>> {

@@ -99,6 +99,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -1175,6 +1176,170 @@ class MathViewModel @JvmOverloads constructor(
     private val examPersistenceMutex = Mutex()
     private var activeExamPersistenceJob: Job? = null
 
+    // A-06 / F4-06: Attempt-scoped quiz answer persistence & finalization coordination
+    private data class PendingQuizAnswerWrite(
+        val attemptId: String,
+        val questionIndex: Int,
+        val isCorrect: Boolean,
+        val persistOperation: suspend () -> Unit,
+        @Volatile var completion: CompletableDeferred<Result<Unit>> = CompletableDeferred(),
+        @Volatile var job: Job? = null,
+        @Volatile var succeeded: Boolean = false,
+        @Volatile var lastFailure: Throwable? = null,
+        @Volatile var failureObservedByFinalization: Boolean = false
+    )
+
+    private val quizPersistenceLock = Any()
+    private val pendingQuizAnswerWritesByAttempt = mutableMapOf<String, MutableMap<Int, PendingQuizAnswerWrite>>()
+    private val inFlightQuizFinalizationAttemptIds = mutableSetOf<String>()
+    private val finalizedQuizAttemptIds = mutableSetOf<String>()
+    private val supersededQuizAttemptIds = mutableSetOf<String>()
+    private val activeQuizFinalizationJobsByAttempt = mutableMapOf<String, Job>()
+    private val lastQuizPersistenceFailureByAttempt = mutableMapOf<String, Throwable>()
+
+    internal var quizAnswerPersistenceExecutorForTesting: (
+        suspend (
+            attemptId: String,
+            questionIndex: Int,
+            isCorrect: Boolean,
+            defaultExecute: suspend () -> Unit
+        ) -> Unit
+    )? = null
+
+    internal var quizFinalizationExecutorForTesting: (
+        suspend (
+            attemptId: String,
+            completedAttempt: ExamAttemptEntity,
+            questionMistakeOutcomes: List<ExamQuestionMistakeOutcome>,
+            defaultExecute: suspend () -> Unit
+        ) -> Unit
+    )? = null
+
+    internal fun isQuizFinalizationInFlightForTesting(attemptId: String): Boolean {
+        return synchronized(quizPersistenceLock) {
+            inFlightQuizFinalizationAttemptIds.contains(attemptId)
+        }
+    }
+
+    internal fun isQuizFinalizationCommittedForTesting(attemptId: String): Boolean {
+        return synchronized(quizPersistenceLock) {
+            finalizedQuizAttemptIds.contains(attemptId)
+        }
+    }
+
+    internal fun isQuizAttemptSupersededForTesting(attemptId: String): Boolean {
+        return synchronized(quizPersistenceLock) {
+            supersededQuizAttemptIds.contains(attemptId)
+        }
+    }
+
+    internal fun getPendingQuizAnswerWriteCountForTesting(attemptId: String): Int {
+        return synchronized(quizPersistenceLock) {
+            pendingQuizAnswerWritesByAttempt[attemptId]?.values?.count { !it.succeeded } ?: 0
+        }
+    }
+
+    internal fun getLastQuizPersistenceFailureForTesting(attemptId: String): Throwable? {
+        return synchronized(quizPersistenceLock) {
+            lastQuizPersistenceFailureByAttempt[attemptId]
+        }
+    }
+
+    internal fun getActiveQuizFinalizationJobForTesting(attemptId: String): Job? {
+        return synchronized(quizPersistenceLock) {
+            activeQuizFinalizationJobsByAttempt[attemptId]
+        }
+    }
+
+    private fun supersedePreviousQuizSessionIfUnfinalized(
+        previousAttemptId: String,
+        newAttemptId: String
+    ) {
+        synchronized(quizPersistenceLock) {
+            if (newAttemptId.isNotBlank()) {
+                supersededQuizAttemptIds.remove(newAttemptId)
+            }
+            if (
+                previousAttemptId.isNotBlank() &&
+                previousAttemptId != newAttemptId &&
+                !finalizedQuizAttemptIds.contains(previousAttemptId)
+            ) {
+                supersededQuizAttemptIds.add(previousAttemptId)
+            }
+        }
+    }
+
+    private fun launchQuizAnswerPersistenceWrite(write: PendingQuizAnswerWrite): Job {
+        val completionDeferred = CompletableDeferred<Result<Unit>>()
+        synchronized(quizPersistenceLock) {
+            write.completion = completionDeferred
+            write.failureObservedByFinalization = false
+        }
+        val job = viewModelScope.launch {
+            try {
+                val customExecutor = quizAnswerPersistenceExecutorForTesting
+                if (customExecutor != null) {
+                    customExecutor.invoke(write.attemptId, write.questionIndex, write.isCorrect) {
+                        write.persistOperation()
+                    }
+                } else {
+                    write.persistOperation()
+                }
+                synchronized(quizPersistenceLock) {
+                    write.succeeded = true
+                    write.lastFailure = null
+                }
+                completionDeferred.complete(Result.success(Unit))
+            } catch (ce: CancellationException) {
+                completionDeferred.cancel(ce)
+                throw ce
+            } catch (t: Throwable) {
+                android.util.Log.e(
+                    "MathViewModel",
+                    "Quiz answer persistence failed for attempt=${write.attemptId}, questionIndex=${write.questionIndex}",
+                    t
+                )
+                synchronized(quizPersistenceLock) {
+                    write.succeeded = false
+                    write.lastFailure = t
+                    lastQuizPersistenceFailureByAttempt[write.attemptId] = t
+                }
+                completionDeferred.complete(Result.failure(t))
+            }
+        }
+        synchronized(quizPersistenceLock) {
+            write.job = job
+        }
+        return job
+    }
+
+    private fun rollbackUncommittedQuizFinalizationState(
+        attemptId: String,
+        previousState: QuizSessionState
+    ) {
+        val isAlreadyFinalized = synchronized(quizPersistenceLock) {
+            finalizedQuizAttemptIds.contains(attemptId)
+        }
+        if (isAlreadyFinalized) return
+
+        while (true) {
+            val live = _quizSession.value
+            if (live.attemptId != attemptId) {
+                break
+            }
+            val restoredState = previousState.copy(
+                attemptId = attemptId,
+                isFinished = false,
+                state = if (previousState.isAnswerSubmitted) QuizState.ANSWER_SUBMITTED else QuizState.IN_PROGRESS,
+                detailedResult = null,
+                showSubmitConfirmDialog = false
+            )
+            if (_quizSession.compareAndSet(live, restoredState)) {
+                break
+            }
+        }
+    }
+
     // WP4.1 (F4-02) / BCS-GC-01: Attempt-scoped BCS completion-only daily goal credit lifecycle & durable receipt/origin store
     private val bcsGoalCreditReceiptStore by lazy { BcsGoalCreditReceiptStore(prefs) }
     private val _bcsGoalCreditStatus = MutableStateFlow(BcsGoalCreditStatus())
@@ -2134,6 +2299,7 @@ class MathViewModel @JvmOverloads constructor(
         questionType: QuizQuestionType = QuizQuestionType.MCQ,
         timedSeconds: Int = 120
     ) {
+        val previousAttemptId = _quizSession.value.attemptId
         _quizSession.value = _quizSession.value.copy(state = QuizState.LOADING)
         val effectiveTopic = if (mode == QuizMode.MIXED) QuizTopic.MIXED_CHALLENGE else topic
         val questions = if (mode == QuizMode.REVIEW_INCORRECT && _incorrectQuizQuestionPool.value.isNotEmpty()) {
@@ -2150,7 +2316,7 @@ class MathViewModel @JvmOverloads constructor(
         val now = clock.elapsedRealtime()
         val effectiveTimedSeconds = if (mode == QuizMode.TIMED) timedSeconds.coerceAtLeast(1) else 0
         val deadline = if (effectiveTimedSeconds > 0) now + effectiveTimedSeconds * 1000L else 0L
-        val attemptId = "exam_${System.currentTimeMillis()}_${effectiveTopic.id}"
+        val attemptId = "exam_${System.currentTimeMillis()}_${effectiveTopic.id}_${bcsAttemptSeq.incrementAndGet()}"
         val preset = when (mode) {
             QuizMode.TIMED -> ExamPresetType.TIMED_MOCK
             QuizMode.MIXED -> ExamPresetType.MIXED_TEST
@@ -2201,6 +2367,7 @@ class MathViewModel @JvmOverloads constructor(
             detailedResult = null,
             showSubmitConfirmDialog = false
         )
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, attemptId)
         _quizSession.value = newState
         resetBcsGoalCreditForNewAttempt(attemptId = attemptId, examProfileId = "", isWp41BcsLaunch = false)
         persistActiveExamStateAsync(newState)
@@ -2208,6 +2375,7 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun startConfiguredExam(config: ExamConfig) {
+        val previousAttemptId = _quizSession.value.attemptId
         _quizSession.value = _quizSession.value.copy(state = QuizState.LOADING)
         val questions = if (config.preset == ExamPresetType.REVIEW_INCORRECT && _incorrectQuizQuestionPool.value.isNotEmpty()) {
             _incorrectQuizQuestionPool.value.shuffled().take(config.questionCount)
@@ -2227,7 +2395,7 @@ class MathViewModel @JvmOverloads constructor(
         }
         val now = clock.elapsedRealtime()
         val deadline = if (durationSec > 0) now + durationSec * 1000L else 0L
-        val attemptId = "exam_${System.currentTimeMillis()}_${config.preset.id}"
+        val attemptId = "exam_${System.currentTimeMillis()}_${config.preset.id}_${bcsAttemptSeq.incrementAndGet()}"
 
         val newState = QuizSessionState(
             attemptId = attemptId,
@@ -2263,6 +2431,7 @@ class MathViewModel @JvmOverloads constructor(
         val isBcsPreset = config.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
         val resolvedProfileId = if (isBcsPreset) _selectedBcsExamProfile.value.id else ""
         val effectiveNewState = if (isBcsPreset) newState.copy(examProfileId = resolvedProfileId) else newState
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, attemptId)
         _quizSession.value = effectiveNewState
         resetBcsGoalCreditForNewAttempt(
             attemptId = attemptId,
@@ -2288,7 +2457,7 @@ class MathViewModel @JvmOverloads constructor(
             )
             _quizSession.value = nextState
             persistActiveExamStateAsync(nextState)
-        } else if (!current.isAnswerSubmitted) {
+        } else if (!current.isAnswerSubmitted && !current.userAnswers.containsKey(current.currentIndex)) {
             _quizSession.value = current.copy(
                 selectedOptionIndex = index,
                 pendingOptionSelections = current.pendingOptionSelections + (current.currentIndex to index)
@@ -2326,7 +2495,7 @@ class MathViewModel @JvmOverloads constructor(
             )
             _quizSession.value = nextState
             persistActiveExamStateAsync(nextState)
-        } else if (!current.isAnswerSubmitted) {
+        } else if (!current.isAnswerSubmitted && !current.userAnswers.containsKey(current.currentIndex)) {
             val updatedPendingTyped = if (text.isEmpty()) {
                 current.pendingTypedAnswers - current.currentIndex
             } else {
@@ -2356,7 +2525,7 @@ class MathViewModel @JvmOverloads constructor(
     fun clearCurrentQuizAnswer() {
         val current = _quizSession.value
         if (current.isFinished) return
-        if (!current.isFullExamMode && current.isAnswerSubmitted) return
+        if (!current.isFullExamMode && (current.isAnswerSubmitted || current.userAnswers.containsKey(current.currentIndex))) return
         val idx = current.currentIndex
         val updatedAnswers = current.userAnswers - idx
         val updatedTyped = current.userTypedAnswers - idx
@@ -2407,87 +2576,124 @@ class MathViewModel @JvmOverloads constructor(
     }
 
     fun submitQuizAnswer() {
-        val current = _quizSession.value
-        if (current.isAnswerSubmitted || current.isFinished) return
-        val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
+        var winningCurrent: QuizSessionState
+        var winningNextState: QuizSessionState
+        var winningQuestion: QuizQuestion
+        var winningQuestionIndex: Int
+        var winningIsCorrect: Boolean
+        var winningUserSummaryBn: String
+        var winningCorrectAnsBn: String
+        var winningAttemptId: String
 
-        val selectedOpt = current.selectedOptionIndex
-        val isCorrect: Boolean
-        val recordedOption: Int
-        val updatedTypedMap = current.userTypedAnswers.toMutableMap()
+        while (true) {
+            val current = _quizSession.value
+            if (
+                current.isAnswerSubmitted ||
+                current.isFinished ||
+                (!current.isFullExamMode && current.userAnswers.containsKey(current.currentIndex))
+            ) {
+                return
+            }
+            val currentQ = current.questions.getOrNull(current.currentIndex) ?: return
 
-        if (currentQ.questionType == QuizQuestionType.NUMERICAL && selectedOpt == null) {
-            val typed = current.typedAnswer.trim()
-            if (typed.isEmpty()) return
-            isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerText)
-            val matchIdx = currentQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
-            recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -2
-            updatedTypedMap[current.currentIndex] = typed
-        } else {
-            if (selectedOpt == null) return
-            recordedOption = selectedOpt
-            isCorrect = selectedOpt == currentQ.correctIndex
-        }
+            val selectedOpt = current.selectedOptionIndex
+            val isCorrect: Boolean
+            val recordedOption: Int
+            val updatedTypedMap = current.userTypedAnswers.toMutableMap()
 
-        val updatedAnswers = current.userAnswers + (current.currentIndex to recordedOption)
-        val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
-            current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
-        }
+            if (currentQ.questionType == QuizQuestionType.NUMERICAL && selectedOpt == null) {
+                val typed = current.typedAnswer.trim()
+                if (typed.isEmpty()) return
+                isCorrect = SharedMathEngine.isAnswerCorrect(typed, currentQ.correctAnswerText)
+                val matchIdx = currentQ.optionsBn.indexOfFirst { SharedMathEngine.isAnswerCorrect(typed, it) }
+                recordedOption = if (matchIdx != -1) matchIdx else if (isCorrect) currentQ.correctIndex else -2
+                updatedTypedMap[current.currentIndex] = typed
+            } else {
+                if (selectedOpt == null) return
+                recordedOption = selectedOpt
+                isCorrect = selectedOpt == currentQ.correctIndex
+            }
 
-        if (!isCorrect) {
-            val pool = _incorrectQuizQuestionPool.value
-            if (pool.none { it.questionBn == currentQ.questionBn }) {
-                _incorrectQuizQuestionPool.value = (pool + currentQ).takeLast(30)
+            val resolvedAttemptId = current.attemptId.ifBlank {
+                "exam_${currentWallClockMs()}_${current.topic.id}_${bcsAttemptSeq.incrementAndGet()}"
+            }
+            val updatedAnswers = current.userAnswers + (current.currentIndex to recordedOption)
+            val recomputedCorrect = updatedAnswers.count { (qIdx, ansIdx) ->
+                current.questions.getOrNull(qIdx)?.correctIndex == ansIdx
+            }
+
+            val nextState = current.copy(
+                attemptId = resolvedAttemptId,
+                state = QuizState.ANSWER_SUBMITTED,
+                isAnswerSubmitted = true,
+                selectedOptionIndex = if (currentQ.questionType == QuizQuestionType.NUMERICAL) null else if (recordedOption >= 0) recordedOption else null,
+                correctCount = recomputedCorrect,
+                userAnswers = updatedAnswers,
+                userTypedAnswers = updatedTypedMap,
+                pendingOptionSelections = current.pendingOptionSelections - current.currentIndex,
+                pendingTypedAnswers = current.pendingTypedAnswers - current.currentIndex,
+                visitedIndices = current.visitedIndices + current.currentIndex
+            )
+
+            if (_quizSession.compareAndSet(current, nextState)) {
+                winningCurrent = current
+                winningNextState = nextState
+                winningQuestion = currentQ
+                winningQuestionIndex = current.currentIndex
+                winningIsCorrect = isCorrect
+                winningAttemptId = resolvedAttemptId
+                winningUserSummaryBn = updatedTypedMap[current.currentIndex]?.takeIf { it.isNotBlank() }
+                    ?: currentQ.optionsBn.getOrNull(recordedOption)
+                    ?: "ভুল সংখ্যা ইনপুট"
+                winningCorrectAnsBn = currentQ.optionsBn.getOrElse(currentQ.correctIndex) { currentQ.correctAnswerText }
+                break
             }
         }
 
-        val nextState = current.copy(
-            state = QuizState.ANSWER_SUBMITTED,
-            isAnswerSubmitted = true,
-            selectedOptionIndex = if (currentQ.questionType == QuizQuestionType.NUMERICAL) null else if (recordedOption >= 0) recordedOption else null,
-            correctCount = recomputedCorrect,
-            userAnswers = updatedAnswers,
-            userTypedAnswers = updatedTypedMap,
-            pendingOptionSelections = current.pendingOptionSelections - current.currentIndex,
-            pendingTypedAnswers = current.pendingTypedAnswers - current.currentIndex,
-            visitedIndices = current.visitedIndices + current.currentIndex
-        )
-        _quizSession.value = nextState
-        persistActiveExamStateAsync(nextState)
+        if (!winningIsCorrect) {
+            val pool = _incorrectQuizQuestionPool.value
+            if (pool.none { it.questionBn == winningQuestion.questionBn }) {
+                _incorrectQuizQuestionPool.value = (pool + winningQuestion).takeLast(30)
+            }
+        }
 
-        val isBcsSession = current.examProfileId.isNotBlank() || current.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
-        val activeBcsProfileId = current.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
-        val quizUnifiedKey = "QUIZ_${currentQ.topicTitleBn}_${kotlin.math.abs(currentQ.questionBn.hashCode())}"
-        val canonicalBcsQuestionId = currentQ.id.ifBlank { "bcs_q_${kotlin.math.abs(currentQ.questionBn.hashCode())}" }
-        val userSummaryBn = updatedTypedMap[current.currentIndex]?.takeIf { it.isNotBlank() }
-            ?: currentQ.optionsBn.getOrNull(recordedOption)
-            ?: "ভুল সংখ্যা ইনপুট"
-        val correctAnsBn = currentQ.optionsBn.getOrElse(currentQ.correctIndex) { currentQ.correctAnswerText }
+        persistActiveExamStateAsync(winningNextState)
 
-        viewModelScope.launch {
-            if (!isCorrect) {
+        val isBcsSession = winningCurrent.examProfileId.isNotBlank() ||
+            winningCurrent.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
+        val activeBcsProfileId = winningCurrent.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
+        val quizUnifiedKey = "QUIZ_${winningQuestion.topicTitleBn}_${kotlin.math.abs(winningQuestion.questionBn.hashCode())}"
+        val canonicalBcsQuestionId = winningQuestion.id.ifBlank {
+            "bcs_q_${kotlin.math.abs(winningQuestion.questionBn.hashCode())}"
+        }
+        val resolvedBcsTopicId = QuizTopic.values()
+            .firstOrNull { it.titleBn == winningQuestion.topicTitleBn }?.id
+            ?: winningQuestion.topicTitleBn
+
+        val persistOperation: suspend () -> Unit = {
+            if (!winningIsCorrect) {
                 if (isBcsSession) {
                     // F4-03: Write single canonical profile-scoped BCS mistake + unified row (no generic QUIZ_ duplicate)
                     repository.recordBcsMistake(
                         questionId = canonicalBcsQuestionId,
                         subjectTrack = "MATH_REASONING",
-                        topicId = QuizTopic.values().firstOrNull { it.titleBn == currentQ.topicTitleBn }?.id ?: currentQ.topicTitleBn,
-                        questionPromptBn = currentQ.questionBn,
-                        wrongAnswerBn = userSummaryBn,
-                        correctAnswerBn = correctAnsBn,
-                        explanationBn = currentQ.explanationBn,
+                        topicId = resolvedBcsTopicId,
+                        questionPromptBn = winningQuestion.questionBn,
+                        wrongAnswerBn = winningUserSummaryBn,
+                        correctAnswerBn = winningCorrectAnsBn,
+                        explanationBn = winningQuestion.explanationBn,
                         examProfileId = activeBcsProfileId
                     )
                 } else {
                     repository.recordUnifiedMistake(
                         mistakeKey = quizUnifiedKey,
                         sourceModule = "QUIZ",
-                        subjectId = currentQ.topicTitleBn,
+                        subjectId = winningQuestion.topicTitleBn,
                         curriculumTrack = "NCTB",
-                        questionPromptBn = currentQ.questionBn,
-                        userAnswerBn = userSummaryBn,
-                        correctAnswerBn = correctAnsBn,
-                        diagnosticExplanationBn = currentQ.explanationBn
+                        questionPromptBn = winningQuestion.questionBn,
+                        userAnswerBn = winningUserSummaryBn,
+                        correctAnswerBn = winningCorrectAnsBn,
+                        diagnosticExplanationBn = winningQuestion.explanationBn
                     )
                 }
             } else {
@@ -2502,7 +2708,19 @@ class MathViewModel @JvmOverloads constructor(
             }
         }
 
-        if (isCorrect) {
+        val write = PendingQuizAnswerWrite(
+            attemptId = winningAttemptId,
+            questionIndex = winningQuestionIndex,
+            isCorrect = winningIsCorrect,
+            persistOperation = persistOperation
+        )
+        synchronized(quizPersistenceLock) {
+            val sessionWrites = pendingQuizAnswerWritesByAttempt.getOrPut(winningAttemptId) { linkedMapOf() }
+            sessionWrites[winningQuestionIndex] = write
+        }
+        launchQuizAnswerPersistenceWrite(write)
+
+        if (winningIsCorrect) {
             recordDailyActivity(1)
         }
     }
@@ -2642,6 +2860,42 @@ class MathViewModel @JvmOverloads constructor(
             val current = _quizSession.value
             if (current.isFinished) return
 
+            val completionTimestampMs = currentWallClockMs()
+            val resolvedAttemptId = current.attemptId.ifBlank {
+                "exam_${completionTimestampMs}_${bcsAttemptSeq.incrementAndGet()}"
+            }
+
+            val hasUnobservedAnswerFailure = synchronized(quizPersistenceLock) {
+                if (
+                    finalizedQuizAttemptIds.contains(resolvedAttemptId) ||
+                    inFlightQuizFinalizationAttemptIds.contains(resolvedAttemptId) ||
+                    supersededQuizAttemptIds.contains(resolvedAttemptId)
+                ) {
+                    return
+                }
+                val sessionWrites = pendingQuizAnswerWritesByAttempt[resolvedAttemptId]?.values.orEmpty()
+                val failedUnobserved = sessionWrites.filter {
+                    !it.succeeded && it.completion.isCompleted && !it.failureObservedByFinalization
+                }
+                if (failedUnobserved.isNotEmpty()) {
+                    failedUnobserved.forEach { write ->
+                        write.failureObservedByFinalization = true
+                        write.lastFailure?.let { err ->
+                            lastQuizPersistenceFailureByAttempt[resolvedAttemptId] = err
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            if (hasUnobservedAnswerFailure) {
+                if (current.showSubmitConfirmDialog) {
+                    _quizSession.compareAndSet(current, current.copy(showSubmitConfirmDialog = false))
+                }
+                return
+            }
+
             // Merge any unsubmitted draft selections or typed numerical inputs across visited questions
             val mergedAnswers = current.userAnswers.toMutableMap()
             val mergedTypedAnswers = current.userTypedAnswers.toMutableMap()
@@ -2689,8 +2943,6 @@ class MathViewModel @JvmOverloads constructor(
                 current.elapsedSeconds.coerceAtLeast(10)
             }
 
-            val completionTimestampMs = currentWallClockMs()
-            val resolvedAttemptId = current.attemptId.ifBlank { "exam_$completionTimestampMs" }
             val resolvedTitle = current.examTitleBn.ifBlank { current.topic.titleBn }
 
             val detailed = ExamScoringEngine.evaluateExam(
@@ -2725,6 +2977,20 @@ class MathViewModel @JvmOverloads constructor(
             )
 
             if (_quizSession.compareAndSet(current, nextState)) {
+                val acquiredFinalizationSlot = synchronized(quizPersistenceLock) {
+                    if (
+                        finalizedQuizAttemptIds.contains(resolvedAttemptId) ||
+                        supersededQuizAttemptIds.contains(resolvedAttemptId) ||
+                        !inFlightQuizFinalizationAttemptIds.add(resolvedAttemptId)
+                    ) {
+                        false
+                    } else {
+                        true
+                    }
+                }
+                if (!acquiredFinalizationSlot) {
+                    return
+                }
                 winningCurrent = current
                 winningFinalAnswers = finalAnswers
                 winningFinalTypedAnswers = finalTypedAnswers
@@ -2749,242 +3015,329 @@ class MathViewModel @JvmOverloads constructor(
         }
 
         activeExamPersistenceJob?.cancel()
-        viewModelScope.launch {
-            val completedEntity = ExamAttemptEntity(
-                attemptId = winningAttemptId,
-                examTitleBn = winningTitle,
-                examType = winningCurrent.examConfig.preset.id,
-                selectedTopicsCsv = winningCurrent.examConfig.selectedTopics.joinToString(",") { it.id }.ifBlank { winningCurrent.topic.id },
-                difficulty = winningCurrent.difficulty.id,
-                questionType = winningCurrent.questionType.id,
-                totalQuestions = winningDetailed.totalQuestions,
-                durationLimitSeconds = winningCurrent.configuredDurationSeconds,
-                marksPerCorrect = winningDetailed.marksPerCorrect,
-                negativeMarksPerWrong = winningDetailed.negativeMarksPerWrong,
-                status = "COMPLETED",
-                currentQuestionIndex = winningCurrent.currentIndex,
-                elapsedSeconds = winningElapsedSec,
-                remainingSeconds = 0,
-                questionsJson = ExamQuestionBank.serializeQuestions(winningCurrent.questions),
-                answersJson = ExamQuestionBank.serializeAnswersWithTyped(winningFinalAnswers, winningFinalTypedAnswers),
-                markedForReviewCsv = ExamQuestionBank.serializeIntSet(winningCurrent.markedForReviewIndices),
-                visitedIndicesCsv = ExamQuestionBank.serializeIntSet(winningCurrent.visitedIndices),
-                questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(winningCurrent.questionTimeSeconds),
-                correctCount = winningDetailed.correctCount,
-                wrongCount = winningDetailed.wrongCount,
-                unansweredCount = winningDetailed.unansweredCount,
-                earnedMarks = winningDetailed.earnedPositiveMarks,
-                negativeMarksDeducted = winningDetailed.negativeMarksDeducted,
-                finalScore = winningDetailed.finalScore,
-                percentage = winningDetailed.percentage,
-                accuracyPercent = winningDetailed.accuracyPercent,
-                startedAt = winningCompletionTimestampMs - (winningElapsedSec * 1000L),
-                updatedAt = winningCompletionTimestampMs,
-                completedAt = winningCompletionTimestampMs,
-                examProfileId = winningCurrent.examProfileId
-            )
 
-            val isBcsSession = winningCurrent.examProfileId.isNotBlank() ||
-                winningCurrent.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
-            val activeBcsProfileId = winningCurrent.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
-            val bcsTopicUpdates = if (isBcsSession) {
-                winningDetailed.topicBreakdown.mapNotNull { tb ->
-                    if (tb.attemptedCount > 0) {
-                        BcsTopicExamUpdate(
-                            topicId = tb.topicId,
-                            subjectTrack = "MATH_REASONING",
-                            miniCheckPassed = tb.accuracyPercent >= 75.0,
-                            additionalTimeSeconds = tb.timeSpentSeconds,
-                            questionsAttemptedDelta = tb.attemptedCount,
-                            questionsCorrectDelta = tb.correctCount,
+        val writesToAwait = synchronized(quizPersistenceLock) {
+            val sessionWrites = pendingQuizAnswerWritesByAttempt[winningAttemptId]?.values?.toList().orEmpty()
+            sessionWrites.forEach { write ->
+                if (!write.succeeded && (write.failureObservedByFinalization || write.completion.isCancelled)) {
+                    launchQuizAnswerPersistenceWrite(write)
+                }
+            }
+            sessionWrites
+        }
+
+        val finalizationJob = viewModelScope.launch {
+            try {
+                for (write in writesToAwait) {
+                    val result = write.completion.await()
+                    if (result.isFailure) {
+                        val failure = result.exceptionOrNull()
+                            ?: IllegalStateException("Required quiz answer persistence failed for question ${write.questionIndex}")
+                        synchronized(quizPersistenceLock) {
+                            write.failureObservedByFinalization = true
+                            lastQuizPersistenceFailureByAttempt[winningAttemptId] = failure
+                        }
+                        throw failure
+                    }
+                }
+
+                val isStaleOrAlreadyFinalized = synchronized(quizPersistenceLock) {
+                    supersededQuizAttemptIds.contains(winningAttemptId) ||
+                        finalizedQuizAttemptIds.contains(winningAttemptId)
+                }
+                if (isStaleOrAlreadyFinalized) {
+                    return@launch
+                }
+
+                val completedEntity = ExamAttemptEntity(
+                    attemptId = winningAttemptId,
+                    examTitleBn = winningTitle,
+                    examType = winningCurrent.examConfig.preset.id,
+                    selectedTopicsCsv = winningCurrent.examConfig.selectedTopics.joinToString(",") { it.id }.ifBlank { winningCurrent.topic.id },
+                    difficulty = winningCurrent.difficulty.id,
+                    questionType = winningCurrent.questionType.id,
+                    totalQuestions = winningDetailed.totalQuestions,
+                    durationLimitSeconds = winningCurrent.configuredDurationSeconds,
+                    marksPerCorrect = winningDetailed.marksPerCorrect,
+                    negativeMarksPerWrong = winningDetailed.negativeMarksPerWrong,
+                    status = "COMPLETED",
+                    currentQuestionIndex = winningCurrent.currentIndex,
+                    elapsedSeconds = winningElapsedSec,
+                    remainingSeconds = 0,
+                    questionsJson = ExamQuestionBank.serializeQuestions(winningCurrent.questions),
+                    answersJson = ExamQuestionBank.serializeAnswersWithTyped(winningFinalAnswers, winningFinalTypedAnswers),
+                    markedForReviewCsv = ExamQuestionBank.serializeIntSet(winningCurrent.markedForReviewIndices),
+                    visitedIndicesCsv = ExamQuestionBank.serializeIntSet(winningCurrent.visitedIndices),
+                    questionTimeSecondsJson = ExamQuestionBank.serializeIntMap(winningCurrent.questionTimeSeconds),
+                    correctCount = winningDetailed.correctCount,
+                    wrongCount = winningDetailed.wrongCount,
+                    unansweredCount = winningDetailed.unansweredCount,
+                    earnedMarks = winningDetailed.earnedPositiveMarks,
+                    negativeMarksDeducted = winningDetailed.negativeMarksDeducted,
+                    finalScore = winningDetailed.finalScore,
+                    percentage = winningDetailed.percentage,
+                    accuracyPercent = winningDetailed.accuracyPercent,
+                    startedAt = winningCompletionTimestampMs - (winningElapsedSec * 1000L),
+                    updatedAt = winningCompletionTimestampMs,
+                    completedAt = winningCompletionTimestampMs,
+                    examProfileId = winningCurrent.examProfileId
+                )
+
+                val isBcsSession = winningCurrent.examProfileId.isNotBlank() ||
+                    winningCurrent.examConfig.preset == ExamPresetType.BCS_PRELIMINARY_MOCK
+                val activeBcsProfileId = winningCurrent.examProfileId.ifBlank { _selectedBcsExamProfile.value.id }
+                val bcsTopicUpdates = if (isBcsSession) {
+                    winningDetailed.topicBreakdown.mapNotNull { tb ->
+                        if (tb.attemptedCount > 0) {
+                            BcsTopicExamUpdate(
+                                topicId = tb.topicId,
+                                subjectTrack = "MATH_REASONING",
+                                miniCheckPassed = tb.accuracyPercent >= 75.0,
+                                additionalTimeSeconds = tb.timeSpentSeconds,
+                                questionsAttemptedDelta = tb.attemptedCount,
+                                questionsCorrectDelta = tb.correctCount,
+                                examProfileId = activeBcsProfileId
+                            )
+                        } else {
+                            null
+                        }
+                    }
+                } else {
+                    emptyList()
+                }
+
+                // Sync mistakes & resolutions for questions not already persisted during immediate-feedback submitQuizAnswer()
+                val questionMistakeOutcomes = winningCurrent.questions.mapIndexedNotNull { index, q ->
+                    val ans = winningFinalAnswers[index]
+                    if (!ExamScoringEngine.isOptionAnswered(ans)) return@mapIndexedNotNull null
+                    val canonicalBcsQId = q.id.ifBlank { "bcs_q_${kotlin.math.abs(q.questionBn.hashCode())}" }
+                    val canonicalRawBcsId = MathRepository.extractCanonicalBcsQuestionId(canonicalBcsQId)
+                    val unifiedKey = if (isBcsSession) {
+                        "BCS_${activeBcsProfileId}_$canonicalRawBcsId"
+                    } else {
+                        "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
+                    }
+                    val correctAnsBn = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
+                    val bcsTopicId = QuizTopic.values().firstOrNull { it.titleBn == q.topicTitleBn }?.id ?: q.topicTitleBn
+                    if (ans != q.correctIndex) {
+                        if (!winningCurrent.isFullExamMode && winningCurrent.userAnswers.containsKey(index)) {
+                            return@mapIndexedNotNull null
+                        }
+                        val wrongAnsBn = winningFinalTypedAnswers[index]?.takeIf { it.isNotBlank() }
+                            ?: q.optionsBn.getOrNull(ans ?: -1)
+                            ?: "ভুল সংখ্যা ইনপুট"
+                        ExamQuestionMistakeOutcome(
+                            isCorrect = false,
+                            shouldRecordMistake = true,
+                            unifiedMistakeKey = unifiedKey,
+                            sourceModule = if (isBcsSession) "BCS" else "QUIZ",
+                            subjectId = q.topicTitleBn,
+                            curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
+                            questionPromptBn = q.questionBn,
+                            userAnswerBn = wrongAnsBn,
+                            correctAnswerBn = correctAnsBn,
+                            diagnosticExplanationBn = q.explanationBn,
+                            isBcsSession = isBcsSession,
+                            bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
+                            bcsTopicId = bcsTopicId,
                             examProfileId = activeBcsProfileId
                         )
                     } else {
-                        null
-                    }
-                }
-            } else {
-                emptyList()
-            }
-
-            // Sync mistakes & resolutions for questions not already persisted during immediate-feedback submitQuizAnswer()
-            val questionMistakeOutcomes = winningCurrent.questions.mapIndexedNotNull { index, q ->
-                val ans = winningFinalAnswers[index]
-                if (!ExamScoringEngine.isOptionAnswered(ans)) return@mapIndexedNotNull null
-                val canonicalBcsQId = q.id.ifBlank { "bcs_q_${kotlin.math.abs(q.questionBn.hashCode())}" }
-                val canonicalRawBcsId = MathRepository.extractCanonicalBcsQuestionId(canonicalBcsQId)
-                val unifiedKey = if (isBcsSession) {
-                    "BCS_${activeBcsProfileId}_$canonicalRawBcsId"
-                } else {
-                    "QUIZ_${q.topicTitleBn}_${kotlin.math.abs(q.questionBn.hashCode())}"
-                }
-                val correctAnsBn = q.optionsBn.getOrElse(q.correctIndex) { q.correctAnswerText }
-                val bcsTopicId = QuizTopic.values().firstOrNull { it.titleBn == q.topicTitleBn }?.id ?: q.topicTitleBn
-                if (ans != q.correctIndex) {
-                    if (!winningCurrent.isFullExamMode && winningCurrent.userAnswers.containsKey(index)) {
-                        return@mapIndexedNotNull null
-                    }
-                    val wrongAnsBn = winningFinalTypedAnswers[index]?.takeIf { it.isNotBlank() }
-                        ?: q.optionsBn.getOrNull(ans ?: -1)
-                        ?: "ভুল সংখ্যা ইনপুট"
-                    ExamQuestionMistakeOutcome(
-                        isCorrect = false,
-                        shouldRecordMistake = true,
-                        unifiedMistakeKey = unifiedKey,
-                        sourceModule = if (isBcsSession) "BCS" else "QUIZ",
-                        subjectId = q.topicTitleBn,
-                        curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
-                        questionPromptBn = q.questionBn,
-                        userAnswerBn = wrongAnsBn,
-                        correctAnswerBn = correctAnsBn,
-                        diagnosticExplanationBn = q.explanationBn,
-                        isBcsSession = isBcsSession,
-                        bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
-                        bcsTopicId = bcsTopicId,
-                        examProfileId = activeBcsProfileId
-                    )
-                } else {
-                    ExamQuestionMistakeOutcome(
-                        isCorrect = true,
-                        shouldRecordMistake = false,
-                        unifiedMistakeKey = unifiedKey,
-                        sourceModule = if (isBcsSession) "BCS" else "QUIZ",
-                        subjectId = q.topicTitleBn,
-                        curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
-                        questionPromptBn = q.questionBn,
-                        userAnswerBn = "",
-                        correctAnswerBn = correctAnsBn,
-                        diagnosticExplanationBn = q.explanationBn,
-                        isBcsSession = isBcsSession,
-                        bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
-                        bcsTopicId = bcsTopicId,
-                        examProfileId = activeBcsProfileId
-                    )
-                }
-            }
-
-            // BCS-GC-02 Stage 4A: Compute and validate the durable PENDING ledger payload BEFORE atomic finalization.
-            val isWp41Eligible = isBcsSession &&
-                winningAttemptId.isNotBlank() &&
-                bcsGoalCreditReceiptStore.isWp41Attempt(winningAttemptId)
-            val authoritativeLedgerProfileId = winningCurrent.examProfileId.trim()
-            val targetDateKey = MathRepository.todayDateKey(winningCompletionTimestampMs)
-            val computedGoalDelta = if (isBcsSession) {
-                BcsGoalCreditCalculator.computeCompletionDelta(
-                    attemptId = winningAttemptId,
-                    examProfileId = authoritativeLedgerProfileId,
-                    correctCount = winningDetailed.correctCount,
-                    wrongCount = winningDetailed.wrongCount,
-                    elapsedSeconds = winningElapsedSec,
-                    immediateFeedback = winningCurrent.examConfig.immediateFeedback,
-                    mode = winningCurrent.mode,
-                    configuredDurationSeconds = winningCurrent.configuredDurationSeconds
-                )
-            } else {
-                null
-            }
-            var ledgerPayloadValidationError: String? = null
-            val pendingLedgerRecord: BcsGoalCreditRecordEntity? = if (isWp41Eligible && computedGoalDelta != null) {
-                when {
-                    !computedGoalDelta.hasAnyCredit -> null
-                    authoritativeLedgerProfileId.isEmpty() -> {
-                        ledgerPayloadValidationError = "Missing authoritative examProfileId for WP4.1 attempt '$winningAttemptId'"
-                        null
-                    }
-                    targetDateKey.isBlank() -> {
-                        ledgerPayloadValidationError = "Blank targetDateKey for WP4.1 attempt '$winningAttemptId'"
-                        null
-                    }
-                    computedGoalDelta.questionsDelta < 0 ||
-                        computedGoalDelta.studyTimeMinutesDelta < 0 ||
-                        computedGoalDelta.mockExamsDelta < 0 ||
-                        computedGoalDelta.revisionsDelta < 0 -> {
-                        ledgerPayloadValidationError = "Negative delta computed for WP4.1 attempt '$winningAttemptId'"
-                        null
-                    }
-                    else -> BcsGoalCreditRecordEntity(
-                        attemptId = winningAttemptId,
-                        examProfileId = authoritativeLedgerProfileId,
-                        targetDateKey = targetDateKey,
-                        questionsDelta = computedGoalDelta.questionsDelta,
-                        studyTimeMinutesDelta = computedGoalDelta.studyTimeMinutesDelta,
-                        mockExamsDelta = computedGoalDelta.mockExamsDelta,
-                        revisionsDelta = computedGoalDelta.revisionsDelta,
-                        status = BcsGoalCreditRecordEntity.STATUS_PENDING,
-                        createdAtMs = winningCompletionTimestampMs,
-                        creditedAtMs = null
-                    )
-                }
-            } else {
-                null
-            }
-            if (ledgerPayloadValidationError != null) {
-                android.util.Log.w("BcsGoalCredit", ledgerPayloadValidationError)
-            }
-
-            examPersistenceMutex.withLock {
-                repository.finalizeExamAttempt(
-                    completedAttempt = completedEntity,
-                    perTopicStats = ExamScoringEngine.toTopicExamStats(winningDetailed.topicBreakdown),
-                    bcsTopicUpdates = bcsTopicUpdates,
-                    questionMistakeOutcomes = questionMistakeOutcomes,
-                    pendingBcsGoalCredit = pendingLedgerRecord
-                )
-            }
-            recordDailyActivity(4)
-
-            if (isBcsSession) {
-                when {
-                    pendingLedgerRecord != null -> {
-                        launchBcsGoalCreditJob(
-                            delta = pendingLedgerRecord.toCreditDelta(),
-                            isExplicitRetry = false
+                        if (!winningCurrent.isFullExamMode && winningCurrent.userAnswers.containsKey(index)) {
+                            return@mapIndexedNotNull null
+                        }
+                        ExamQuestionMistakeOutcome(
+                            isCorrect = true,
+                            shouldRecordMistake = false,
+                            unifiedMistakeKey = unifiedKey,
+                            sourceModule = if (isBcsSession) "BCS" else "QUIZ",
+                            subjectId = q.topicTitleBn,
+                            curriculumTrack = if (isBcsSession) "BCS" else "NCTB",
+                            questionPromptBn = q.questionBn,
+                            userAnswerBn = "",
+                            correctAnswerBn = correctAnsBn,
+                            diagnosticExplanationBn = q.explanationBn,
+                            isBcsSession = isBcsSession,
+                            bcsQuestionId = if (isBcsSession) canonicalBcsQId else "",
+                            bcsTopicId = bcsTopicId,
+                            examProfileId = activeBcsProfileId
                         )
                     }
-                    !isWp41Eligible -> {
-                        synchronized(bcsGoalCreditStateLock) {
-                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
-                            val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
-                            if (cur == null || !cur.isTerminal) {
-                                updateBcsGoalCreditStatusLocked(
-                                    BcsGoalCreditStatus(
-                                        attemptId = winningAttemptId,
-                                        examProfileId = authoritativeLedgerProfileId,
-                                        state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
-                                    )
-                                )
-                            }
+                }
+
+                // BCS-GC-02 Stage 4A: Compute and validate the durable PENDING ledger payload BEFORE atomic finalization.
+                val isWp41Eligible = isBcsSession &&
+                    winningAttemptId.isNotBlank() &&
+                    bcsGoalCreditReceiptStore.isWp41Attempt(winningAttemptId)
+                val authoritativeLedgerProfileId = winningCurrent.examProfileId.trim()
+                val targetDateKey = MathRepository.todayDateKey(winningCompletionTimestampMs)
+                val computedGoalDelta = if (isBcsSession) {
+                    BcsGoalCreditCalculator.computeCompletionDelta(
+                        attemptId = winningAttemptId,
+                        examProfileId = authoritativeLedgerProfileId,
+                        correctCount = winningDetailed.correctCount,
+                        wrongCount = winningDetailed.wrongCount,
+                        elapsedSeconds = winningElapsedSec,
+                        immediateFeedback = winningCurrent.examConfig.immediateFeedback,
+                        mode = winningCurrent.mode,
+                        configuredDurationSeconds = winningCurrent.configuredDurationSeconds
+                    )
+                } else {
+                    null
+                }
+                var ledgerPayloadValidationError: String? = null
+                val pendingLedgerRecord: BcsGoalCreditRecordEntity? = if (isWp41Eligible && computedGoalDelta != null) {
+                    when {
+                        !computedGoalDelta.hasAnyCredit -> null
+                        authoritativeLedgerProfileId.isEmpty() -> {
+                            ledgerPayloadValidationError = "Missing authoritative examProfileId for WP4.1 attempt '$winningAttemptId'"
+                            null
                         }
-                    }
-                    ledgerPayloadValidationError != null -> {
-                        synchronized(bcsGoalCreditStateLock) {
-                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
-                            val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
-                            if (cur == null || !cur.isTerminal) {
-                                updateBcsGoalCreditStatusLocked(
-                                    BcsGoalCreditStatus(
-                                        attemptId = winningAttemptId,
-                                        examProfileId = authoritativeLedgerProfileId,
-                                        state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
-                                        failureMessageBn = "দৈনিক লক্ষ্য ক্রেডিট তথ্য যাচাই করা যায়নি।"
-                                    )
-                                )
-                            }
+                        targetDateKey.isBlank() -> {
+                            ledgerPayloadValidationError = "Blank targetDateKey for WP4.1 attempt '$winningAttemptId'"
+                            null
                         }
+                        computedGoalDelta.questionsDelta < 0 ||
+                            computedGoalDelta.studyTimeMinutesDelta < 0 ||
+                            computedGoalDelta.mockExamsDelta < 0 ||
+                            computedGoalDelta.revisionsDelta < 0 -> {
+                            ledgerPayloadValidationError = "Negative delta computed for WP4.1 attempt '$winningAttemptId'"
+                            null
+                        }
+                        else -> BcsGoalCreditRecordEntity(
+                            attemptId = winningAttemptId,
+                            examProfileId = authoritativeLedgerProfileId,
+                            targetDateKey = targetDateKey,
+                            questionsDelta = computedGoalDelta.questionsDelta,
+                            studyTimeMinutesDelta = computedGoalDelta.studyTimeMinutesDelta,
+                            mockExamsDelta = computedGoalDelta.mockExamsDelta,
+                            revisionsDelta = computedGoalDelta.revisionsDelta,
+                            status = BcsGoalCreditRecordEntity.STATUS_PENDING,
+                            createdAtMs = winningCompletionTimestampMs,
+                            creditedAtMs = null
+                        )
                     }
-                    else -> {
-                        synchronized(bcsGoalCreditStateLock) {
-                            pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
-                            updateBcsGoalCreditStatusLocked(
-                                BcsGoalCreditStatus(
-                                    attemptId = winningAttemptId,
-                                    examProfileId = authoritativeLedgerProfileId,
-                                    state = BcsGoalCreditState.NOT_STARTED
-                                )
+                } else {
+                    null
+                }
+                if (ledgerPayloadValidationError != null) {
+                    android.util.Log.w("BcsGoalCredit", ledgerPayloadValidationError)
+                }
+
+                examPersistenceMutex.withLock {
+                    val skipInsideLock = synchronized(quizPersistenceLock) {
+                        supersededQuizAttemptIds.contains(winningAttemptId) ||
+                            finalizedQuizAttemptIds.contains(winningAttemptId)
+                    }
+                    if (skipInsideLock) {
+                        return@launch
+                    }
+                    val customFinalizer = quizFinalizationExecutorForTesting
+                    if (customFinalizer != null) {
+                        customFinalizer.invoke(
+                            winningAttemptId,
+                            completedEntity,
+                            questionMistakeOutcomes
+                        ) {
+                            repository.finalizeExamAttempt(
+                                completedAttempt = completedEntity,
+                                perTopicStats = ExamScoringEngine.toTopicExamStats(winningDetailed.topicBreakdown),
+                                bcsTopicUpdates = bcsTopicUpdates,
+                                questionMistakeOutcomes = questionMistakeOutcomes,
+                                pendingBcsGoalCredit = pendingLedgerRecord
                             )
+                        }
+                    } else {
+                        repository.finalizeExamAttempt(
+                            completedAttempt = completedEntity,
+                            perTopicStats = ExamScoringEngine.toTopicExamStats(winningDetailed.topicBreakdown),
+                            bcsTopicUpdates = bcsTopicUpdates,
+                            questionMistakeOutcomes = questionMistakeOutcomes,
+                            pendingBcsGoalCredit = pendingLedgerRecord
+                        )
+                    }
+                    synchronized(quizPersistenceLock) {
+                        finalizedQuizAttemptIds.add(winningAttemptId)
+                        lastQuizPersistenceFailureByAttempt.remove(winningAttemptId)
+                        pendingQuizAnswerWritesByAttempt.remove(winningAttemptId)
+                    }
+                }
+                recordDailyActivity(4)
+
+                if (isBcsSession) {
+                    when {
+                        pendingLedgerRecord != null -> {
+                            launchBcsGoalCreditJob(
+                                delta = pendingLedgerRecord.toCreditDelta(),
+                                isExplicitRetry = false
+                            )
+                        }
+                        !isWp41Eligible -> {
+                            synchronized(bcsGoalCreditStateLock) {
+                                pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                                val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
+                                if (cur == null || !cur.isTerminal) {
+                                    updateBcsGoalCreditStatusLocked(
+                                        BcsGoalCreditStatus(
+                                            attemptId = winningAttemptId,
+                                            examProfileId = authoritativeLedgerProfileId,
+                                            state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        ledgerPayloadValidationError != null -> {
+                            synchronized(bcsGoalCreditStateLock) {
+                                pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                                val cur = bcsGoalCreditStatusByAttempt[winningAttemptId]
+                                if (cur == null || !cur.isTerminal) {
+                                    updateBcsGoalCreditStatusLocked(
+                                        BcsGoalCreditStatus(
+                                            attemptId = winningAttemptId,
+                                            examProfileId = authoritativeLedgerProfileId,
+                                            state = BcsGoalCreditState.CREDIT_OUTCOME_UNKNOWN,
+                                            failureMessageBn = "দৈনিক লক্ষ্য ক্রেডিট তথ্য যাচাই করা যায়নি।"
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            synchronized(bcsGoalCreditStateLock) {
+                                pendingBcsGoalCreditByAttempt.remove(winningAttemptId)
+                                updateBcsGoalCreditStatusLocked(
+                                    BcsGoalCreditStatus(
+                                        attemptId = winningAttemptId,
+                                        examProfileId = authoritativeLedgerProfileId,
+                                        state = BcsGoalCreditState.NOT_STARTED
+                                    )
+                                )
+                            }
                         }
                     }
                 }
+            } catch (ce: CancellationException) {
+                rollbackUncommittedQuizFinalizationState(winningAttemptId, winningCurrent)
+                throw ce
+            } catch (t: Throwable) {
+                android.util.Log.e("MathViewModel", "Quiz finalization failed for attempt=$winningAttemptId", t)
+                synchronized(quizPersistenceLock) {
+                    lastQuizPersistenceFailureByAttempt[winningAttemptId] = t
+                }
+                rollbackUncommittedQuizFinalizationState(winningAttemptId, winningCurrent)
+            } finally {
+                synchronized(quizPersistenceLock) {
+                    inFlightQuizFinalizationAttemptIds.remove(winningAttemptId)
+                    if (activeQuizFinalizationJobsByAttempt[winningAttemptId] != null) {
+                        activeQuizFinalizationJobsByAttempt.remove(winningAttemptId)
+                    }
+                }
+            }
+        }
+        synchronized(quizPersistenceLock) {
+            if (finalizationJob.isActive) {
+                activeQuizFinalizationJobsByAttempt[winningAttemptId] = finalizationJob
             }
         }
     }
@@ -3106,6 +3459,8 @@ class MathViewModel @JvmOverloads constructor(
                 deadlineElapsedRealtimeMs = deadline,
                 examProfileId = entity.examProfileId
             )
+            val previousAttemptId = _quizSession.value.attemptId
+            supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, entity.attemptId)
             _quizSession.value = restoredState
             resetBcsGoalCreditForNewAttempt(
                 attemptId = entity.attemptId,
@@ -3131,6 +3486,8 @@ class MathViewModel @JvmOverloads constructor(
         val detailed = ExamQuestionBank.reconstructDetailedResult(entity)
         val preset = ExamPresetType.fromIdOrDefault(entity.examType)
 
+        val previousAttemptId = _quizSession.value.attemptId
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, entity.attemptId)
         _quizSession.value = QuizSessionState(
             attemptId = entity.attemptId,
             examTitleBn = entity.examTitleBn,
@@ -3247,6 +3604,8 @@ class MathViewModel @JvmOverloads constructor(
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Home))
             _navigationContextStack.add(captureCurrentNavigationSnapshot(Screen.Quizzes))
         }
+        val previousAttemptId = _quizSession.value.attemptId
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, "")
         _quizSession.value = QuizSessionState()
         clearSelectedBcsGoalCreditAttempt()
         persistAllNavigationAndSelectionState()
@@ -3564,32 +3923,29 @@ class MathViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             val topicId = "PRACTICE_${winningCurrent.category.id}_${winningCurrent.difficulty.id}"
             val titleBn = "প্র্যাকটিস: ${winningCurrent.category.titleBn} (${winningCurrent.difficulty.titleBn})"
-            repository.recordQuizScore(
-                QuizScoreEntity(
-                    topicId = topicId,
-                    topicTitleBn = titleBn,
-                    score = winningCurrent.correctCount,
-                    totalQuestions = winningTotal,
-                    percentage = winningPercentage
-                )
-            )
-            repository.recordPractice("practice_${winningCurrent.category.id}")
-            repository.recordSessionAndAnalytics(
+            val committed = repository.completePracticeSessionAtomically(
+                sessionId = winningCurrent.sessionId,
+                quizScoreTopicId = topicId,
+                quizScoreTitleBn = titleBn,
+                quizScoreValue = winningCurrent.correctCount,
+                totalQuestions = winningTotal,
+                percentage = winningPercentage,
+                learnedProgressItemId = "practice_${winningCurrent.category.id}",
                 moduleType = "PRACTICE_LAB",
                 categoryId = winningCurrent.category.id,
                 categoryTitleBn = winningCurrent.category.titleBn,
                 difficulty = winningCurrent.difficulty.id,
                 mode = if (winningCurrent.isUnlimitedMode) "unlimited" else "fixed",
                 inputFormat = winningCurrent.inputFormat.id,
-                score = winningCurrent.correctCount * 10,
+                sessionScore = winningCurrent.correctCount * 10,
                 correctCount = winningCurrent.correctCount,
                 wrongCount = winningCurrent.wrongCount,
-                totalQuestions = winningTotal,
-                accuracyPercent = winningPercentage,
                 durationSeconds = winningElapsedSec,
                 highestStreak = maxOf(winningCurrent.bestStreak, winningCurrent.consecutiveCorrect)
             )
-            recordDailyActivity(4)
+            if (committed) {
+                recordDailyActivity(4)
+            }
         }
     }
 
@@ -3944,32 +4300,29 @@ class MathViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             val topicId = "MENTAL_MATH_${winningCurrent.category.id}_${winningCurrent.difficulty.id}"
             val titleBn = "মেন্টাল ম্যাথ: ${winningCurrent.category.titleBn} (${winningCurrent.difficulty.titleBn})"
-            repository.recordQuizScore(
-                QuizScoreEntity(
-                    topicId = topicId,
-                    topicTitleBn = titleBn,
-                    score = winningCurrent.score,
-                    totalQuestions = winningAttempted,
-                    percentage = winningPercentage
-                )
-            )
-            repository.recordPractice("mental_math_${winningCurrent.category.id}")
-            repository.recordSessionAndAnalytics(
+            val committed = repository.completePracticeSessionAtomically(
+                sessionId = winningCurrent.sessionId,
+                quizScoreTopicId = topicId,
+                quizScoreTitleBn = titleBn,
+                quizScoreValue = winningCurrent.score,
+                totalQuestions = winningAttempted,
+                percentage = winningPercentage,
+                learnedProgressItemId = "mental_math_${winningCurrent.category.id}",
                 moduleType = "MENTAL_MATH",
                 categoryId = winningCurrent.category.id,
                 categoryTitleBn = winningCurrent.category.titleBn,
                 difficulty = winningCurrent.difficulty.id,
                 mode = winningCurrent.mode.id,
                 inputFormat = winningCurrent.inputFormat.id,
-                score = winningCurrent.score,
+                sessionScore = winningCurrent.score,
                 correctCount = winningCurrent.correctCount,
                 wrongCount = winningCurrent.wrongCount,
-                totalQuestions = winningAttempted,
-                accuracyPercent = winningPercentage,
                 durationSeconds = winningFinalElapsed.toLong(),
                 highestStreak = winningCurrent.highestStreak
             )
-            recordDailyActivity(4)
+            if (committed) {
+                recordDailyActivity(4)
+            }
         }
     }
 
@@ -4464,31 +4817,29 @@ class MathViewModel @JvmOverloads constructor(
         val bestStreak = winningCurrent.highestStreak.coerceAtLeast(if (winningCurrent.score > 0) 1 else 0)
 
         viewModelScope.launch {
-            repository.recordQuizScore(
-                QuizScoreEntity(
-                    topicId = "NUMBER_SYSTEM",
-                    topicTitleBn = topicTitle,
-                    score = winningCurrent.score,
-                    totalQuestions = total,
-                    percentage = percentage
-                )
-            )
-            repository.recordSessionAndAnalytics(
+            val committed = repository.completePracticeSessionAtomically(
+                sessionId = winningCurrent.sessionId,
+                quizScoreTopicId = "NUMBER_SYSTEM",
+                quizScoreTitleBn = topicTitle,
+                quizScoreValue = winningCurrent.score,
+                totalQuestions = total,
+                percentage = percentage,
+                learnedProgressItemId = null,
                 moduleType = "NUMBER_SYSTEM",
                 categoryId = winningCurrent.topic.id,
                 categoryTitleBn = topicTitle,
                 difficulty = winningCurrent.difficulty.id,
                 mode = "practice",
                 inputFormat = winningCurrent.inputFormat.id,
-                score = winningCurrent.score * 10,
+                sessionScore = winningCurrent.score * 10,
                 correctCount = winningCurrent.score,
                 wrongCount = (total - winningCurrent.score).coerceAtLeast(0),
-                totalQuestions = total,
-                accuracyPercent = percentage,
                 durationSeconds = elapsedSec,
                 highestStreak = bestStreak
             )
-            recordDailyActivity(3)
+            if (committed) {
+                recordDailyActivity(3)
+            }
         }
     }
 
@@ -5093,6 +5444,8 @@ class MathViewModel @JvmOverloads constructor(
             deadlineElapsedRealtimeMs = deadline,
             examProfileId = activeProfile.id
         )
+        val previousAttemptId = _quizSession.value.attemptId
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, attemptId)
         _quizSession.value = newState
         resetBcsGoalCreditForNewAttempt(
             attemptId = attemptId,
@@ -5169,6 +5522,8 @@ class MathViewModel @JvmOverloads constructor(
             deadlineElapsedRealtimeMs = deadline,
             examProfileId = activeProfileId
         )
+        val previousAttemptId = _quizSession.value.attemptId
+        supersedePreviousQuizSessionIfUnfinalized(previousAttemptId, attemptId)
         _quizSession.value = newState
         resetBcsGoalCreditForNewAttempt(
             attemptId = attemptId,
@@ -5734,31 +6089,30 @@ class MathViewModel @JvmOverloads constructor(
         viewModelScope.launch {
             val chLabel = winningCurrent.chapterNumber?.let { "অধ্যায় ${BengaliNumberFormatter.toBengaliDigits(it)}" } ?: "মিশ্র অনুশীলন"
             val titleBn = "${winningCurrent.bookId.titleBn} ($chLabel • ${winningCurrent.mode.titleBn})"
-            repository.recordQuizScore(
-                QuizScoreEntity(
-                    topicId = "BOOK_${winningCurrent.bookId.id}_C${winningCurrent.chapterNumber ?: 0}",
-                    topicTitleBn = titleBn,
-                    score = winningCurrent.correctCount,
-                    totalQuestions = winningTotal,
-                    percentage = winningPct
-                )
-            )
-            repository.recordSessionAndAnalytics(
+            val bookTopicId = "BOOK_${winningCurrent.bookId.id}_C${winningCurrent.chapterNumber ?: 0}"
+            val committed = repository.completePracticeSessionAtomically(
+                sessionId = winningCurrent.sessionId,
+                quizScoreTopicId = bookTopicId,
+                quizScoreTitleBn = titleBn,
+                quizScoreValue = winningCurrent.correctCount,
+                totalQuestions = winningTotal,
+                percentage = winningPct,
+                learnedProgressItemId = null,
                 moduleType = "BOOK",
-                categoryId = "BOOK_${winningCurrent.bookId.id}_C${winningCurrent.chapterNumber ?: 0}",
+                categoryId = bookTopicId,
                 categoryTitleBn = titleBn,
                 difficulty = winningCurrent.mode.id,
                 mode = winningCurrent.mode.id,
                 inputFormat = "MULTI_FORMAT",
-                score = winningCurrent.correctCount * 10,
+                sessionScore = winningCurrent.correctCount * 10,
                 correctCount = winningCurrent.correctCount,
                 wrongCount = winningCurrent.wrongCount,
-                totalQuestions = winningTotal,
-                accuracyPercent = winningPct,
                 durationSeconds = winningElapsedSec,
                 highestStreak = winningCurrent.correctCount
             )
-            recordDailyActivity(3)
+            if (committed) {
+                recordDailyActivity(3)
+            }
         }
     }
 

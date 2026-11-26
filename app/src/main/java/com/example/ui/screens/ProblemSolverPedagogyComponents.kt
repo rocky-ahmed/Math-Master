@@ -1020,8 +1020,7 @@ fun InteractiveLearningStepCard(
                             Button(
                                 onClick = {
                                     val expected = (step.expectedStepValueBn ?: "").ifBlank { afterStr }
-                                    val isMatch = SharedMathEngine.isAnswerCorrect(userAttempt, expected) ||
-                                        (userAttempt.trim().isNotBlank() && expected.contains(userAttempt.trim()))
+                                    val isMatch = isSolverStepAttemptCorrect(userAttempt, expected)
                                     if (isMatch) {
                                         updateUiState {
                                             it.copy(attemptFeedbackBn = "সঠিক! আপনি এই ধাপটি নিজে সমাধান করেছেন।")
@@ -1061,6 +1060,86 @@ fun InteractiveLearningStepCard(
             }
         }
     }
+}
+
+/**
+ * Validates a learner's self-check step attempt against the expected step value.
+ *
+ * Strictly forbids arbitrary substring matching (`expected.contains(userAttempt)`), which previously
+ * caused partial prefixes/substrings (e.g., "1", "12", "25" for "125") to be falsely accepted.
+ *
+ * Supported formats:
+ * - Exact normalized numeric, fraction, decimal, ratio, percentage, or text equality via [SharedMathEngine.isAnswerCorrect].
+ * - Bengali and English numeral equivalence and whitespace/formatting normalization.
+ * - Complete RHS value matching when [expectedStepValue] is a labeled or assignment expression
+ *   (e.g., "x = 125", "২৫ + ১৫ = ৪০", "রূপান্তর ➜ ১২৫", "উত্তর: ১২৫ টাকা") — compares the user attempt
+ *   against the full extracted right-hand side via [SharedMathEngine.isAnswerCorrect].
+ */
+internal fun isSolverStepAttemptCorrect(
+    userAttempt: String,
+    expectedStepValue: String
+): Boolean {
+    val trimmedAttempt = userAttempt.trim()
+    val trimmedExpected = expectedStepValue.trim()
+    if (trimmedAttempt.isEmpty() || trimmedExpected.isEmpty()) return false
+
+    // 1. Direct normalized comparison and mathematical equivalence via SharedMathEngine
+    if (SharedMathEngine.isAnswerCorrect(trimmedAttempt, trimmedExpected)) {
+        return true
+    }
+
+    // 2. If the user also typed an assignment/arrow/labeled expression (e.g. "x = 125"),
+    // compare normalized compact algebraic forms or extracted RHS values only when both sides
+    // represent the complete target value.
+    val expectedRhsCandidates = extractCompleteStepRhsCandidates(trimmedExpected)
+    for (candidate in expectedRhsCandidates) {
+        if (SharedMathEngine.isAnswerCorrect(trimmedAttempt, candidate)) {
+            return true
+        }
+    }
+
+    // 3. If both user attempt and expected value are assignment equations (e.g., "x = 125" vs "x=১২৫"),
+    // verify both LHS variable/label and RHS mathematical equivalence.
+    if (trimmedAttempt.contains("=") && trimmedExpected.contains("=")) {
+        val userLhs = trimmedAttempt.substringBefore("=").trim()
+        val userRhs = trimmedAttempt.substringAfterLast("=").trim()
+        val expLhs = trimmedExpected.substringBefore("=").trim()
+        val expRhs = trimmedExpected.substringAfterLast("=").trim()
+        if (userLhs.isNotEmpty() && userRhs.isNotEmpty() &&
+            SharedMathEngine.normalizeAnswerToken(userLhs) == SharedMathEngine.normalizeAnswerToken(expLhs) &&
+            SharedMathEngine.isAnswerCorrect(userRhs, expRhs)
+        ) {
+            return true
+        }
+    }
+
+    return false
+}
+
+private fun extractCompleteStepRhsCandidates(expectedStepValue: String): List<String> {
+    val candidates = mutableListOf<String>()
+    if (expectedStepValue.contains("➜")) {
+        val afterArrow = expectedStepValue.substringAfterLast("➜").trim()
+        if (afterArrow.isNotEmpty()) {
+            candidates.add(afterArrow)
+        }
+    }
+    if (expectedStepValue.contains("=")) {
+        val afterEquals = expectedStepValue.substringAfterLast("=").trim()
+        if (afterEquals.isNotEmpty()) {
+            candidates.add(afterEquals)
+        }
+    }
+    // Support colon-prefixed labels (e.g. "উত্তর: ১২৫", "ফল: ১২৫") but NOT mathematical ratios (e.g. "৩:৪" or "3 : 4")
+    if (expectedStepValue.contains(":")) {
+        val beforeColon = expectedStepValue.substringBeforeLast(":").trim()
+        val afterColon = expectedStepValue.substringAfterLast(":").trim()
+        val beforeIsNumeric = BengaliNumberFormatter.toEnglishDigits(beforeColon).toDoubleOrNull() != null
+        if (!beforeIsNumeric && afterColon.isNotEmpty()) {
+            candidates.add(afterColon)
+        }
+    }
+    return candidates.distinct()
 }
 
 @OptIn(ExperimentalLayoutApi::class)
